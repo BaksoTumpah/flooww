@@ -24,7 +24,7 @@ class MainActivity : Activity() {
     private val reqProjection = 2
     private val reqNotif = 3
 
-    private lateinit var keyIn: EditText
+    private var keyIn: EditText? = null
     private lateinit var modelIn: EditText
     private lateinit var status: TextView
 
@@ -44,21 +44,37 @@ class MainActivity : Activity() {
             setTextColor(Color.parseColor("#2563EB"))
         })
         col.addView(TextView(this).apply {
-            text = "Bubble mengambang untuk belajar: tanya AI, scan soal di layar, kalkulator."
+            text = "Bubble mengambang untuk belajar. Ketuk bubble, pilih alat, lalu pakai. Ukuran, warna, dan opasitas diatur lewat menu ⚙ Atur."
             textSize = 14f
             setPadding(0, dp(4), 0, dp(16))
         })
 
-        keyIn = EditText(this).apply {
-            hint = "API key Anthropic"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(Prefs.key(this@MainActivity))
+        if (Prefs.hasBuiltInKey()) {
+            col.addView(TextView(this).apply {
+                text = "API key: sudah tertanam di aplikasi. Tidak perlu diisi."
+                textSize = 13f
+                setTextColor(Color.parseColor("#16A34A"))
+                setPadding(0, 0, 0, dp(8))
+            })
+        } else {
+            col.addView(TextView(this).apply {
+                text = "API key belum tertanam saat build. Isi manual di bawah, atau tambahkan " +
+                    "secret ANTHROPIC_API_KEY di GitHub lalu build ulang."
+                textSize = 12f
+                setTextColor(Color.parseColor("#DC2626"))
+            })
+            val k = EditText(this).apply {
+                hint = "API key Anthropic"
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                setText(Prefs.manualKey(this@MainActivity))
+            }
+            keyIn = k
+            col.addView(k)
         }
         modelIn = EditText(this).apply {
             hint = "Model"
             setText(Prefs.model(this@MainActivity))
         }
-        col.addView(keyIn)
         col.addView(modelIn)
 
         col.addView(Button(this).apply {
@@ -121,7 +137,7 @@ class MainActivity : Activity() {
     }
 
     private fun startFlow() {
-        Prefs.save(this, keyIn.text.toString(), modelIn.text.toString())
+        Prefs.save(this, keyIn?.text?.toString(), modelIn.text.toString())
 
         if (!Settings.canDrawOverlays(this)) {
             status.text = "Aktifkan izin 'tampil di atas aplikasi lain', lalu tekan Mulai lagi."

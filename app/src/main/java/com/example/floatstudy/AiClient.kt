@@ -32,7 +32,7 @@ object AiClient {
     ) {
         val key = Prefs.key(ctx)
         if (key.isBlank()) {
-            cb(Result.failure(IllegalStateException("API key belum diisi di aplikasi.")))
+            cb(Result.failure(IllegalStateException("API key belum tertanam. Tambahkan secret ANTHROPIC_API_KEY di GitHub lalu build ulang.")))
             return
         }
 

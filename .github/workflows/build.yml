@@ -24,6 +24,8 @@ jobs:
           gradle-version: "8.7"
 
       - name: Build debug APK
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: gradle assembleDebug --no-daemon
 
       - name: Upload APK

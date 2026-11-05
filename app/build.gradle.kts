@@ -3,6 +3,12 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// API key tetap: diambil dari env/secret saat build, tidak pernah ditulis ke source.
+val anthropicKey: String = (System.getenv("ANTHROPIC_API_KEY")
+    ?: (project.findProperty("ANTHROPIC_API_KEY") as String?)
+    ?: "")
+    .trim().replace("\"", "").replace("\\", "")
+
 android {
     namespace = "com.example.floatstudy"
     compileSdk = 34
@@ -11,8 +17,13 @@ android {
         applicationId = "com.example.floatstudy"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
+        buildConfigField("String", "API_KEY", "\"$anthropicKey\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {

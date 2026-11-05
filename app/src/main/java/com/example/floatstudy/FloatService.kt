@@ -1,5 +1,6 @@
 package com.example.floatstudy
 
+import android.app.ActivityOptions
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -13,7 +14,9 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -21,8 +24,10 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
+import android.text.TextUtils
 import android.util.Base64
 import android.util.DisplayMetrics
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -35,8 +40,10 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.FileProvider
@@ -44,6 +51,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URLEncoder
 import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.sin
 
 class FloatService : Service() {
 
@@ -52,14 +61,38 @@ class FloatService : Service() {
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
 
-        private const val TAB_BROWSER = 4
+        private const val T_AI = 0
+        private const val T_COPY = 1
+        private const val T_TR = 2
+        private const val T_IMG = 3
+        private const val T_BROWSER = 4
+        private const val T_CHAT = 5
+        private const val T_CALC = 6
+        private const val T_CLICK = 7
+        private const val T_APPS = 8
+        private const val T_SET = 9
+
+        private val TAB_NAMES = listOf(
+            "Tanya AI", "Salin", "Terjemah", "Gambar", "Browser",
+            "Chat", "Hitung", "Klik", "Apps", "Atur"
+        )
+        private val TAB_ICONS = listOf("✦", "⎘", "文", "◎", "🌐", "💬", "🧮", "👆", "▦", "⚙")
+
+        // alat yang langsung membuka lingkaran pilih area dulu, jendela baru muncul sesudahnya
+        private val CIRCLE_FIRST = setOf(T_AI, T_COPY, T_TR, T_IMG)
+
         private val LANGS = listOf(
             "Indonesia", "Inggris", "Arab", "Jepang", "Mandarin",
             "Korea", "Jerman", "Prancis", "Spanyol"
         )
         private const val TRANSLATE_SYS =
             "Kamu penerjemah profesional. Keluarkan hanya hasil terjemahan, tanpa penjelasan tambahan."
+
+        private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+        private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
     }
+
+    private class AppItem(val pkg: String, val label: String, val icon: Drawable)
 
     private val c: Context get() = this
     private val ui = Handler(Looper.getMainLooper())
@@ -67,13 +100,30 @@ class FloatService : Service() {
     private lateinit var wm: WindowManager
     private var grab: ScreenGrabber? = null
 
+    // bubble dan menu lingkar
     private var bubble: TextView? = null
     private var bubbleBg: GradientDrawable? = null
+    private var bubbleLp: WindowManager.LayoutParams? = null
+    private var menu: FrameLayout? = null
+
+    // jendela alat. Dibuat sekali dan disimpan: menutup (✕) hanya menyembunyikan,
+    // jadi riwayat browser, hasil AI, dan isian tidak hilang.
     private var panel: LinearLayout? = null
+    private var panelLp: WindowManager.LayoutParams? = null
+    private var panelAttached = false
+    private var selectTab: ((Int) -> Unit)? = null
     private var selector: SelectView? = null
     private var web: WebView? = null
-    private var selectTab: ((Int) -> Unit)? = null
     private var langIdx = 0
+    private var ocrText = ""
+    private var allApps: List<AppItem>? = null
+
+    private lateinit var aiNote: EditText
+    private lateinit var aiOut: TextView
+    private lateinit var copyOut: TextView
+    private lateinit var copyAiOut: TextView
+    private lateinit var trOut: TextView
+    private lateinit var imgOut: TextView
 
     // auto clicker
     private var target: TextView? = null
@@ -107,6 +157,8 @@ class FloatService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun dpf(v: Float) = (v * resources.displayMetrics.density).toInt()
+    private fun pref(s: Setting) = Prefs.get(c, s)
 
     // ---------- siklus hidup ----------
 
@@ -165,7 +217,8 @@ class FloatService : Service() {
         ui.removeCallbacksAndMessages(null)
         clicking = false
         if (::wm.isInitialized) {
-            closePanel()
+            hideMenu()
+            hidePanel()
             listOf<View?>(selector, target, bubble).forEach { v ->
                 v?.let {
                     try {
@@ -175,6 +228,9 @@ class FloatService : Service() {
                 }
             }
         }
+        web?.destroy()
+        web = null
+        panel = null
         selector = null
         target = null
         bubble = null
@@ -219,15 +275,20 @@ class FloatService : Service() {
 
     private fun row(vararg v: View) = LinearLayout(c).apply {
         orientation = LinearLayout.HORIZONTAL
-        v.forEach { addView(it, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)) }
+        v.forEach { addView(it, LinearLayout.LayoutParams(0, WRAP, 1f)) }
     }
 
-    private fun addOut(col: LinearLayout, out: TextView, h: Int = 200) {
+    /** Kotak hasil yang mengisi sisa tinggi jendela, jadi ikut berubah saat jendela diubah ukurannya. */
+    private fun addOut(col: LinearLayout, out: TextView, weight: Float = 1f) {
         col.addView(
             ScrollView(c).apply { addView(out) },
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(h))
+            LinearLayout.LayoutParams(MATCH, 0, weight)
         )
     }
+
+    /** Isi tab yang panjang dibungkus ScrollView supaya tetap terpakai di jendela kecil. */
+    private fun scrolled(col: LinearLayout): View =
+        ScrollView(c).apply { addView(col, MATCH, WRAP) }
 
     private fun makeDraggable(
         handle: View,
@@ -264,6 +325,38 @@ class FloatService : Service() {
         })
     }
 
+    /** Pegangan ◢ di pojok kanan bawah untuk mengubah ukuran jendela dengan jari. */
+    private fun makeResizable(grip: View, root: View, lp: WindowManager.LayoutParams) {
+        grip.setOnTouchListener(object : View.OnTouchListener {
+            var sw = 0
+            var sh = 0
+            var tx = 0f
+            var ty = 0f
+
+            override fun onTouch(v: View, e: MotionEvent): Boolean {
+                when (e.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        sw = lp.width; sh = lp.height; tx = e.rawX; ty = e.rawY
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dm = resources.displayMetrics
+                        lp.width = (sw + (e.rawX - tx)).toInt()
+                            .coerceIn(dp(Setting.WIN_W.min), minOf(dp(Setting.WIN_W.max), dm.widthPixels))
+                        lp.height = (sh + (e.rawY - ty)).toInt()
+                            .coerceIn(dp(Setting.WIN_H.min), minOf(dp(Setting.WIN_H.max), dm.heightPixels))
+                        wm.updateViewLayout(root, lp)
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        val d = resources.displayMetrics.density
+                        Prefs.set(c, Setting.WIN_W, (lp.width / d).toInt())
+                        Prefs.set(c, Setting.WIN_H, (lp.height / d).toInt())
+                    }
+                }
+                return true
+            }
+        })
+    }
+
     private fun toJpegB64(src: Bitmap): String {
         val scale = minOf(1f, 1400f / maxOf(src.width, src.height))
         val bmp = if (scale < 1f) {
@@ -282,22 +375,23 @@ class FloatService : Service() {
         Toast.makeText(c, "Teks disalin", Toast.LENGTH_SHORT).show()
     }
 
+    private fun toast(t: String) = Toast.makeText(c, t, Toast.LENGTH_SHORT).show()
+
     // ---------- bubble ----------
 
     private fun showBubble() {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
-            setColor(0xE62563EB.toInt())
+            setColor(Prefs.bubbleColor(c))
         }
         val b = TextView(c).apply {
             text = "AI"
-            textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             background = bg
         }
-        val size = dp(52)
+        val size = dp(pref(Setting.BUBBLE_SIZE))
         val lp = WindowManager.LayoutParams(
             size, size,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -309,23 +403,211 @@ class FloatService : Service() {
             y = dp(200)
         }
         makeDraggable(b, b, lp) {
-            if (clicking) stopClicking() else togglePanel()
+            when {
+                clicking -> stopClicking()
+                menu != null -> hideMenu()
+                else -> showMenu()
+            }
         }
         wm.addView(b, lp)
         bubble = b
         bubbleBg = bg
+        bubbleLp = lp
+        applyBubble()
     }
 
-    private fun updateBubble() {
-        bubble?.text = if (clicking) "■" else "AI"
-        bubbleBg?.setColor(if (clicking) 0xE6DC2626.toInt() else 0xE62563EB.toInt())
+    /** Terapkan ukuran, warna, dan opasitas bubble dari pengaturan. */
+    private fun applyBubble() {
+        val b = bubble ?: return
+        val lp = bubbleLp ?: return
+        val sizeDp = pref(Setting.BUBBLE_SIZE)
+        lp.width = dp(sizeDp)
+        lp.height = dp(sizeDp)
+        b.alpha = pref(Setting.BUBBLE_ALPHA) / 100f
+        b.text = if (clicking) "■" else "AI"
+        b.setTextSize(TypedValue.COMPLEX_UNIT_DIP, sizeDp * 0.34f)
+        bubbleBg?.setColor(if (clicking) 0xFFDC2626.toInt() else Prefs.bubbleColor(c))
+        try {
+            wm.updateViewLayout(b, lp)
+        } catch (e: Exception) {
+        }
     }
+
+    private fun updateBubble() = applyBubble()
 
     private fun setOverlayVisible(v: Boolean) {
         val vis = if (v) View.VISIBLE else View.INVISIBLE
         bubble?.visibility = vis
         panel?.visibility = vis
         target?.visibility = vis
+    }
+
+    // ---------- menu lingkar (muncul saat bubble diketuk) ----------
+
+    private fun showMenu() {
+        if (menu != null) return
+        val b = bubble ?: return
+        val root = FrameLayout(c).apply {
+            setBackgroundColor(0x33000000)
+            setOnClickListener { hideMenu() }
+        }
+        val lp = WindowManager.LayoutParams(
+            MATCH, MATCH,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        )
+        if (Build.VERSION.SDK_INT >= 28) {
+            lp.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        wm.addView(root, lp)
+        menu = root
+        // posisi bubble di layar baru bisa dibaca setelah jendela menu terukur
+        root.post { if (menu === root) layoutMenu(root, b) }
+    }
+
+    private fun layoutMenu(root: FrameLayout, b: View) {
+        val bl = IntArray(2)
+        val rl = IntArray(2)
+        b.getLocationOnScreen(bl)
+        root.getLocationOnScreen(rl)
+        val bx = bl[0] - rl[0] + b.width / 2f
+        val by = bl[1] - rl[1] + b.height / 2f
+
+        val scale = pref(Setting.MENU_SIZE) / 100f
+        val item = dpf(52f * scale)
+        val radius = dpf(100f * scale)
+        val edge = radius + item / 2 + dp(4)
+        // cincin digeser masuk supaya semua tombol tetap terlihat di tepi layar
+        val cx = bx.coerceIn(edge.toFloat(), maxOf(edge, root.width - edge).toFloat())
+        val cy = by.coerceIn(edge.toFloat(), maxOf(edge, root.height - edge).toFloat())
+        val alpha = pref(Setting.MENU_ALPHA) / 100f
+        val color = Prefs.bubbleColor(c)
+
+        fun place(v: View, x: Float, y: Float, size: Int) {
+            root.addView(v, FrameLayout.LayoutParams(size, size).apply {
+                leftMargin = (x - size / 2f).toInt()
+                topMargin = (y - size / 2f).toInt()
+            })
+        }
+
+        val n = TAB_NAMES.size
+        for (i in 0 until n) {
+            val ang = Math.toRadians(-90.0 + i * 360.0 / n)
+            val x = cx + (radius * cos(ang)).toFloat()
+            val y = cy + (radius * sin(ang)).toFloat()
+            val cell = LinearLayout(c).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(color)
+                    setStroke(dp(1), Color.WHITE)
+                }
+                this.alpha = alpha
+                addView(TextView(c).apply {
+                    text = TAB_ICONS[i]
+                    gravity = Gravity.CENTER
+                    setTextColor(Color.WHITE)
+                    setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18f * scale)
+                })
+                addView(TextView(c).apply {
+                    text = TAB_NAMES[i]
+                    gravity = Gravity.CENTER
+                    maxLines = 1
+                    setTextColor(Color.WHITE)
+                    setTextSize(TypedValue.COMPLEX_UNIT_DIP, 9f * scale)
+                })
+                setOnClickListener { onMenuPick(i) }
+                scaleX = 0f
+                scaleY = 0f
+                animate().scaleX(1f).scaleY(1f).setStartDelay(i * 12L).setDuration(150).start()
+            }
+            place(cell, x, y, item)
+        }
+
+        // tombol tengah menutup menu
+        val closeSize = dp(pref(Setting.BUBBLE_SIZE))
+        val closeBtn = TextView(c).apply {
+            text = "✕"
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_DIP, 18f)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+            }
+            this.alpha = alpha
+            setOnClickListener { hideMenu() }
+        }
+        place(closeBtn, cx, cy, closeSize)
+    }
+
+    private fun hideMenu() {
+        menu?.let {
+            try {
+                wm.removeView(it)
+            } catch (e: Exception) {
+            }
+        }
+        menu = null
+    }
+
+    private fun onMenuPick(tab: Int) {
+        hideMenu()
+        if (tab in CIRCLE_FIRST) circleFirst(tab) else openPanel(tab)
+    }
+
+    /**
+     * Alat yang mengambil soal dari layar: tampilkan dulu lingkaran pilih area
+     * (seperti circle to search). Jendela alat baru muncul setelah area dipilih.
+     */
+    private fun circleFirst(tab: Int) {
+        val g = grab
+        if (g == null || !g.active) {
+            openPanel(tab)
+            outFor(tab)?.text =
+                "Izin tangkap layar belum aktif. Hentikan lalu mulai lagi dari aplikasi."
+            return
+        }
+        pickRegion(false) { bmp ->
+            if (bmp == null) {
+                toast("Dibatalkan")
+                return@pickRegion
+            }
+            when (tab) {
+                T_AI -> {
+                    openPanel(T_AI)
+                    runAi(bmp)
+                }
+                T_COPY -> {
+                    openPanel(T_COPY)
+                    runCopy(bmp)
+                }
+                T_TR -> {
+                    openPanel(T_TR)
+                    runTranslate(bmp)
+                }
+                T_IMG -> searchWithLens(bmp) { msg ->
+                    openPanel(T_IMG)
+                    imgOut.text = msg
+                }
+            }
+        }
+    }
+
+    private fun outFor(tab: Int): TextView? {
+        ensurePanel()
+        return when (tab) {
+            T_AI -> aiOut
+            T_COPY -> copyOut
+            T_TR -> trOut
+            T_IMG -> imgOut
+            else -> null
+        }
     }
 
     // ---------- ambil area layar ----------
@@ -367,7 +649,7 @@ class FloatService : Service() {
             if (full) finish(shot) else showSelector(shot) { crop -> finish(crop) }
         }
 
-        // beri waktu agar bubble dan panel hilang dari frame
+        // beri waktu agar bubble, menu, dan jendela hilang dari frame
         ui.postDelayed({ attempt(0) }, 450)
     }
 
@@ -385,7 +667,7 @@ class FloatService : Service() {
             }
         }
         val lp = WindowManager.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
+            MATCH, MATCH,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -399,31 +681,62 @@ class FloatService : Service() {
         selector = v
     }
 
-    // ---------- panel ----------
+    // ---------- jendela alat ----------
 
-    private fun togglePanel() {
-        if (panel == null) openPanel() else closePanel()
+    private fun panelW() = minOf(dp(pref(Setting.WIN_W)), resources.displayMetrics.widthPixels - dp(8))
+    private fun panelH() = minOf(dp(pref(Setting.WIN_H)), resources.displayMetrics.heightPixels - dp(48))
+
+    /** Tampilkan jendela (dibuat sekali, sisanya hanya ditampilkan lagi) dan pilih tab. */
+    private fun openPanel(tab: Int) {
+        val root = ensurePanel()
+        val lp = panelLp ?: return
+        if (!panelAttached) {
+            try {
+                wm.addView(root, lp)
+                panelAttached = true
+                web?.onResume()
+            } catch (e: Exception) {
+                toast("Gagal membuka jendela: ${e.message}")
+                return
+            }
+        }
+        root.visibility = View.VISIBLE
+        selectTab?.invoke(tab)
     }
 
-    private fun closePanel() {
-        panel?.let {
+    /** Tombol ✕: sembunyikan saja. Isi jendela tidak dihapus. */
+    private fun hidePanel() {
+        val p = panel ?: return
+        if (!panelAttached) return
+        try {
+            wm.removeView(p)
+        } catch (e: Exception) {
+        }
+        panelAttached = false
+        web?.onPause()
+    }
+
+    private fun applyPanel() {
+        val p = panel ?: return
+        val lp = panelLp ?: return
+        lp.width = panelW()
+        lp.height = panelH()
+        p.alpha = pref(Setting.WIN_ALPHA) / 100f
+        if (panelAttached) {
             try {
-                wm.removeView(it)
+                wm.updateViewLayout(p, lp)
             } catch (e: Exception) {
             }
         }
-        panel = null
-        web?.destroy()
-        web = null
-        selectTab = null
     }
 
-    private fun openPanel() {
-        val dm = resources.displayMetrics
+    private fun ensurePanel(): LinearLayout {
+        panel?.let { return it }
+
         val root = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL
             background = rounded(Color.WHITE, 16)
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(8), dp(8), dp(8), dp(4))
             elevation = dp(8).toFloat()
         }
 
@@ -442,62 +755,81 @@ class FloatService : Service() {
             text = "✕"
             textSize = 18f
             setPadding(dp(10), dp(6), dp(10), dp(6))
-            setOnClickListener { closePanel() }
+            setOnClickListener { hidePanel() }
         }
         val bar = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(handle)
-            addView(tabScroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(tabScroll, LinearLayout.LayoutParams(0, WRAP, 1f))
             addView(close)
         }
 
-        val names = listOf("Tanya AI", "Salin", "Terjemah", "Gambar", "Browser", "Chat", "Hitung", "Klik")
         val views = listOf(
             aiView(), copyView(), translateView(), imageView(),
-            browserView(), chatView(), calcView(), clickView()
+            browserView(), chatView(), calcView(), clickView(),
+            appsView(), settingsView()
         )
-        val tabs = names.map { TextView(c) }
+        val tabs = TAB_NAMES.map { TextView(c) }
         val content = FrameLayout(c)
+        val accent = Color.parseColor("#2563EB")
 
         fun select(i: Int) {
             views.forEachIndexed { idx, v ->
                 v.visibility = if (idx == i) View.VISIBLE else View.GONE
             }
             tabs.forEachIndexed { idx, t ->
-                t.setTextColor(if (idx == i) Color.parseColor("#2563EB") else Color.GRAY)
+                t.setTextColor(if (idx == i) accent else Color.GRAY)
                 t.typeface = if (idx == i) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             }
         }
         tabs.forEachIndexed { i, t ->
-            t.text = names[i]
+            t.text = TAB_NAMES[i]
             t.textSize = 15f
             t.setPadding(dp(10), dp(8), dp(10), dp(8))
             t.setOnClickListener { select(i) }
             tabRow.addView(t)
         }
-        views.forEach { content.addView(it) }
-        root.addView(bar)
-        root.addView(content)
+        views.forEach { content.addView(it, FrameLayout.LayoutParams(MATCH, MATCH)) }
+
+        val grip = TextView(c).apply {
+            text = "◢"
+            textSize = 16f
+            setTextColor(Color.GRAY)
+            setPadding(dp(24), 0, dp(2), 0)
+        }
+        val bottom = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END
+            addView(grip)
+        }
+
+        root.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
+        root.addView(content, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        root.addView(bottom, LinearLayout.LayoutParams(MATCH, WRAP))
         select(0)
         selectTab = { i -> select(i) }
 
-        val width = minOf(dm.widthPixels - dp(16), dp(380))
+        val dm = resources.displayMetrics
+        val w = panelW()
         val lp = WindowManager.LayoutParams(
-            width, ViewGroup.LayoutParams.WRAP_CONTENT,
+            w, panelH(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (dm.widthPixels - width) / 2
+            x = (dm.widthPixels - w) / 2
             y = dp(48)
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
         makeDraggable(handle, root, lp)
-        wm.addView(root, lp)
+        makeResizable(grip, root, lp)
+        root.alpha = pref(Setting.WIN_ALPHA) / 100f
         panel = root
+        panelLp = lp
+        return root
     }
 
     // ---------- AI ----------
@@ -509,64 +841,71 @@ class FloatService : Service() {
         }
     }
 
+    private fun aiPrompt() = aiNote.text.toString().ifBlank { "Jawab soal pada gambar." }
+
+    private fun runAi(bmp: Bitmap) = ask(aiPrompt(), toJpegB64(bmp), aiOut)
+
+    private fun runCopy(bmp: Bitmap) {
+        copyOut.text = "Membaca teks…"
+        Ocr.read(bmp) { r ->
+            ui.post {
+                r.onSuccess { t ->
+                    ocrText = t
+                    if (t.isBlank()) {
+                        copyOut.text = "Tidak ada teks terbaca."
+                    } else {
+                        copyOut.text = t
+                        copyText(t)
+                    }
+                }.onFailure { copyOut.text = "Error: ${it.message}" }
+            }
+        }
+    }
+
+    private fun runTranslate(bmp: Bitmap) = ask(
+        "Baca semua teks pada gambar, lalu terjemahkan ke bahasa ${LANGS[langIdx]}.",
+        toJpegB64(bmp), trOut, TRANSLATE_SYS
+    )
+
     // Tab 0: lingkari area / layar penuh lalu tanya AI
     private fun aiView(): View {
         val col = vbox()
-        val note = EditText(c).apply {
+        aiNote = EditText(c).apply {
             hint = "Catatan (opsional), mis. jelaskan nomor 3"
             textSize = 14f
         }
-        val out = resultText()
-        val prompt = { note.text.toString().ifBlank { "Jawab soal pada gambar." } }
-        col.addView(note)
+        aiOut = resultText()
+        col.addView(aiNote)
         col.addView(
             row(
                 button("Lingkari area") {
-                    withRegion(false, out) { ask(prompt(), toJpegB64(it), out) }
+                    withRegion(false, aiOut) { runAi(it) }
                 },
                 button("Layar penuh") {
-                    withRegion(true, out) { ask(prompt(), toJpegB64(it), out) }
+                    withRegion(true, aiOut) { runAi(it) }
                 }
             )
         )
-        addOut(col, out)
+        addOut(col, aiOut)
         return col
     }
 
     // Tab 1: lingkari area, baca teks (OCR) dan salin
     private fun copyView(): View {
         val col = vbox()
-        val out = resultText()
-        val aiOut = resultText()
-        var text = ""
-
-        val run: (Bitmap) -> Unit = { bmp ->
-            out.text = "Membaca teks…"
-            Ocr.read(bmp) { r ->
-                ui.post {
-                    r.onSuccess { t ->
-                        text = t
-                        if (t.isBlank()) {
-                            out.text = "Tidak ada teks terbaca."
-                        } else {
-                            out.text = t
-                            copyText(t)
-                        }
-                    }.onFailure { out.text = "Error: ${it.message}" }
-                }
-            }
-        }
+        copyOut = resultText()
+        copyAiOut = resultText()
         col.addView(
             row(
-                button("Lingkari & salin") { withRegion(false, out, run) },
-                button("Layar penuh") { withRegion(true, out, run) }
+                button("Lingkari & salin") { withRegion(false, copyOut) { runCopy(it) } },
+                button("Layar penuh") { withRegion(true, copyOut) { runCopy(it) } }
             )
         )
-        addOut(col, out, 130)
+        addOut(col, copyOut)
         col.addView(button("Jawab teks ini dengan AI") {
-            if (text.isNotBlank()) ask(text, null, aiOut) else aiOut.text = "Belum ada teks."
+            if (ocrText.isNotBlank()) ask(ocrText, null, copyAiOut) else copyAiOut.text = "Belum ada teks."
         })
-        addOut(col, aiOut, 120)
+        addOut(col, copyAiOut)
         return col
     }
 
@@ -580,7 +919,7 @@ class FloatService : Service() {
             minLines = 2
             maxLines = 4
         }
-        val out = resultText()
+        trOut = resultText()
         val lang = button("Ke: ${LANGS[langIdx]}") {}
         lang.setOnClickListener {
             langIdx = (langIdx + 1) % LANGS.size
@@ -592,54 +931,49 @@ class FloatService : Service() {
             row(
                 button("Terjemahkan teks") {
                     val t = input.text.toString().trim()
-                    if (t.isEmpty()) out.text = "Tulis teks dulu."
-                    else ask("Terjemahkan ke bahasa ${LANGS[langIdx]}:\n\n$t", null, out, TRANSLATE_SYS)
+                    if (t.isEmpty()) trOut.text = "Tulis teks dulu."
+                    else ask("Terjemahkan ke bahasa ${LANGS[langIdx]}:\n\n$t", null, trOut, TRANSLATE_SYS)
                 },
                 button("Lingkari & terjemah") {
-                    withRegion(false, out) {
-                        ask(
-                            "Baca semua teks pada gambar, lalu terjemahkan ke bahasa ${LANGS[langIdx]}.",
-                            toJpegB64(it), out, TRANSLATE_SYS
-                        )
-                    }
+                    withRegion(false, trOut) { runTranslate(it) }
                 }
             )
         )
-        addOut(col, out, 170)
+        addOut(col, trOut)
         return col
     }
 
     // Tab 3: cari gambar (Google Lens) atau cari teks hasil OCR
     private fun imageView(): View {
         val col = vbox()
-        val out = resultText()
-        out.text = "Lingkari bagian layar, lalu cari dengan Google Lens atau cari teksnya di Google."
+        imgOut = resultText()
+        imgOut.text = "Lingkari bagian layar, lalu cari dengan Google Lens atau cari teksnya di Google."
         col.addView(button("Lingkari & cari gambar (Lens)") {
-            withRegion(false, out) { searchWithLens(it, out) }
+            withRegion(false, imgOut) { bmp -> searchWithLens(bmp) { imgOut.text = it } }
         })
         col.addView(button("Lingkari & cari teksnya di Google") {
-            withRegion(false, out) { bmp ->
-                out.text = "Membaca teks…"
+            withRegion(false, imgOut) { bmp ->
+                imgOut.text = "Membaca teks…"
                 Ocr.read(bmp) { r ->
                     ui.post {
                         r.onSuccess { t ->
                             val q = t.replace('\n', ' ').trim().take(200)
                             if (q.isBlank()) {
-                                out.text = "Tidak ada teks terbaca."
+                                imgOut.text = "Tidak ada teks terbaca."
                             } else {
-                                out.text = "Mencari: $q"
+                                imgOut.text = "Mencari: $q"
                                 browse("https://www.google.com/search?q=" + URLEncoder.encode(q, "UTF-8"))
                             }
-                        }.onFailure { out.text = "Error: ${it.message}" }
+                        }.onFailure { imgOut.text = "Error: ${it.message}" }
                     }
                 }
             }
         })
-        addOut(col, out, 110)
+        addOut(col, imgOut)
         return col
     }
 
-    private fun searchWithLens(bmp: Bitmap, out: TextView) {
+    private fun searchWithLens(bmp: Bitmap, onError: (String) -> Unit) {
         try {
             val dir = File(cacheDir, "shared").apply { mkdirs() }
             val f = File(dir, "crop.png")
@@ -663,9 +997,9 @@ class FloatService : Service() {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
             }
-            closePanel()
+            hidePanel()
         } catch (e: Exception) {
-            out.text = "Gagal: ${e.message}"
+            onError("Gagal: ${e.message}")
         }
     }
 
@@ -677,7 +1011,7 @@ class FloatService : Service() {
     }
 
     private fun browse(url: String) {
-        selectTab?.invoke(TAB_BROWSER)
+        selectTab?.invoke(T_BROWSER)
         web?.loadUrl(url)
     }
 
@@ -715,6 +1049,12 @@ class FloatService : Service() {
             minimumWidth = 0
             setOnClickListener { if (w.canGoBack()) w.goBack() }
         }
+        val fwd = Button(c).apply {
+            text = "▶"
+            minWidth = 0
+            minimumWidth = 0
+            setOnClickListener { if (w.canGoForward()) w.goForward() }
+        }
         val goBtn = Button(c).apply {
             text = "Buka"
             isAllCaps = false
@@ -725,11 +1065,12 @@ class FloatService : Service() {
         val bar = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(back)
-            addView(url, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(fwd)
+            addView(url, LinearLayout.LayoutParams(0, WRAP, 1f))
             addView(goBtn)
         }
         col.addView(bar)
-        col.addView(w, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)))
+        col.addView(w, LinearLayout.LayoutParams(MATCH, 0, 1f))
         web = w
         return col
     }
@@ -807,13 +1148,15 @@ class FloatService : Service() {
                     isAllCaps = false
                     minWidth = 0
                     minimumWidth = 0
+                    minHeight = 0
+                    minimumHeight = 0
                     setPadding(0, 0, 0, 0)
                     setOnClickListener { press(k) }
-                }, LinearLayout.LayoutParams(0, dp(44), 1f))
+                }, LinearLayout.LayoutParams(0, MATCH, 1f))
             }
-            col.addView(line)
+            col.addView(line, LinearLayout.LayoutParams(MATCH, dp(44)))
         }
-        return col
+        return scrolled(col)
     }
 
     // Tab 7: auto clicker
@@ -862,7 +1205,7 @@ class FloatService : Service() {
             if (!startClicking(ms, n)) refresh()
         })
         refresh()
-        return col
+        return scrolled(col)
     }
 
     private fun showTarget() {
@@ -919,7 +1262,7 @@ class FloatService : Service() {
         // saat berjalan, tanda target tembus sentuhan agar ketukan sampai ke aplikasi di bawahnya
         lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         wm.updateViewLayout(t, lp)
-        closePanel()
+        hidePanel()
         updateBubble()
         ui.postDelayed(clickRunner, 400)
         return true
@@ -938,5 +1281,281 @@ class FloatService : Service() {
             }
         }
         updateBubble()
+    }
+
+    // ---------- Tab 8: aplikasi di HP sebagai jendela mengambang ----------
+
+    private fun loadApps(done: () -> Unit) {
+        if (allApps != null) {
+            done()
+            return
+        }
+        Thread {
+            val list = try {
+                val pm = packageManager
+                val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                pm.queryIntentActivities(q, 0)
+                    .filter { it.activityInfo.packageName != packageName }
+                    .map {
+                        AppItem(it.activityInfo.packageName, it.loadLabel(pm).toString(), it.loadIcon(pm))
+                    }
+                    .distinctBy { it.pkg }
+                    .sortedBy { it.label.lowercase() }
+            } catch (e: Exception) {
+                emptyList()
+            }
+            ui.post {
+                allApps = list
+                done()
+            }
+        }.start()
+    }
+
+    /** Buka aplikasi dengan ukuran jendela sesuai pengaturan. Butuh mode jendela bebas di HP. */
+    private fun launchApp(pkg: String) {
+        val i = packageManager.getLaunchIntentForPackage(pkg)
+        if (i == null) {
+            toast("Aplikasi tidak bisa dibuka")
+            return
+        }
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val (sw, sh) = realSize()
+        val w = minOf(dp(pref(Setting.APP_W)), sw - dp(16))
+        val h = minOf(dp(pref(Setting.APP_H)), sh - dp(96))
+        val l = (sw - w) / 2
+        val t = dp(72)
+        hidePanel()
+        try {
+            val o = ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h))
+            startActivity(i, o.toBundle())
+        } catch (e: Exception) {
+            toast("Gagal membuka: ${e.message}")
+        }
+    }
+
+    private fun appsView(): View {
+        val col = vbox()
+        var picking = false
+        val title = TextView(c).apply {
+            textSize = 12f
+            setTextColor(Color.DKGRAY)
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+        }
+        val search = EditText(c).apply {
+            hint = "Cari aplikasi"
+            textSize = 14f
+            setSingleLine()
+            visibility = View.GONE
+        }
+        val grid = vbox()
+        val modeBtn = button("+ Tambah aplikasi") {}
+        val devBtn = button("Mode jendela") {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (e: Exception) {
+                toast("Buka Pengaturan > Opsi pengembang secara manual")
+            }
+        }
+        val hint = TextView(c).apply {
+            text = "Aplikasi terbuka sebagai jendela mengambang hanya bila HP mendukung mode " +
+                "jendela bebas. Di Opsi pengembang, aktifkan 'Jendela bentuk bebas' dan " +
+                "'Paksa aktivitas dapat diubah ukuran', lalu restart HP. Ukuran jendela aplikasi " +
+                "diatur di menu Atur. Tanpa itu, aplikasi terbuka layar penuh."
+            textSize = 11f
+            setTextColor(Color.GRAY)
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+        }
+
+        fun cell(app: AppItem, marked: Boolean, tap: () -> Unit, long: (() -> Unit)?): View =
+            LinearLayout(c).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                setPadding(dp(2), dp(6), dp(2), dp(6))
+                addView(ImageView(c).apply { setImageDrawable(app.icon) }, LinearLayout.LayoutParams(dp(40), dp(40)))
+                addView(TextView(c).apply {
+                    text = if (marked) "✓ ${app.label}" else app.label
+                    textSize = 10f
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    gravity = Gravity.CENTER
+                    setTextColor(if (marked) Color.parseColor("#2563EB") else Color.BLACK)
+                })
+                setOnClickListener { tap() }
+                if (long != null) setOnLongClickListener { long(); true }
+            }
+
+        fun render() {
+            grid.removeAllViews()
+            val all = allApps
+            if (all == null) {
+                title.text = "Memuat daftar aplikasi…"
+                loadApps { render() }
+                return
+            }
+            val pinned = Prefs.pinned(c)
+            val items: List<AppItem>
+            if (picking) {
+                val q = search.text.toString().trim().lowercase()
+                items = all.filter { q.isEmpty() || it.label.lowercase().contains(q) }
+                title.text = "Ketuk aplikasi untuk menambah atau melepas dari menu Apps."
+            } else {
+                items = pinned.mapNotNull { p -> all.find { it.pkg == p } }
+                title.text = if (items.isEmpty()) {
+                    "Belum ada aplikasi. Tekan + Tambah aplikasi."
+                } else {
+                    "Ketuk untuk membuka sebagai jendela. Tekan lama untuk menghapus."
+                }
+            }
+            items.chunked(4).forEach { chunk ->
+                val line = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
+                chunk.forEach { app ->
+                    val isPinned = app.pkg in pinned
+                    val v = if (picking) {
+                        cell(app, isPinned, {
+                            val cur = Prefs.pinned(c)
+                            Prefs.setPinned(c, if (app.pkg in cur) cur - app.pkg else cur + app.pkg)
+                            render()
+                        }, null)
+                    } else {
+                        cell(app, false, { launchApp(app.pkg) }, {
+                            Prefs.setPinned(c, Prefs.pinned(c) - app.pkg)
+                            toast("${app.label} dihapus dari menu")
+                            render()
+                        })
+                    }
+                    line.addView(v, LinearLayout.LayoutParams(0, WRAP, 1f))
+                }
+                repeat(4 - chunk.size) { line.addView(View(c), LinearLayout.LayoutParams(0, 1, 1f)) }
+                grid.addView(line)
+            }
+        }
+
+        modeBtn.setOnClickListener {
+            picking = !picking
+            modeBtn.text = if (picking) "Selesai" else "+ Tambah aplikasi"
+            search.visibility = if (picking) View.VISIBLE else View.GONE
+            render()
+        }
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, cnt: Int, a: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, cnt: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (picking) render()
+            }
+        })
+
+        col.addView(row(modeBtn, devBtn))
+        col.addView(search)
+        col.addView(title)
+        col.addView(grid)
+        col.addView(hint)
+        render()
+        return scrolled(col)
+    }
+
+    // ---------- Tab 9: pengaturan tampilan ----------
+
+    private fun settingsView(): View {
+        val col = vbox()
+        val refreshers = mutableListOf<() -> Unit>()
+
+        fun section(t: String) = TextView(c).apply {
+            text = t
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#2563EB"))
+            setPadding(dp(4), dp(12), dp(4), dp(2))
+        }
+
+        fun slider(label: String, s: Setting, suffix: String, apply: () -> Unit): View {
+            val box = vbox()
+            val tv = TextView(c).apply {
+                textSize = 13f
+                setTextColor(Color.DKGRAY)
+                setPadding(dp(4), dp(4), dp(4), 0)
+            }
+            val sb = SeekBar(c).apply { max = s.max - s.min }
+            fun show() {
+                val v = Prefs.get(c, s)
+                sb.progress = v - s.min
+                tv.text = "$label: $v$suffix"
+            }
+            sb.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar, p: Int, fromUser: Boolean) {
+                    if (!fromUser) return
+                    val v = p + s.min
+                    Prefs.set(c, s, v)
+                    tv.text = "$label: $v$suffix"
+                    apply()
+                }
+
+                override fun onStartTrackingTouch(bar: SeekBar) {}
+                override fun onStopTrackingTouch(bar: SeekBar) {}
+            })
+            refreshers += { show() }
+            show()
+            box.addView(tv)
+            box.addView(sb)
+            return box
+        }
+
+        col.addView(section("Bubble"))
+        col.addView(slider("Ukuran", Setting.BUBBLE_SIZE, " dp") { applyBubble() })
+        col.addView(slider("Opasitas", Setting.BUBBLE_ALPHA, "%") { applyBubble() })
+        val colors = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(4), dp(8), dp(4), dp(4))
+        }
+        Prefs.COLORS.forEach { col0 ->
+            colors.addView(View(c).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(col0)
+                    setStroke(dp(1), Color.LTGRAY)
+                }
+                setOnClickListener {
+                    Prefs.setBubbleColor(c, col0)
+                    applyBubble()
+                }
+            }, LinearLayout.LayoutParams(0, dp(30), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
+        }
+        col.addView(TextView(c).apply {
+            text = "Warna (juga dipakai menu lingkar)"
+            textSize = 13f
+            setTextColor(Color.DKGRAY)
+            setPadding(dp(4), dp(6), dp(4), 0)
+        })
+        col.addView(colors)
+
+        col.addView(section("Menu lingkar"))
+        col.addView(slider("Ukuran", Setting.MENU_SIZE, "%") {})
+        col.addView(slider("Opasitas", Setting.MENU_ALPHA, "%") {})
+        col.addView(button("Lihat menu lingkar") { showMenu() })
+
+        col.addView(section("Jendela alat"))
+        col.addView(slider("Lebar", Setting.WIN_W, " dp") { applyPanel() })
+        col.addView(slider("Tinggi", Setting.WIN_H, " dp") { applyPanel() })
+        col.addView(slider("Opasitas", Setting.WIN_ALPHA, "%") { applyPanel() })
+        col.addView(TextView(c).apply {
+            text = "Bisa juga ditarik lewat pegangan ◢ di pojok kanan bawah jendela."
+            textSize = 11f
+            setTextColor(Color.GRAY)
+            setPadding(dp(4), dp(2), dp(4), 0)
+        })
+
+        col.addView(section("Jendela aplikasi (tab Apps)"))
+        col.addView(slider("Lebar", Setting.APP_W, " dp") {})
+        col.addView(slider("Tinggi", Setting.APP_H, " dp") {})
+
+        col.addView(button("Kembalikan bawaan") {
+            Prefs.resetLook(c)
+            refreshers.forEach { it() }
+            applyBubble()
+            applyPanel()
+        })
+        return scrolled(col)
     }
 }
