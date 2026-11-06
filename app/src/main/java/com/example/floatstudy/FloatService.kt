@@ -388,7 +388,7 @@ class FloatService : Service() {
                                 // ketukan kedua dalam jeda: dihitung ketuk dua kali
                                 ui.removeCallbacks(waiting)
                                 pendingTap = null
-                                onDouble.invoke()
+                                onDouble?.invoke()
                             } else if (dblOn()) {
                                 val r = Runnable { pendingTap = null; onTap?.invoke() }
                                 pendingTap = r
