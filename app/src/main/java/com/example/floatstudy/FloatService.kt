@@ -194,6 +194,11 @@ class FloatService : Service() {
     override fun onCreate() {
         super.onCreate()
         P = Ui.pal(this)
+        // buka akses ke API tersembunyi (setLaunchWindowingMode) agar jendela bebas bisa dipakai
+        try {
+            if (Build.VERSION.SDK_INT >= 28) org.lsposed.hiddenapibypass.HiddenApiBypass.addHiddenApiExemptions("L")
+        } catch (e: Throwable) {
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -1537,15 +1542,20 @@ class FloatService : Service() {
         hidePanel()
         try {
             val o = ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h))
-            // 5 = WINDOWING_MODE_FREEFORM. API tersembunyi: dicoba lewat refleksi, diabaikan bila diblokir.
+            // 5 = WINDOWING_MODE_FREEFORM. API tersembunyi, dibuka lewat HiddenApiBypass.
+            var forced = false
             try {
                 ActivityOptions::class.java
                     .getMethod("setLaunchWindowingMode", Int::class.javaPrimitiveType)
                     .invoke(o, 5)
+                forced = true
             } catch (e: Throwable) {
             }
             startActivity(i, o.toBundle())
-            if (!freeformOn()) toast("Mode jendela bebas belum aktif, aplikasi terbuka layar penuh")
+            when {
+                !freeformOn() -> toast("Mode jendela bebas belum aktif di HP, aplikasi terbuka layar penuh. Lihat pengaturan flooww > Jendela bebas.")
+                !forced -> toast("HP memblokir pengaturan jendela. Aplikasi mungkin terbuka layar penuh.")
+            }
         } catch (e: Exception) {
             toast("Gagal membuka: ${e.message}")
         }

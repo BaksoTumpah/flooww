@@ -155,6 +155,19 @@ class MainActivity : Activity() {
             note("Diblokir: jendela mengambang tidak bisa menerima ketikan, keyboard tidak akan muncul. Gunakan tombol tempel di header jendela untuk menempel teks hasil salin dari gambar. Diizinkan: kolom di jendela bisa diketik, tetapi jendela mengambil fokus sehingga keyboard bisa muncul di atas aplikasi lain. Layar pengaturan ini selalu bisa memakai keyboard."),
             segmented(listOf("Diblokir", "Diizinkan"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) }
         ))
+        col.addView(card("Jendela bebas (untuk menu Apps)",
+            note("Aplikasi hanya bisa terbuka sebagai jendela mengambang bila HP mengaktifkan mode jendela bebas. Tanpa itu, aplikasi terbuka layar penuh."),
+            freeInfo,
+            spaced(Ui.button(this, "Aktifkan otomatis", true) { enableFreeform() }),
+            spaced(Ui.button(this, "Buka Opsi pengembang", false) {
+                try {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(this, "Buka Pengaturan > Opsi pengembang manual", android.widget.Toast.LENGTH_LONG).show()
+                }
+            }),
+            note("Beberapa merek (Xiaomi, Samsung, dll.) memblokir jendela bebas untuk aplikasi pihak ketiga walau opsinya sudah aktif.")
+        ))
         col.addView(card("Aplikasi di menu Apps",
             note("Pilih aplikasi yang bisa dibuka sebagai jendela mengambang dari menu Apps."),
             appsInfo,
@@ -201,6 +214,7 @@ class MainActivity : Activity() {
         })
 
         showAppsInfo()
+        showFreeInfo()
         window.decorView.setBackgroundColor(p.bg)
         setContentView(
             ScrollView(this).apply {
@@ -236,6 +250,56 @@ class MainActivity : Activity() {
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = dp(12) }
         return c
+    }
+
+    private val freeInfo by lazy {
+        TextView(this).apply {
+            textSize = 13f
+            setTextColor(p.on)
+            setPadding(0, dp(8), 0, 0)
+        }
+    }
+
+    private fun globalOn(k: String) = try {
+        Settings.Global.getInt(contentResolver, k, 0) == 1
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun showFreeInfo() {
+        val ff = packageManager.hasSystemFeature("android.software.freeform_window_management") ||
+            globalOn("enable_freeform_support")
+        val rs = globalOn("force_resizable_activities")
+        freeInfo.text = "Jendela bentuk bebas: " + (if (ff) "aktif" else "BELUM aktif") +
+            "\nPaksa aktivitas dapat diubah ukuran: " + (if (rs) "aktif" else "BELUM aktif") +
+            "\nSetelah mengaktifkan, restart HP."
+    }
+
+    /** Menulis setelan sistem sendiri. Butuh izin WRITE_SECURE_SETTINGS yang diberikan sekali lewat ADB. */
+    private fun enableFreeform() {
+        try {
+            Settings.Global.putInt(contentResolver, "enable_freeform_support", 1)
+            Settings.Global.putInt(contentResolver, "force_resizable_activities", 1)
+            showFreeInfo()
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Berhasil diaktifkan")
+                .setMessage("Restart HP supaya berlaku, lalu coba menu Apps lagi.")
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (e: SecurityException) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Butuh izin sekali lewat ADB")
+                .setMessage(
+                    "Sambungkan HP ke komputer (Debugging USB aktif), lalu jalankan:\n\n" +
+                        "adb shell pm grant com.example.floatstudy android.permission.WRITE_SECURE_SETTINGS\n\n" +
+                        "Setelah itu tekan Aktifkan otomatis lagi. Atau langsung lewat ADB:\n\n" +
+                        "adb shell settings put global enable_freeform_support 1\n" +
+                        "adb shell settings put global force_resizable_activities 1\n\n" +
+                        "lalu restart HP."
+                )
+                .setPositiveButton("OK", null)
+                .show()
+        }
     }
 
     private val appsInfo by lazy {
