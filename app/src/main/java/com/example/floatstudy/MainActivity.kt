@@ -145,6 +145,9 @@ class MainActivity : Activity() {
         }
         apiViews.add(spaced(keyIn))
         apiViews.add(spaced(modelIn))
+        apiViews.add(spaced(Ui.button(this, "Buka Google AI Studio", false) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
+        }))
         gAi.add(sec("API key dan model", *apiViews.toTypedArray()))
 
         // ---- tampilan ----
@@ -166,7 +169,14 @@ class MainActivity : Activity() {
         ))
         gApps.add(sec("Jendela bebas",
             freeInfo,
-            spaced(Ui.button(this, "Aktifkan otomatis", true) { enableFreeform() })
+            spaced(Ui.button(this, "Aktifkan otomatis", true) { enableFreeform() }),
+            spaced(Ui.button(this, "Buka Opsi pengembang", false) {
+                try {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                } catch (e: Exception) {
+                    android.widget.Toast.makeText(this, "Buka Pengaturan > Opsi pengembang manual", android.widget.Toast.LENGTH_LONG).show()
+                }
+            })
         ))
         gCtl.add(sec("Gestur bubble",
             gestureButton("Ketuk sekali", 0),
@@ -199,7 +209,9 @@ class MainActivity : Activity() {
 
         // ---- auto clicker ----
         gMore.add(sec("Auto Clicker",
-            note("Aktif bila izin Aksesibilitas flooww diberikan (bagian Izin di atas).")
+            spaced(Ui.button(this, "Aktifkan di pengaturan aksesibilitas", false) {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            })
         ))
 
         col.addView(TextView(this).apply {

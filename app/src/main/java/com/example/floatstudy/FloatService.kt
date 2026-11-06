@@ -1719,7 +1719,7 @@ class FloatService : Service() {
         fun refresh() {
             status.text = when {
                 ClickService.instance == null ->
-                    "Aksesibilitas belum aktif. Berikan izin di aplikasi flooww."
+                    "Aksesibilitas belum aktif."
                 target == null ->
                     "Pasang target dulu."
                 else ->
@@ -1728,6 +1728,9 @@ class FloatService : Service() {
         }
 
         col.addView(status)
+        col.addView(btn("Buka pengaturan aksesibilitas") {
+            startFloating(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }, lay(MATCH, WRAP, 0f, 3))
         col.addView(btn("Pasang / hapus target") {
             if (target == null) showTarget() else removeTarget()
             refresh()
@@ -1908,6 +1911,13 @@ class FloatService : Service() {
         val col = vbox()
         val title = note("")
         val grid = vbox()
+        val devBtn = btn("Mode jendela") {
+            try {
+                startFloating(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+            } catch (e: Exception) {
+                toast("Buka Pengaturan > Opsi pengembang secara manual")
+            }
+        }
         val status = TextView(c).apply {
             text = freeformStatus()
             textSize = 12f
@@ -1965,7 +1975,8 @@ class FloatService : Service() {
             }
         }
 
-                col.addView(status)
+                col.addView(row(devBtn))
+        col.addView(status)
         col.addView(title)
         col.addView(grid)
         render()
