@@ -821,31 +821,16 @@ class FloatService : Service() {
         selector = v
     }
 
+    /** Cari gambar dengan Google Lens di browser mengambang. Gambar otomatis terpilih saat situs meminta file. */
     private fun searchWithLens(bmp: Bitmap, onMsg: (String) -> Unit) {
         try {
             val dir = File(cacheDir, "shared").apply { mkdirs() }
             val f = File(dir, "crop.png")
             f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-            val uri = FileProvider.getUriForFile(c, "$packageName.files", f)
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "image/png"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                clipData = ClipData.newRawUri("", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            val lens = Intent(send).setClassName(
-                "com.google.android.googlequicksearchbox",
-                "com.google.android.apps.search.lens.LensShareEntryPointActivity"
-            )
-            try {
-                startActivity(lens)
-            } catch (e: Exception) {
-                startActivity(
-                    Intent.createChooser(send, "Cari gambar dengan")
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-            }
-            hidePanel()
+            pendingUpload = Uri.fromFile(f)
+            openTool(M_BROWSER)
+            web?.loadUrl("https://lens.google.com/")
+            onMsg("Google Lens dibuka. Tekan tombol unggah gambar, gambar terpilih otomatis.")
         } catch (e: Exception) {
             onMsg("Gagal: ${e.message}")
         }
@@ -1386,9 +1371,7 @@ class FloatService : Service() {
 
         col.addView(status)
         col.addView(btn("Buka pengaturan aksesibilitas") {
-            startActivity(
-                Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
+            startFloating(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }, lay(MATCH, WRAP, 0f, 3))
         col.addView(btn("Pasang / hapus target") {
             if (target == null) showTarget() else removeTarget()
@@ -1531,6 +1514,11 @@ class FloatService : Service() {
             toast("Aplikasi tidak bisa dibuka")
             return
         }
+        startFloating(i)
+    }
+
+    /** Semua layar lain yang dibuka dari flooww (aplikasi, pengaturan, dll.) lewat sini agar tidak layar penuh. */
+    private fun startFloating(i: Intent) {
         // MULTIPLE_TASK: tanpa ini, aplikasi yang sudah berjalan hanya dibawa ke depan
         // di jendela lamanya dan ukuran jendela diabaikan.
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
@@ -1567,14 +1555,11 @@ class FloatService : Service() {
         val grid = vbox()
         val addBtn = btn("+ Tambah aplikasi", true) {
             toast("Tambah aplikasi di pengaturan aplikasi flooww")
-            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startFloating(Intent(this, MainActivity::class.java))
         }
         val devBtn = btn("Mode jendela") {
             try {
-                startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
+                startFloating(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
             } catch (e: Exception) {
                 toast("Buka Pengaturan > Opsi pengembang secara manual")
             }
@@ -1658,7 +1643,7 @@ class FloatService : Service() {
     private fun startAuto() {
         if (Prefs.key(c).isBlank()) {
             toast("Isi API key Gemini di aplikasi flooww dulu")
-            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            startFloating(Intent(this, MainActivity::class.java))
             return
         }
         val g = grab
