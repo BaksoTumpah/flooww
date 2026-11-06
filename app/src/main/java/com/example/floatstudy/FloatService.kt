@@ -19,6 +19,7 @@ import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -35,6 +36,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.EditText
@@ -688,13 +691,11 @@ class FloatService : Service() {
                 return@pickRegion
             }
             when (id) {
-                M_ASK -> toast(ShareAi.sendImage(c, bmp, Prefs.prompt(c)))
-                M_TR -> toast(
-                    ShareAi.sendImage(
-                        c, bmp,
-                        "Baca semua teks pada gambar, lalu terjemahkan ke bahasa " +
-                            "${Prefs.LANGS[Prefs.lang(c)]}. Tulis hanya hasil terjemahannya."
-                    )
+                M_ASK -> askWeb(bmp, Prefs.prompt(c))
+                M_TR -> askWeb(
+                    bmp,
+                    "Baca semua teks pada gambar, lalu terjemahkan ke bahasa " +
+                        "${Prefs.LANGS[Prefs.lang(c)]}. Tulis hanya hasil terjemahannya."
                 )
                 M_COPY -> {
                     openTool(M_COPY)
@@ -703,6 +704,44 @@ class FloatService : Service() {
                 M_IMG -> searchWithLens(bmp) { toast(it) }
             }
         }
+    }
+
+    // ---------- Tanya AI lewat browser mengambang ----------
+
+    private val AI_WEB = listOf("https://gemini.google.com/app", "https://chatgpt.com/", "https://claude.ai/new")
+    private val AI_WEB_Q = listOf(null, "https://chatgpt.com/?q=", "https://claude.ai/new?q=")
+
+    // gambar yang akan dilampirkan otomatis saat situs AI membuka pemilih file
+    private var pendingUpload: Uri? = null
+
+    /**
+     * Buka situs AI pilihan di browser mengambang (bukan aplikasi AI yang terpasang).
+     * Gambar disiapkan: saat Anda menekan tombol lampirkan di situs, gambar langsung terpilih.
+     * Perintah: ChatGPT dan Claude menerimanya lewat alamat, Gemini lewat tombol tempel di header.
+     */
+    private fun askWeb(bmp: Bitmap?, prompt: String) {
+        val target = Prefs.aiTarget(c)
+        val name = Prefs.AI_NAMES[target]
+        pendingUpload = null
+        if (bmp != null) {
+            try {
+                val dir = File(cacheDir, "shared").apply { mkdirs() }
+                val f = File(dir, "ask.jpg")
+                f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+                pendingUpload = Uri.fromFile(f)
+            } catch (e: Exception) {
+                toast("Gagal menyiapkan gambar: ${e.message}")
+            }
+        }
+        lastCopied = prompt
+        val base = AI_WEB_Q[target]
+        val url = if (base != null) base + URLEncoder.encode(prompt.take(1500), "UTF-8") else AI_WEB[target]
+        openTool(M_BROWSER)
+        web?.loadUrl(url)
+        toast(
+            if (bmp != null) "Membuka $name. Tekan tombol lampirkan di situs, gambar soal otomatis terpilih."
+            else "Membuka $name."
+        )
     }
 
     // ---------- ambil area layar ----------
@@ -1077,7 +1116,7 @@ class FloatService : Service() {
                 },
                 btn("Kirim ke AI") {
                     if (ocrText.isBlank()) toast("Belum ada teks")
-                    else toast(ShareAi.sendText(c, ocrText, Prefs.prompt(c)))
+                    else askWeb(null, Prefs.prompt(c) + "\n\n" + ocrText)
                 }
             )
         )
@@ -1101,6 +1140,26 @@ class FloatService : Service() {
         val w = WebView(c).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            // beberapa situs menolak WebView. Samarkan "wv" agar tampil seperti Chrome biasa.
+            settings.userAgentString = settings.userAgentString.replace("; wv", "")
+            webChromeClient = object : WebChromeClient() {
+                override fun onShowFileChooser(
+                    wv: WebView?,
+                    cb: ValueCallback<Array<Uri>>?,
+                    params: FileChooserParams?
+                ): Boolean {
+                    val u = pendingUpload
+                    if (u != null) {
+                        cb?.onReceiveValue(arrayOf(u))
+                        pendingUpload = null
+                        toast("Gambar soal dilampirkan")
+                    } else {
+                        cb?.onReceiveValue(null)
+                        toast("Belum ada gambar. Pakai Tanya AI dulu untuk mengambil soal.")
+                    }
+                    return true
+                }
+            }
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, u: String?) {
                     if (!url.hasFocus() && u != null) url.setText(u)
@@ -1108,10 +1167,24 @@ class FloatService : Service() {
             }
             loadUrl("https://www.google.com")
         }
+        // tempel ke kolom ketik di halaman (mis. kolom pesan situs AI). Bila tidak ada, jadi kata pencarian.
         pasteFns[M_BROWSER] = { t ->
-            val q = t.trim().replace('\n', ' ')
-            url.setText(q)
-            w.loadUrl(toUrl(q))
+            val js = "(function(t){var e=document.activeElement;" +
+                "var ok=function(x){return x&&(x.isContentEditable||x.tagName=='TEXTAREA'||(x.tagName=='INPUT'&&/^(text|search|)$/i.test(x.type)));};" +
+                "if(!ok(e)){e=document.querySelector('textarea,[contenteditable=\"true\"],input[type=text],input[type=search]');}" +
+                "if(!e)return 0;e.focus();" +
+                "if(e.isContentEditable){document.execCommand('insertText',false,t);}" +
+                "else{var p=e.tagName=='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;" +
+                "Object.getOwnPropertyDescriptor(p,'value').set.call(e,t);e.dispatchEvent(new Event('input',{bubbles:true}));}" +
+                "return 1;})(" + org.json.JSONObject.quote(t) + ")"
+            w.evaluateJavascript(js) { r ->
+                if (r != "1") {
+                    val q = t.trim().replace('\n', ' ')
+                    url.setText(q)
+                    w.loadUrl(toUrl(q))
+                    toast("Tidak ada kolom ketik di halaman, dicari di Google")
+                }
+            }
         }
         url.setOnEditorActionListener { _, _, _ ->
             val t = url.text.toString().trim()

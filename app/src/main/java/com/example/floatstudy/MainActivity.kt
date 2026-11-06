@@ -95,7 +95,7 @@ class MainActivity : Activity() {
         }
         showLang()
         col.addView(card("AI untuk Tanya AI dan Terjemah",
-            note("Gambar yang Anda lingkari dikirim langsung ke aplikasi AI ini (atau websitenya bila aplikasinya belum terpasang). Tidak memakai API key."),
+            note("Gambar yang Anda lingkari dibuka di browser mengambang pada website AI ini (bukan aplikasi AI yang terpasang). Tekan tombol lampirkan di situs, gambar soal otomatis terpilih. Login di situs sekali, sesinya tersimpan. Tidak memakai API key."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn),
             spaced(langBtn)

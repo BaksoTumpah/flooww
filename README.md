@@ -10,9 +10,9 @@ Alat yang mengambil soal dari layar (Tanya AI, Salin, Terjemah, Gambar) langsung
 
 | Menu | Fungsi |
 | --- | --- |
-| Tanya AI | Lingkari soal, gambar langsung dikirim ke Gemini, ChatGPT, atau Claude (pilih di aplikasi) |
+| Tanya AI | Lingkari soal, gambar dibuka di browser mengambang pada website Gemini, ChatGPT, atau Claude (pilih di aplikasi), gambar otomatis terlampir |
 | Salin | Lingkari area, baca teks (OCR di HP), otomatis tersalin |
-| Terjemah | Lingkari teks, dikirim ke AI pilihan dengan perintah terjemah |
+| Terjemah | Lingkari teks, dibuka di website AI pilihan dengan perintah terjemah |
 | Gambar | Lingkari area lalu cari dengan Google Lens |
 | Browser | Browser mini di jendela mengambang |
 | Chat | Tanya jawab dengan Gemini (memakai API key) |
