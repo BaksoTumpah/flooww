@@ -799,7 +799,7 @@ class FloatService : Service() {
         refreshAttach()
         web?.loadUrl(url)
         toast(
-            if (bmp != null) "Membuka $name. Gambar soal dilampirkan otomatis. Bila belum, tekan ikon gambar di header."
+            if (bmp != null) "Membuka $name…"
             else "Membuka $name."
         )
     }
@@ -932,7 +932,7 @@ class FloatService : Service() {
             openTool(M_BROWSER)
             refreshAttach()
             web?.loadUrl("https://lens.google.com/")
-            onMsg("Google Lens dibuka. Tekan tombol unggah gambar, gambar terpilih otomatis.")
+            onMsg("Membuka Google Lens…")
         } catch (e: Exception) {
             onMsg("Gagal: ${e.message}")
         }
@@ -1031,7 +1031,7 @@ class FloatService : Service() {
         val fn = pasteFns[curTool] ?: return
         val t = clipText()
         if (t.isBlank()) {
-            toast("Belum ada teks. Salin teks dari gambar dulu lewat menu Salin.")
+            toast("Belum ada teks")
             return
         }
         fn(t)
@@ -1140,7 +1140,7 @@ class FloatService : Service() {
                         refreshAttach()
                         toast("Gambar soal terlampir")
                     } else {
-                        toast("Kolom pesan belum ketemu. Ketuk kolom pesan di situs lalu coba lagi.")
+                        toast("Kolom pesan tidak ketemu")
                     }
                 }
             }
@@ -1222,7 +1222,7 @@ class FloatService : Service() {
     private fun trView(): View {
         val col = vbox()
         val out = resultText().apply {
-            text = "Lingkari teks di layar. Teks dibaca lalu diterjemahkan di HP ke bahasa ${Prefs.LANGS[Prefs.lang(c)]}. Bahasa tujuan diatur di aplikasi."
+            text = "Lingkari teks di layar."
         }
         trOut = out
         col.addView(
@@ -1274,7 +1274,7 @@ class FloatService : Service() {
                 .setTargetLanguage(to)
                 .build()
         )
-        out.text = "Menyiapkan model bahasa… (unduh sekali, butuh internet)"
+        out.text = "Menyiapkan model bahasa…"
         tr.downloadModelIfNeeded(com.google.mlkit.common.model.DownloadConditions.Builder().build())
             .addOnSuccessListener {
                 out.text = "Menerjemahkan…"
@@ -1295,7 +1295,7 @@ class FloatService : Service() {
     private fun copyView(): View {
         val col = vbox()
         copyOut = resultText().apply {
-            text = "Lingkari bagian layar yang berisi teks. Teks dibaca di HP lalu otomatis disalin."
+            text = "Lingkari teks di layar."
         }
         col.addView(
             row(
@@ -1356,7 +1356,7 @@ class FloatService : Service() {
                         toast("Gambar soal dilampirkan")
                     } else {
                         cb?.onReceiveValue(null)
-                        toast("Belum ada gambar. Pakai Tanya AI dulu untuk mengambil soal.")
+                        toast("Belum ada gambar")
                     }
                     return true
                 }
@@ -1417,7 +1417,7 @@ class FloatService : Service() {
         val col = vbox()
         val list = vbox().apply { setPadding(dp(2), dp(4), dp(2), dp(4)) }
         val scroll = ScrollView(c).apply { addView(list) }
-        val empty = note("Tanya apa saja. Jawaban memakai API key Gemini dari pengaturan aplikasi.")
+        val empty = note("Tanya apa saja.")
         list.addView(empty)
 
         fun bubbleOf(role: String, text: String): TextView {
@@ -1473,7 +1473,12 @@ class FloatService : Service() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.BOTTOM
             addView(input, lay(0, WRAP, 1f, 2))
-            addView(send, lay(WRAP, WRAP, 0f, 2))
+            addView(LinearLayout(c).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(send, lay(WRAP, WRAP, 0f, 2))
+                // setText dari kode, tanpa fokus: aplikasi di bawah jendela tetap memegang fokus
+                addView(btn("Hapus") { input.setText("") }, lay(WRAP, WRAP, 0f, 2))
+            })
         })
         return col
     }
@@ -1573,11 +1578,11 @@ class FloatService : Service() {
         fun refresh() {
             status.text = when {
                 ClickService.instance == null ->
-                    "Layanan aksesibilitas belum aktif. Tekan tombol di bawah, pilih flooww Auto Clicker, lalu aktifkan."
+                    "Aksesibilitas belum aktif."
                 target == null ->
-                    "Tekan 'Pasang / hapus target', lalu geser tanda + ke titik yang ingin diketuk."
+                    "Pasang target dulu."
                 else ->
-                    "Target siap. Tekan Mulai. Untuk berhenti, ketuk bubble merah."
+                    "Target siap."
             }
         }
 
@@ -1753,8 +1758,8 @@ class FloatService : Service() {
             }
             startActivity(i, o.toBundle())
             when {
-                !freeformOn() -> toast("Mode jendela bebas belum aktif di HP, aplikasi terbuka layar penuh. Lihat pengaturan flooww > Jendela bebas.")
-                !forced -> toast("HP memblokir pengaturan jendela. Aplikasi mungkin terbuka layar penuh.")
+                !freeformOn() -> toast("Mode jendela bebas belum aktif")
+                !forced -> toast("Jendela bebas diblokir HP")
             }
         } catch (e: Exception) {
             toast("Gagal membuka: ${e.message}")
@@ -1782,14 +1787,6 @@ class FloatService : Service() {
             setTextColor(P.on)
             setPadding(dp(2), dp(6), dp(2), dp(2))
         }
-        val hint = note(
-            "Di Opsi pengembang aktifkan 'Jendela bentuk bebas' dan 'Paksa aktivitas dapat " +
-                "diubah ukuran', lalu RESTART HP. Atau lewat komputer (ADB): " +
-                "settings put global enable_freeform_support 1 dan " +
-                "settings put global force_resizable_activities 1, lalu restart. " +
-                "Ukuran jendela aplikasi diatur di aplikasi flooww. Beberapa merek (Samsung, " +
-                "Xiaomi, dll.) membatasi ini. Tanpa mode bebas, aplikasi terbuka layar penuh."
-        )
 
         fun cell(app: AppItem, tap: () -> Unit, long: () -> Unit): View =
             LinearLayout(c).apply {
@@ -1820,9 +1817,9 @@ class FloatService : Service() {
             val items = Prefs.pinned(c).mapNotNull { p -> all.find { it.pkg == p } }
             status.text = freeformStatus()
             title.text = if (items.isEmpty()) {
-                "Belum ada aplikasi. Tambahkan lewat aplikasi flooww, bagian Aplikasi di menu Apps."
+                "Belum ada aplikasi."
             } else {
-                "Ketuk untuk membuka sebagai jendela. Tekan lama untuk menghapus."
+                ""
             }
             items.chunked(4).forEach { chunk ->
                 val line = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
@@ -1845,7 +1842,6 @@ class FloatService : Service() {
         col.addView(status)
         col.addView(title)
         col.addView(grid)
-        col.addView(hint)
         render()
         return scrolled(col)
     }

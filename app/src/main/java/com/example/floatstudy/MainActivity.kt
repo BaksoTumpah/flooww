@@ -95,18 +95,16 @@ class MainActivity : Activity() {
         }
         showLang()
         col.addView(card("AI untuk Tanya AI",
-            note("Gambar yang Anda lingkari dibuka di browser mengambang pada website AI ini (bukan aplikasi AI yang terpasang). Tekan tombol lampirkan di situs, gambar soal otomatis terpilih. Login di situs sekali, sesinya tersimpan. Tidak memakai API key."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn)
         ))
         col.addView(card("Terjemah",
-            note("Teks pada area yang dilingkari dibaca dan diterjemahkan langsung di HP, tanpa website dan tanpa API key. Model bahasa diunduh sekali (sekitar 30 MB per bahasa), setelah itu bisa offline. Hanya huruf Latin yang terbaca."),
             spaced(langBtn)
         ))
 
         // ---- API key ----
         val apiViews = mutableListOf<View>()
-        apiViews.add(note("Dipakai hanya oleh Chat dan Auto Jawab. Buat key gratis di Google AI Studio (aistudio.google.com/apikey), lalu tempel di sini."))
+        apiViews.add(note("Untuk Chat dan Auto Jawab. Key gratis: aistudio.google.com/apikey"))
         if (Prefs.hasBuiltInKey()) {
             apiViews.add(TextView(this).apply {
                 text = "Key bawaan sudah tertanam di aplikasi ini. Isian di bawah menggantikannya bila diisi."
@@ -155,11 +153,9 @@ class MainActivity : Activity() {
             slider("Opasitas", Setting.MENU_ALPHA, "%")
         ))
         col.addView(card("Keyboard di jendela mengambang",
-            note("Diblokir: jendela mengambang tidak bisa menerima ketikan, keyboard tidak akan muncul. Gunakan tombol tempel di header jendela untuk menempel teks hasil salin dari gambar. Diizinkan: kolom di jendela bisa diketik, tetapi jendela mengambil fokus sehingga keyboard bisa muncul di atas aplikasi lain. Layar pengaturan ini selalu bisa memakai keyboard."),
             segmented(listOf("Diblokir", "Diizinkan"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) }
         ))
         col.addView(card("Jendela bebas (untuk menu Apps)",
-            note("Aplikasi hanya bisa terbuka sebagai jendela mengambang bila HP mengaktifkan mode jendela bebas. Tanpa itu, aplikasi terbuka layar penuh."),
             freeInfo,
             spaced(Ui.button(this, "Aktifkan otomatis", true) { enableFreeform() }),
             spaced(Ui.button(this, "Buka Opsi pengembang", false) {
@@ -168,24 +164,19 @@ class MainActivity : Activity() {
                 } catch (e: Exception) {
                     android.widget.Toast.makeText(this, "Buka Pengaturan > Opsi pengembang manual", android.widget.Toast.LENGTH_LONG).show()
                 }
-            }),
-            note("Beberapa merek (Xiaomi, Samsung, dll.) memblokir jendela bebas untuk aplikasi pihak ketiga walau opsinya sudah aktif.")
+            })
         ))
         col.addView(card("Aplikasi di menu Apps",
-            note("Pilih aplikasi yang bisa dibuka sebagai jendela mengambang dari menu Apps."),
             appsInfo,
             spaced(Ui.button(this, "Pilih aplikasi", true) { pickApps() })
         ))
         col.addView(card("Gestur bubble",
-            note("Atur apa yang terjadi saat bubble diketuk sekali, dua kali, atau ditekan lama. Saat Auto Jawab atau auto clicker menyala, gestur apa pun mematikannya."),
             gestureButton("Ketuk sekali", 0),
             gestureButton("Ketuk dua kali", 1),
             gestureButton("Tekan lama", 2),
             slider("Lama tekan", Setting.LONG_MS, " ms"),
-            note("Bila ketuk dua kali dipakai, ketuk sekali jadi tertunda sekitar 0,3 detik untuk menunggu ketukan kedua.")
         ))
         col.addView(card("Jendela alat",
-            note("Jendela bisa ditarik dari tepi mana pun: tepi kanan atau kiri melebarkan, tepi atas atau bawah memanjangkan, pojok mengubah keduanya."),
             slider("Lebar", Setting.WIN_W, " dp"),
             slider("Tinggi", Setting.WIN_H, " dp"),
             slider("Opasitas", Setting.WIN_ALPHA, "%"),
@@ -202,16 +193,13 @@ class MainActivity : Activity() {
 
         // ---- auto clicker ----
         col.addView(card("Auto Clicker",
-            note("Memakai layanan aksesibilitas hanya untuk mengetuk satu titik yang Anda tentukan. Tidak membaca isi layar. Bisa dimatikan kapan saja di Pengaturan > Aksesibilitas."),
             spaced(Ui.button(this, "Aktifkan di pengaturan aksesibilitas", false) {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             })
         ))
 
         col.addView(TextView(this).apply {
-            text = "Privasi: layar hanya diambil saat Anda melingkari area atau menyalakan Auto Jawab, " +
-                "lalu dikirim ke AI yang Anda pilih. Notifikasi aktif selalu terlihat selama bubble berjalan. " +
-                "Hormati aturan sekolah, kampus, dan ujian saat memakai aplikasi ini."
+            text = "Layar hanya diambil saat Anda memakai fitur baca layar."
             textSize = 12f
             setTextColor(p.muted)
             setPadding(dp(4), dp(8), dp(4), 0)
@@ -276,7 +264,7 @@ class MainActivity : Activity() {
         val rs = globalOn("force_resizable_activities")
         freeInfo.text = "Jendela bentuk bebas: " + (if (ff) "aktif" else "BELUM aktif") +
             "\nPaksa aktivitas dapat diubah ukuran: " + (if (rs) "aktif" else "BELUM aktif") +
-            "\nSetelah mengaktifkan, restart HP."
+            ""
     }
 
     /** Menulis setelan sistem sendiri. Butuh izin WRITE_SECURE_SETTINGS yang diberikan sekali lewat ADB. */
@@ -287,19 +275,14 @@ class MainActivity : Activity() {
             showFreeInfo()
             android.app.AlertDialog.Builder(this)
                 .setTitle("Berhasil diaktifkan")
-                .setMessage("Restart HP supaya berlaku, lalu coba menu Apps lagi.")
+                .setMessage("Restart HP.")
                 .setPositiveButton("OK", null)
                 .show()
         } catch (e: SecurityException) {
             android.app.AlertDialog.Builder(this)
-                .setTitle("Butuh izin sekali lewat ADB")
+                .setTitle("Butuh izin ADB")
                 .setMessage(
-                    "Sambungkan HP ke komputer (Debugging USB aktif), lalu jalankan:\n\n" +
-                        "adb shell pm grant com.example.floatstudy android.permission.WRITE_SECURE_SETTINGS\n\n" +
-                        "Setelah itu tekan Aktifkan otomatis lagi. Atau langsung lewat ADB:\n\n" +
-                        "adb shell settings put global enable_freeform_support 1\n" +
-                        "adb shell settings put global force_resizable_activities 1\n\n" +
-                        "lalu restart HP."
+                    "adb shell pm grant com.example.floatstudy android.permission.WRITE_SECURE_SETTINGS"
                 )
                 .setPositiveButton("OK", null)
                 .show()
