@@ -366,6 +366,8 @@ class FloatService : Service() {
     private fun scrolled(col: LinearLayout): View =
         ScrollView(c).apply { addView(col, MATCH, WRAP) }
 
+    private val HOLD_MS = 300L
+
     private fun toast(t: String) = Toast.makeText(c, t, Toast.LENGTH_SHORT).show()
 
     private fun makeDraggable(
@@ -374,14 +376,19 @@ class FloatService : Service() {
         lp: WindowManager.LayoutParams,
         onTap: (() -> Unit)? = null,
         onDouble: (() -> Unit)? = null,
-        onLong: (() -> Unit)? = null
+        onLong: (() -> Unit)? = null,
+        holdDrag: Boolean = false,
+        onSwipe: ((Int) -> Unit)? = null,
+        onDrop: (() -> Unit)? = null
     ) {
         handle.setOnTouchListener(object : View.OnTouchListener {
             var sx = 0
             var sy = 0
             var tx = 0f
             var ty = 0f
-            var moved = false
+            var moved = false      // sudah menggeser bubble
+            var armed = !holdDrag  // siap digeser (setelah ditahan sebentar)
+            var swiping = false    // jari bergerak sebelum siap: dihitung sapuan
             var longDone = false
             var pendingTap: Runnable? = null
             // gestur hanya berlaku bila dipilih di pengaturan dan tidak sedang ada mode aktif
@@ -395,17 +402,35 @@ class FloatService : Service() {
                     onLong?.invoke()
                 }
             }
+            // ditahan sebentar: bubble "terangkat" dan sesudah itu bisa digeser
+            val armRun = Runnable {
+                if (!swiping) {
+                    armed = true
+                    handle.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    moving.animate().scaleX(1.12f).scaleY(1.12f).setDuration(90).start()
+                }
+            }
 
             override fun onTouch(v: View, e: MotionEvent): Boolean {
                 when (e.action) {
                     MotionEvent.ACTION_DOWN -> {
-                        sx = lp.x; sy = lp.y; tx = e.rawX; ty = e.rawY; moved = false; longDone = false
+                        sx = lp.x; sy = lp.y; tx = e.rawX; ty = e.rawY
+                        moved = false; longDone = false; swiping = false
+                        armed = !holdDrag
+                        if (holdDrag) ui.postDelayed(armRun, HOLD_MS)
                         if (longOn()) ui.postDelayed(longRun, pref(Setting.LONG_MS).toLong())
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (e.rawX - tx).toInt()
                         val dy = (e.rawY - ty).toInt()
-                        if (abs(dx) > dp(6) || abs(dy) > dp(6)) {
+                        val far = abs(dx) > dp(6) || abs(dy) > dp(6)
+                        if (far && !armed) {
+                            // bergerak sebelum ditahan: bukan geser bubble, mungkin sapuan
+                            swiping = true
+                            ui.removeCallbacks(armRun)
+                            ui.removeCallbacks(longRun)
+                        }
+                        if (far && armed) {
                             moved = true
                             ui.removeCallbacks(longRun)
                         }
@@ -415,10 +440,34 @@ class FloatService : Service() {
                             wm.updateViewLayout(moving, lp)
                         }
                     }
-                    MotionEvent.ACTION_CANCEL -> ui.removeCallbacks(longRun)
+                    MotionEvent.ACTION_CANCEL -> {
+                        ui.removeCallbacks(longRun)
+                        ui.removeCallbacks(armRun)
+                        moving.animate().scaleX(1f).scaleY(1f).setDuration(90).start()
+                    }
                     MotionEvent.ACTION_UP -> {
                         ui.removeCallbacks(longRun)
-                        if (!moved && !longDone) {
+                        ui.removeCallbacks(armRun)
+                        if (holdDrag) moving.animate().scaleX(1f).scaleY(1f).setDuration(90).start()
+                        if (moved) {
+                            onDrop?.invoke()
+                        } else if (swiping && !longDone) {
+                            val dx = e.rawX - tx
+                            val dy = e.rawY - ty
+                            val th = dp(36)
+                            // 3 atas, 4 bawah, 5 menuju tengah layar
+                            val dir = when {
+                                abs(dy) > abs(dx) && dy < -th -> 3
+                                abs(dy) > abs(dx) && dy > th -> 4
+                                abs(dx) >= abs(dy) && abs(dx) > th -> {
+                                    val (sw, _) = realSize()
+                                    val onLeft = lp.x + lp.width / 2 < sw / 2
+                                    if ((dx > 0) == onLeft) 5 else -1
+                                }
+                                else -> -1
+                            }
+                            if (dir > 0) onSwipe?.invoke(dir)
+                        } else if (!longDone) {
                             val waiting = pendingTap
                             if (waiting != null && dblOn()) {
                                 // ketukan kedua dalam jeda: dihitung ketuk dua kali
@@ -567,7 +616,10 @@ class FloatService : Service() {
         makeDraggable(b, b, lp,
             onTap = { onBubbleTap() },
             onDouble = { onBubbleGesture(1) },
-            onLong = { onBubbleGesture(2) }
+            onLong = { onBubbleGesture(2) },
+            holdDrag = true,
+            onSwipe = { onBubbleGesture(it) },
+            onDrop = { snapBubble() }
         )
         wm.addView(b, lp)
         bubble = b
@@ -606,21 +658,71 @@ class FloatService : Service() {
         }
     }
 
+    /** Bentuk yang tampil: saat Auto Jawab atau auto clicker aktif selalu bulat supaya tombol berhenti jelas. */
+    private fun shapeNow() = if (autoOn || clicking) 0 else Prefs.shape(c)
+
+    /** Bentuk tepi (panah dan garis) menempel di sisi layar terdekat. */
+    private fun snapBubble() {
+        val b = bubble ?: return
+        val lp = bubbleLp ?: return
+        val (sw, sh) = realSize()
+        lp.y = lp.y.coerceIn(0, sh - lp.height)
+        if (shapeNow() != 0) {
+            lp.x = if (lp.x + lp.width / 2 < sw / 2) 0 else sw - lp.width
+        } else {
+            lp.x = lp.x.coerceIn(0, sw - lp.width)
+        }
+        try {
+            wm.updateViewLayout(b, lp)
+        } catch (e: Exception) {
+        }
+        applyBubble(false)
+    }
+
     /** Bubble polos. Hanya saat Auto Jawab menyala tampil ✕, dan saat auto clicker berjalan tampil ■. */
-    private fun applyBubble() {
+    private fun applyBubble(snap: Boolean = true) {
         val b = bubble ?: return
         val lp = bubbleLp ?: return
         val sizeDp = pref(Setting.BUBBLE_SIZE)
-        lp.width = dp(sizeDp)
-        lp.height = dp(sizeDp)
+        val shape = shapeNow()
+        val (sw, _) = realSize()
+        val onLeft = lp.x + lp.width / 2 < sw / 2
+        val col = if (autoOn || clicking) 0xFFDC2626.toInt() else accent
+        // 0 bulat, 1 panah kecil di tepi, 2 garis tepi
+        when (shape) {
+            1 -> { lp.width = dpf(sizeDp * 0.55f); lp.height = dp(sizeDp) }
+            2 -> { lp.width = dp(18); lp.height = dpf(sizeDp * 1.3f) }
+            else -> { lp.width = dp(sizeDp); lp.height = dp(sizeDp) }
+        }
+        val d = GradientDrawable().apply {
+            setColor(col)
+            when (shape) {
+                0 -> { this.shape = GradientDrawable.OVAL; setStroke(dp(2), 0x80FFFFFF.toInt()) }
+                1 -> {
+                    val r = dpf(sizeDp * 0.3f).toFloat()
+                    // sisi yang menghadap tengah layar membulat penuh, sisi tepi rata
+                    cornerRadii = if (onLeft) floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+                    else floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
+                }
+                else -> cornerRadius = dp(3).toFloat()
+            }
+        }
+        b.background = if (shape == 2) {
+            // batang tipis di tepi, area sentuh tetap lebih lebar
+            val gap = dp(12)
+            android.graphics.drawable.InsetDrawable(
+                d, if (onLeft) 0 else gap, 0, if (onLeft) gap else 0, 0
+            )
+        } else d
         b.alpha = pref(Setting.BUBBLE_ALPHA) / 100f
         b.text = when {
             autoOn -> "✕"
             clicking -> "■"
+            shape == 1 -> if (onLeft) "›" else "‹"
             else -> ""
         }
-        b.setTextSize(TypedValue.COMPLEX_UNIT_DIP, sizeDp * 0.4f)
-        bubbleBg?.setColor(if (autoOn || clicking) 0xFFDC2626.toInt() else accent)
+        b.setTextSize(TypedValue.COMPLEX_UNIT_DIP, if (shape == 1) sizeDp * 0.5f else sizeDp * 0.4f)
+        if (snap && shape != 0) lp.x = if (onLeft) 0 else sw - lp.width
         try {
             wm.updateViewLayout(b, lp)
         } catch (e: Exception) {

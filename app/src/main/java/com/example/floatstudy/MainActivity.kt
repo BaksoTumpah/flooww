@@ -149,6 +149,8 @@ class MainActivity : Activity() {
 
         // ---- tampilan ----
         gLook.add(sec("Bubble",
+            label("Bentuk"),
+            segmented(Prefs.SHAPE_NAMES, { Prefs.shape(this) }) { Prefs.setShape(this, it) },
             slider("Ukuran", Setting.BUBBLE_SIZE, " dp"),
             slider("Opasitas", Setting.BUBBLE_ALPHA, "%"),
             label("Warna (juga dipakai menu)"),
@@ -170,6 +172,9 @@ class MainActivity : Activity() {
             gestureButton("Ketuk sekali", 0),
             gestureButton("Ketuk dua kali", 1),
             gestureButton("Tekan lama", 2),
+            gestureButton("Sapu ke atas", 3),
+            gestureButton("Sapu ke bawah", 4),
+            gestureButton("Sapu ke arah tengah layar", 5),
             slider("Lama tekan", Setting.LONG_MS, " ms"),
         ))
         gCtl.add(sec("Keyboard di jendela mengambang",

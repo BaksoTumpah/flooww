@@ -97,8 +97,17 @@ object Prefs {
         sp(c).edit().putInt("bubbleColor", color).apply()
     }
 
+    /** Bentuk bubble: 0 bulat, 1 panah kecil di tepi, 2 garis tepi. */
+    val SHAPE_NAMES = listOf("Bulat", "Panah", "Garis tepi")
+
+    fun shape(c: Context): Int = sp(c).getInt("bubbleShape", 0).coerceIn(0, 2)
+
+    fun setShape(c: Context, v: Int) {
+        sp(c).edit().putInt("bubbleShape", v).apply()
+    }
+
     fun resetLook(c: Context) {
-        val e = sp(c).edit().remove("bubbleColor")
+        val e = sp(c).edit().remove("bubbleColor").remove("bubbleShape")
         Setting.values().forEach { e.remove(it.key) }
         e.apply()
     }
@@ -110,10 +119,10 @@ object Prefs {
         "Tidak ada", "Buka menu", "Tanya AI", "Salin", "Terjemah", "Gambar",
         "Browser", "Chat", "Hitung", "Klik", "Apps", "Auto Jawab"
     )
-    private val gestureKeys = listOf("gTap", "gDouble", "gLong")
-    private val gestureDefs = intArrayOf(1, 2, 11)
+    private val gestureKeys = listOf("gTap", "gDouble", "gLong", "gUp", "gDown", "gSide")
+    private val gestureDefs = intArrayOf(1, 2, 11, 0, 0, 0)
 
-    /** Pilihan untuk gestur g: 0 ketuk, 1 ketuk dua kali, 2 tekan lama. */
+    /** Pilihan untuk gestur g: 0 ketuk, 1 dua kali, 2 tekan lama, 3 sapu atas, 4 sapu bawah, 5 sapu ke arah tengah layar. */
     fun gesture(c: Context, g: Int): Int =
         sp(c).getInt(gestureKeys[g], gestureDefs[g]).coerceIn(0, GESTURE_NAMES.size - 1)
 
