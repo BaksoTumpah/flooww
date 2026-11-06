@@ -211,27 +211,42 @@ class FloatService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (bubble != null) return START_NOT_STICKY
-
-        startAsForeground()
-        wm = getSystemService(WINDOW_SERVICE) as WindowManager
-
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
         @Suppress("DEPRECATION")
         val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
+
+        // izin tangkap layar baru diberikan (bubble sudah jalan, atau baru mulai)
+        startAsForeground(data != null)
         if (data != null) {
+            grab?.release()
             val g = ScreenGrabber(this, ui)
             val (w, h) = realSize()
-            g.start(code, data, w, h, resources.displayMetrics.densityDpi) { stopSelf() }
+            g.start(code, data, w, h, resources.displayMetrics.densityDpi) { grab = null }
             grab = g
         }
-        Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefListener)
-        showBubble()
-        return START_NOT_STICKY
+        if (bubble == null) {
+            wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefListener)
+            showBubble()
+        }
+        // dimulai ulang sistem bila prosesnya dimatikan; bubble tetap muncul
+        return START_STICKY
+    }
+
+    /** Minta izin tangkap layar lewat layar transparan (tanpa membuka halaman penuh). */
+    private fun needProjection() {
+        toast("Izinkan tangkap layar")
+        try {
+            startActivity(
+                Intent(this, ProjectionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            toast("Gagal meminta izin")
+        }
     }
 
     @Suppress("DEPRECATION")
-    private fun startAsForeground() {
+    private fun startAsForeground(projection: Boolean) {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel("float", "flooww", NotificationManager.IMPORTANCE_LOW)
@@ -246,13 +261,15 @@ class FloatService : Service() {
         )
         val n = Notification.Builder(this, "float")
             .setContentTitle("flooww aktif")
-            .setContentText("Bubble berjalan. Tekan Hentikan untuk menutup.")
+            .setContentText("Bubble berjalan.")
             .setSmallIcon(android.R.drawable.ic_menu_search)
             .setContentIntent(open)
             .addAction(android.R.drawable.ic_delete, "Hentikan", stop)
             .build()
         if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            if (projection || grab?.active == true) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            startForeground(1, n, type)
         } else {
             startForeground(1, n)
         }
@@ -738,7 +755,7 @@ class FloatService : Service() {
     private fun circleFirst(id: Int) {
         val g = grab
         if (g == null || !g.active) {
-            toast("Izin tangkap layar belum aktif. Hentikan lalu mulai lagi dari aplikasi.")
+            needProjection()
             return
         }
         pickRegion(false) { bmp ->
@@ -819,20 +836,28 @@ class FloatService : Service() {
             onResult(0)
             return
         }
-        val js = "(function(b){try{var s=atob(b),a=new Uint8Array(s.length);for(var i=0;i<s.length;i++)a[i]=s.charCodeAt(i);" +
+        // gambar diambil dari jembatan Android (bukan ditempel ke skrip) agar tidak terlalu besar
+        val js = "(function(){try{var b=window.floowwImg.get();if(!b)return 0;" +
+            "var s=atob(b),a=new Uint8Array(s.length);for(var i=0;i<s.length;i++)a[i]=s.charCodeAt(i);" +
             "var f=new File([a],'soal.jpg',{type:'image/jpeg'});var dt=new DataTransfer();dt.items.add(f);" +
-            "var ok=function(x){return x&&(x.isContentEditable||x.tagName=='TEXTAREA'||x.getAttribute&&x.getAttribute('role')=='textbox');};" +
+            // 1) input berkas yang menerima gambar (ChatGPT, Claude punya sejak awal)
+            "var ins=document.querySelectorAll('input[type=file]');var t=null;" +
+            "for(var k=0;k<ins.length;k++){var ac=(ins[k].accept||'');if(!ac||ac.indexOf('image')>=0||ac.indexOf('*')>=0){t=ins[k];break;}}" +
+            "if(t){t.files=dt.files;t.dispatchEvent(new Event('input',{bubbles:true}));t.dispatchEvent(new Event('change',{bubbles:true}));return 2;}" +
+            // 2) tempel + jatuhkan berkas ke kolom pesan
+            "var ok=function(x){return x&&(x.isContentEditable||x.tagName=='TEXTAREA'||(x.getAttribute&&x.getAttribute('role')=='textbox'));};" +
             "var e=document.activeElement;" +
-            "if(!ok(e))e=document.querySelector('textarea,[contenteditable=\"true\"],[role=\"textbox\"]');" +
-            "if(e){e.focus();e.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));return 1;}" +
-            "var i2=document.querySelector('input[type=file]');" +
-            "if(i2){i2.files=dt.files;i2.dispatchEvent(new Event('change',{bubbles:true}));return 2;}" +
-            "return 0;}catch(x){return 0;}})(\"" + b64 + "\")"
+            "if(!ok(e))e=document.querySelector('rich-textarea [contenteditable],div.ql-editor,textarea,[contenteditable=\\"true\\"],[role=\\"textbox\\"]');" +
+            "if(e){e.focus();" +
+            "e.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));" +
+            "['dragenter','dragover','drop'].forEach(function(n){e.dispatchEvent(new DragEvent(n,{dataTransfer:dt,bubbles:true,cancelable:true}));});" +
+            "return 1;}" +
+            "return 0;}catch(x){return 0;}})()"
         w.evaluateJavascript(js) { r -> onResult(r?.trim()?.toIntOrNull() ?: 0) }
     }
 
     /** Coba beberapa kali setelah halaman dimuat, karena kolom pesan situs AI muncul belakangan. */
-    private fun autoAttach(tries: Int = 4) {
+    private fun autoAttach(tries: Int = 12) {
         if (pendingB64 == null || tries <= 0) return
         ui.postDelayed({
             if (pendingB64 == null) return@postDelayed
@@ -846,7 +871,13 @@ class FloatService : Service() {
                     autoAttach(tries - 1)
                 }
             }
-        }, 1800)
+        }, 1500)
+    }
+
+    /** Jembatan agar skrip halaman bisa mengambil gambar soal. */
+    inner class ImgBridge {
+        @android.webkit.JavascriptInterface
+        fun get(): String = pendingB64 ?: ""
     }
 
     // ---------- ambil area layar ----------
@@ -854,7 +885,8 @@ class FloatService : Service() {
     private fun withRegion(full: Boolean, out: TextView, next: (Bitmap) -> Unit) {
         val g = grab
         if (g == null || !g.active) {
-            out.text = "Izin tangkap layar belum aktif. Hentikan lalu mulai lagi dari aplikasi."
+            out.text = "Menunggu izin tangkap layar…"
+            needProjection()
             return
         }
         out.text = if (full) "Mengambil layar…" else "Lingkari area di layar…"
@@ -1335,6 +1367,7 @@ class FloatService : Service() {
         val w = WebView(c).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            addJavascriptInterface(ImgBridge(), "floowwImg")
             // beberapa situs menolak WebView. Samarkan "wv" agar tampil seperti Chrome biasa.
             settings.userAgentString = settings.userAgentString.replace("; wv", "")
             // skala lebih kecil: halaman tampak lebih luas di jendela yang tetap kecil
@@ -1578,7 +1611,7 @@ class FloatService : Service() {
         fun refresh() {
             status.text = when {
                 ClickService.instance == null ->
-                    "Aksesibilitas belum aktif."
+                    "Aksesibilitas belum aktif. Berikan izin di aplikasi flooww."
                 target == null ->
                     "Pasang target dulu."
                 else ->
@@ -1587,9 +1620,6 @@ class FloatService : Service() {
         }
 
         col.addView(status)
-        col.addView(btn("Buka pengaturan aksesibilitas") {
-            startFloating(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }, lay(MATCH, WRAP, 0f, 3))
         col.addView(btn("Pasang / hapus target") {
             if (target == null) showTarget() else removeTarget()
             refresh()
@@ -1770,13 +1800,6 @@ class FloatService : Service() {
         val col = vbox()
         val title = note("")
         val grid = vbox()
-        val devBtn = btn("Mode jendela") {
-            try {
-                startFloating(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-            } catch (e: Exception) {
-                toast("Buka Pengaturan > Opsi pengembang secara manual")
-            }
-        }
         val status = TextView(c).apply {
             text = freeformStatus()
             textSize = 12f
@@ -1834,8 +1857,7 @@ class FloatService : Service() {
             }
         }
 
-        col.addView(row(devBtn))
-        col.addView(status)
+                col.addView(status)
         col.addView(title)
         col.addView(grid)
         render()
@@ -1852,7 +1874,7 @@ class FloatService : Service() {
         }
         val g = grab
         if (g == null || !g.active) {
-            toast("Izin tangkap layar belum aktif. Hentikan lalu mulai lagi dari aplikasi.")
+            needProjection()
             return
         }
         hidePanel()

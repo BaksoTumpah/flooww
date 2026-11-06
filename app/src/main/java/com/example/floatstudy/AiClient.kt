@@ -18,7 +18,10 @@ class AiError(val code: Int, message: String) : Exception(message)
 /** Klien Gemini. Hanya dipakai oleh Chat dan Auto Jawab. */
 object AiClient {
     private val http = OkHttpClient.Builder()
-        .callTimeout(90, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(75, TimeUnit.SECONDS)
+        .callTimeout(100, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     const val CHAT_SYSTEM =
@@ -85,9 +88,23 @@ object AiClient {
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
+        send(req, 1, cb)
+    }
+
+    private fun send(req: Request, retries: Int, cb: (Result<String>) -> Unit) {
         http.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                cb(Result.failure(AiError(0, "Tidak bisa terhubung. Periksa internet.")))
+                if (retries > 0 && !call.isCanceled()) {
+                    send(req, retries - 1, cb)
+                    return
+                }
+                val why = when (e) {
+                    is java.net.UnknownHostException -> "alamat server tidak ketemu (DNS). Matikan Private DNS/VPN atau coba ganti jaringan"
+                    is java.net.SocketTimeoutException -> "waktu habis, jaringan lambat"
+                    is javax.net.ssl.SSLException -> "gagal koneksi aman (cek jam HP, VPN)"
+                    else -> e.javaClass.simpleName + (e.message?.let { ": $it" } ?: "")
+                }
+                cb(Result.failure(AiError(0, "Gagal terhubung ke Gemini: $why. Pastikan izin baterai flooww 'Tanpa batasan'.")))
             }
 
             override fun onResponse(call: Call, response: Response) {

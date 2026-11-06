@@ -76,6 +76,8 @@ class MainActivity : Activity() {
             status
         ))
 
+        col.addView(permCard())
+
         val gAi = Group("AI dan terjemah", "Tujuan Tanya AI, API key, bahasa", true)
         val gLook = Group("Tampilan", "Bubble, menu, jendela", false)
         val gCtl = Group("Kontrol", "Gestur bubble, keyboard", false)
@@ -111,7 +113,7 @@ class MainActivity : Activity() {
 
         // ---- API key ----
         val apiViews = mutableListOf<View>()
-        apiViews.add(note("Untuk Chat dan Auto Jawab. Key gratis: aistudio.google.com/apikey"))
+        apiViews.add(note("Untuk Chat dan Auto Jawab. Key gratis dari Google AI Studio"))
         if (Prefs.hasBuiltInKey()) {
             apiViews.add(TextView(this).apply {
                 text = "Key bawaan sudah tertanam di aplikasi ini. Isian di bawah menggantikannya bila diisi."
@@ -143,9 +145,6 @@ class MainActivity : Activity() {
         }
         apiViews.add(spaced(keyIn))
         apiViews.add(spaced(modelIn))
-        apiViews.add(spaced(Ui.button(this, "Buka Google AI Studio", false) {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
-        }))
         gAi.add(sec("API key dan model", *apiViews.toTypedArray()))
 
         // ---- tampilan ----
@@ -165,14 +164,7 @@ class MainActivity : Activity() {
         ))
         gApps.add(sec("Jendela bebas",
             freeInfo,
-            spaced(Ui.button(this, "Aktifkan otomatis", true) { enableFreeform() }),
-            spaced(Ui.button(this, "Buka Opsi pengembang", false) {
-                try {
-                    startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-                } catch (e: Exception) {
-                    android.widget.Toast.makeText(this, "Buka Pengaturan > Opsi pengembang manual", android.widget.Toast.LENGTH_LONG).show()
-                }
-            })
+            spaced(Ui.button(this, "Aktifkan otomatis", true) { enableFreeform() })
         ))
         gCtl.add(sec("Gestur bubble",
             gestureButton("Ketuk sekali", 0),
@@ -202,9 +194,7 @@ class MainActivity : Activity() {
 
         // ---- auto clicker ----
         gMore.add(sec("Auto Clicker",
-            spaced(Ui.button(this, "Aktifkan di pengaturan aksesibilitas", false) {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            })
+            note("Aktif bila izin Aksesibilitas flooww diberikan (bagian Izin di atas).")
         ))
 
         col.addView(TextView(this).apply {
@@ -223,12 +213,107 @@ class MainActivity : Activity() {
                 addView(col, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
         )
+    }
 
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), reqNotif)
+    // ---------- izin (diminta berurutan saat aplikasi dibuka) ----------
+
+    private class Step(val name: String, val ok: () -> Boolean, val ask: () -> Unit, val optional: Boolean = false)
+
+    private val asked = mutableSetOf<String>()
+    private val permRows = mutableListOf<TextView>()
+    private var permSteps: List<Step> = emptyList()
+
+    private fun a11yOn(): Boolean {
+        if (ClickService.instance != null) return true
+        val s = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
+        return s.contains(packageName)
+    }
+
+    private fun batteryOk(): Boolean =
+        getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+
+    private fun xiaomi() = Build.MANUFACTURER.lowercase().let { it.contains("xiaomi") || it.contains("redmi") || it.contains("poco") }
+
+    private fun buildSteps(): List<Step> {
+        val l = mutableListOf<Step>()
+        l += Step("Tampil di atas aplikasi lain", { Settings.canDrawOverlays(this) }, {
+            startActivityForResult(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), reqOverlay
+            )
+        })
+        if (Build.VERSION.SDK_INT >= 33) {
+            l += Step("Notifikasi", {
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            }, { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), reqNotif) })
         }
+        l += Step("Tanpa batasan baterai", { batteryOk() }, {
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+                )
+            } catch (e: Exception) {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        })
+        if (xiaomi()) {
+            l += Step("Mulai otomatis (Xiaomi)", { Prefs.sp(this).getBoolean("autostartDone", false) }, {
+                Prefs.sp(this).edit().putBoolean("autostartDone", true).apply()
+                try {
+                    startActivity(Intent().setClassName(
+                        "com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"
+                    ))
+                } catch (e: Exception) {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                }
+            })
+        }
+        l += Step("Aksesibilitas (Auto Clicker)", { a11yOn() }, {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }, true)
+        return l
+    }
+
+    private fun permCard(): View {
+        permSteps = buildSteps()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        permSteps.forEach { s ->
+            val row = TextView(this).apply {
+                textSize = 14f
+                setPadding(0, dp(6), 0, dp(6))
+                setOnClickListener { if (!s.ok()) s.ask() }
+            }
+            permRows += row
+            box.addView(row)
+        }
+        refreshers.add { refreshPerm() }
+        return card("Izin", box, spaced(Ui.button(this, "Beri semua izin", true) {
+            asked.clear()
+            nextPermission()
+        }))
+    }
+
+    private fun refreshPerm() {
+        permSteps.forEachIndexed { i, s ->
+            val ok = s.ok()
+            permRows[i].text = (if (ok) "✓  " else "✕  ") + s.name
+            permRows[i].setTextColor(if (ok) 0xFF16A34A.toInt() else p.on)
+        }
+    }
+
+    /** Minta izin yang belum ada, satu per satu. Tiap izin hanya ditanyakan sekali per pembukaan. */
+    private fun nextPermission() {
+        refreshPerm()
+        val s = permSteps.firstOrNull { !it.ok() && it.name !in asked } ?: return
+        asked.add(s.name)
+        try {
+            s.ask()
+        } catch (e: Exception) {
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (permSteps.isNotEmpty()) window.decorView.postDelayed({ nextPermission() }, 350)
     }
 
     // ---------- komponen ----------
