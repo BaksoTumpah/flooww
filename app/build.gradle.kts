@@ -3,9 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// API key tetap: diambil dari env/secret saat build, tidak pernah ditulis ke source.
-val anthropicKey: String = (System.getenv("ANTHROPIC_API_KEY")
-    ?: (project.findProperty("ANTHROPIC_API_KEY") as String?)
+// API key Gemini opsional: diambil dari env/secret saat build, tidak pernah ditulis ke source.
+// Untuk APK yang disebar, biarkan kosong. Pengguna mengisi key sendiri di aplikasi.
+val geminiKey: String = (System.getenv("GEMINI_API_KEY")
+    ?: (project.findProperty("GEMINI_API_KEY") as String?)
     ?: "")
     .trim().replace("\"", "").replace("\\", "")
 
@@ -15,11 +16,35 @@ android {
 
     defaultConfig {
         applicationId = "com.example.floatstudy"
+        setProperty("archivesBaseName", "flooww")
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3.0"
-        buildConfigField("String", "API_KEY", "\"$anthropicKey\"")
+        versionCode = 6
+        versionName = "0.5.0"
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
+    }
+
+    // Tanda tangan tetap supaya APK baru bisa memperbarui yang lama (tanpa copot pasang).
+    // Bawaan: app/flooww.keystore. Untuk key sendiri, isi env FLOOWW_KEYSTORE_B64 / FLOOWW_STORE_PASSWORD /
+    // FLOOWW_KEY_ALIAS / FLOOWW_KEY_PASSWORD (mis. dari GitHub secrets) dan key bawaan tidak dipakai.
+    signingConfigs {
+        create("flooww") {
+            val b64 = System.getenv("FLOOWW_KEYSTORE_B64")?.trim().orEmpty()
+            if (b64.isNotEmpty()) {
+                val f = layout.buildDirectory.file("flooww-ci.keystore").get().asFile
+                f.parentFile.mkdirs()
+                f.writeBytes(java.util.Base64.getMimeDecoder().decode(b64))
+                storeFile = f
+                storePassword = System.getenv("FLOOWW_STORE_PASSWORD")
+                keyAlias = System.getenv("FLOOWW_KEY_ALIAS") ?: "flooww"
+                keyPassword = System.getenv("FLOOWW_KEY_PASSWORD") ?: System.getenv("FLOOWW_STORE_PASSWORD")
+            } else {
+                storeFile = file("flooww.keystore")
+                storePassword = "flooww-sign"
+                keyAlias = "flooww"
+                keyPassword = "flooww-sign"
+            }
+        }
     }
 
     buildFeatures {
@@ -27,8 +52,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("flooww")
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("flooww")
         }
     }
     compileOptions {

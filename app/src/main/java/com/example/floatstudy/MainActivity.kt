@@ -5,126 +5,206 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
+import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 
+/** Layar pengaturan. Semua pengaturan bubble, menu, jendela, AI, dan API key ada di sini. */
 class MainActivity : Activity() {
 
     private val reqOverlay = 1
     private val reqProjection = 2
     private val reqNotif = 3
 
-    private var keyIn: EditText? = null
-    private lateinit var modelIn: EditText
+    private lateinit var p: Pal
     private lateinit var status: TextView
+    private val refreshers = mutableListOf<() -> Unit>()
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun dp(v: Float) = Ui.dp(this, v)
+    private fun dp(v: Int) = Ui.dp(this, v.toFloat())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        p = Ui.pal(this)
 
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(32), dp(20), dp(20))
+            setPadding(dp(16), dp(28), dp(16), dp(24))
         }
 
         col.addView(TextView(this).apply {
-            text = "FloatStudy"
+            text = "flooww"
             textSize = 26f
-            setTextColor(Color.parseColor("#2563EB"))
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(p.on)
         })
         col.addView(TextView(this).apply {
-            text = "Bubble mengambang untuk belajar. Ketuk bubble, pilih alat, lalu pakai. Ukuran, warna, dan opasitas diatur lewat menu ⚙ Atur."
+            text = "Bubble mengambang untuk belajar. Ketuk bubble, pilih alat, lalu pakai."
             textSize = 14f
-            setPadding(0, dp(4), 0, dp(16))
+            setTextColor(p.muted)
+            setPadding(0, dp(2), 0, dp(14))
         })
 
-        if (Prefs.hasBuiltInKey()) {
-            col.addView(TextView(this).apply {
-                text = "API key: sudah tertanam di aplikasi. Tidak perlu diisi."
-                textSize = 13f
-                setTextColor(Color.parseColor("#16A34A"))
-                setPadding(0, 0, 0, dp(8))
-            })
-        } else {
-            col.addView(TextView(this).apply {
-                text = "API key belum tertanam saat build. Isi manual di bawah, atau tambahkan " +
-                    "secret ANTHROPIC_API_KEY di GitHub lalu build ulang."
-                textSize = 12f
-                setTextColor(Color.parseColor("#DC2626"))
-            })
-            val k = EditText(this).apply {
-                hint = "API key Anthropic"
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                setText(Prefs.manualKey(this@MainActivity))
-            }
-            keyIn = k
-            col.addView(k)
-        }
-        modelIn = EditText(this).apply {
-            hint = "Model"
-            setText(Prefs.model(this@MainActivity))
-        }
-        col.addView(modelIn)
-
-        col.addView(Button(this).apply {
-            text = "Mulai bubble"
-            isAllCaps = false
-            setOnClickListener { startFlow() }
-        })
-        col.addView(Button(this).apply {
-            text = "Hentikan"
-            isAllCaps = false
-            setOnClickListener {
-                startService(
-                    Intent(this@MainActivity, FloatService::class.java)
-                        .setAction(FloatService.ACTION_STOP)
-                )
-                status.text = "Dihentikan."
-            }
-        })
-
-        col.addView(Button(this).apply {
-            text = "Aktifkan Auto Clicker (aksesibilitas)"
-            isAllCaps = false
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
-        })
-        col.addView(TextView(this).apply {
-            text = "Auto Clicker memakai layanan aksesibilitas hanya untuk mengetuk satu titik " +
-                "yang Anda tentukan. Layanan ini tidak membaca isi layar dan bisa dimatikan kapan saja " +
-                "di Pengaturan > Aksesibilitas."
-            textSize = 12f
-            setTextColor(Color.GRAY)
-        })
-
+        // ---- bubble ----
         status = TextView(this).apply {
             textSize = 13f
-            setPadding(0, dp(12), 0, 0)
+            setTextColor(p.muted)
+            setPadding(0, dp(10), 0, 0)
         }
-        col.addView(status)
+        col.addView(card("Layanan bubble",
+            row(
+                Ui.button(this, "Mulai bubble", true) { startFlow() },
+                Ui.button(this, "Hentikan", false) {
+                    startService(Intent(this, FloatService::class.java).setAction(FloatService.ACTION_STOP))
+                    status.text = "Dihentikan."
+                }
+            ),
+            status
+        ))
+
+        // ---- AI untuk Tanya AI dan Terjemah ----
+        val promptIn = Ui.field(this, "Pertanyaan yang dikirim bersama gambar", true).apply {
+            setText(Prefs.prompt(this@MainActivity))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    Prefs.setPrompt(this@MainActivity, s?.toString().orEmpty())
+                }
+            })
+        }
+        val langBtn = Ui.button(this, "", false) {}
+        fun showLang() { langBtn.text = "Terjemahkan ke: ${Prefs.LANGS[Prefs.lang(this)]}" }
+        langBtn.setOnClickListener {
+            Prefs.setLang(this, (Prefs.lang(this) + 1) % Prefs.LANGS.size)
+            showLang()
+        }
+        showLang()
+        col.addView(card("AI untuk Tanya AI dan Terjemah",
+            note("Gambar yang Anda lingkari dikirim langsung ke aplikasi AI ini (atau websitenya bila aplikasinya belum terpasang). Tidak memakai API key."),
+            segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
+            spaced(promptIn),
+            spaced(langBtn)
+        ))
+
+        // ---- API key ----
+        val apiViews = mutableListOf<View>()
+        apiViews.add(note("Dipakai hanya oleh Chat dan Auto Jawab. Buat key gratis di Google AI Studio (aistudio.google.com/apikey), lalu tempel di sini."))
+        if (Prefs.hasBuiltInKey()) {
+            apiViews.add(TextView(this).apply {
+                text = "Key bawaan sudah tertanam di aplikasi ini. Isian di bawah menggantikannya bila diisi."
+                textSize = 12f
+                setTextColor(0xFF16A34A.toInt())
+                setPadding(0, dp(4), 0, 0)
+            })
+        }
+        val keyIn = Ui.field(this, "API key Gemini").apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(Prefs.manualKey(this@MainActivity))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    Prefs.setKey(this@MainActivity, s?.toString().orEmpty())
+                }
+            })
+        }
+        val modelIn = Ui.field(this, "Model (bawaan ${Prefs.DEFAULT_MODEL})").apply {
+            setText(Prefs.model(this@MainActivity))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    Prefs.setModel(this@MainActivity, s?.toString().orEmpty())
+                }
+            })
+        }
+        apiViews.add(spaced(keyIn))
+        apiViews.add(spaced(modelIn))
+        apiViews.add(spaced(Ui.button(this, "Buka Google AI Studio", false) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
+        }))
+        col.addView(card("API key Gemini", *apiViews.toTypedArray()))
+
+        // ---- tampilan ----
+        col.addView(card("Tampilan bubble",
+            slider("Ukuran", Setting.BUBBLE_SIZE, " dp"),
+            slider("Opasitas", Setting.BUBBLE_ALPHA, "%"),
+            label("Warna (juga dipakai menu)"),
+            swatches()
+        ))
+        col.addView(card("Menu",
+            slider("Ukuran", Setting.MENU_SIZE, "%"),
+            slider("Opasitas", Setting.MENU_ALPHA, "%")
+        ))
+        col.addView(card("Keyboard di jendela mengambang",
+            note("Diblokir: jendela mengambang tidak bisa menerima ketikan, keyboard tidak akan muncul. Gunakan tombol tempel di header jendela untuk menempel teks hasil salin dari gambar. Diizinkan: kolom di jendela bisa diketik, tetapi jendela mengambil fokus sehingga keyboard bisa muncul di atas aplikasi lain. Layar pengaturan ini selalu bisa memakai keyboard."),
+            segmented(listOf("Diblokir", "Diizinkan"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) }
+        ))
+        col.addView(card("Aplikasi di menu Apps",
+            note("Pilih aplikasi yang bisa dibuka sebagai jendela mengambang dari menu Apps."),
+            appsInfo,
+            spaced(Ui.button(this, "Pilih aplikasi", true) { pickApps() })
+        ))
+        col.addView(card("Gestur bubble",
+            note("Atur apa yang terjadi saat bubble diketuk sekali, dua kali, atau ditekan lama. Saat Auto Jawab atau auto clicker menyala, gestur apa pun mematikannya."),
+            gestureButton("Ketuk sekali", 0),
+            gestureButton("Ketuk dua kali", 1),
+            gestureButton("Tekan lama", 2),
+            slider("Lama tekan", Setting.LONG_MS, " ms"),
+            note("Bila ketuk dua kali dipakai, ketuk sekali jadi tertunda sekitar 0,3 detik untuk menunggu ketukan kedua.")
+        ))
+        col.addView(card("Jendela alat",
+            note("Jendela juga bisa ditarik lewat pegangan ◢ di pojok kanan bawahnya."),
+            slider("Lebar", Setting.WIN_W, " dp"),
+            slider("Tinggi", Setting.WIN_H, " dp"),
+            slider("Opasitas", Setting.WIN_ALPHA, "%")
+        ))
+        col.addView(card("Jendela aplikasi (menu Apps)",
+            slider("Lebar", Setting.APP_W, " dp"),
+            slider("Tinggi", Setting.APP_H, " dp"),
+            spaced(Ui.button(this, "Kembalikan tampilan bawaan", false) {
+                Prefs.resetLook(this)
+                refreshers.forEach { it() }
+            })
+        ))
+
+        // ---- auto clicker ----
+        col.addView(card("Auto Clicker",
+            note("Memakai layanan aksesibilitas hanya untuk mengetuk satu titik yang Anda tentukan. Tidak membaca isi layar. Bisa dimatikan kapan saja di Pengaturan > Aksesibilitas."),
+            spaced(Ui.button(this, "Aktifkan di pengaturan aksesibilitas", false) {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            })
+        ))
 
         col.addView(TextView(this).apply {
-            text = "Privasi: layar hanya diambil saat Anda menekan tombol Scan, " +
-                "lalu dikirim ke API AI. Notifikasi aktif selalu terlihat selama bubble berjalan."
+            text = "Privasi: layar hanya diambil saat Anda melingkari area atau menyalakan Auto Jawab, " +
+                "lalu dikirim ke AI yang Anda pilih. Notifikasi aktif selalu terlihat selama bubble berjalan. " +
+                "Hormati aturan sekolah, kampus, dan ujian saat memakai aplikasi ini."
             textSize = 12f
-            setTextColor(Color.GRAY)
-            setPadding(0, dp(16), 0, 0)
+            setTextColor(p.muted)
+            setPadding(dp(4), dp(8), dp(4), 0)
         })
 
+        showAppsInfo()
+        window.decorView.setBackgroundColor(p.bg)
         setContentView(
             ScrollView(this).apply {
+                setBackgroundColor(p.bg)
                 addView(col, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
         )
@@ -136,9 +216,206 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun startFlow() {
-        Prefs.save(this, keyIn?.text?.toString(), modelIn.text.toString())
+    // ---------- komponen ----------
 
+    private fun card(title: String, vararg kids: View): LinearLayout {
+        val c = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.round(p.surface, dp(16), p.outline, dp(1))
+            setPadding(dp(16), dp(14), dp(16), dp(16))
+        }
+        c.addView(TextView(this).apply {
+            text = title
+            textSize = 15f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(p.on)
+            setPadding(0, 0, 0, dp(6))
+        })
+        kids.forEach { c.addView(it) }
+        c.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(12) }
+        return c
+    }
+
+    private val appsInfo by lazy {
+        TextView(this).apply {
+            textSize = 13f
+            setTextColor(p.on)
+            setPadding(0, dp(8), 0, 0)
+        }
+    }
+
+    private fun showAppsInfo() {
+        val n = Prefs.pinned(this).size
+        appsInfo.text = if (n == 0) "Belum ada aplikasi dipilih." else "$n aplikasi dipilih."
+    }
+
+    /** Daftar aplikasi terpasang dengan kotak centang. Pilihan disimpan saat menekan Simpan. */
+    private fun pickApps() {
+        Thread {
+            val pm = packageManager
+            val q = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val list = try {
+                pm.queryIntentActivities(q, 0)
+                    .filter { it.activityInfo.packageName != packageName }
+                    .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+                    .distinctBy { it.first }
+                    .sortedBy { it.second.lowercase() }
+            } catch (e: Exception) {
+                emptyList()
+            }
+            runOnUiThread {
+                if (list.isEmpty()) {
+                    android.widget.Toast.makeText(this, "Daftar aplikasi tidak bisa dibaca", android.widget.Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                val chosen = Prefs.pinned(this).toMutableSet()
+                val labels = list.map { it.second }.toTypedArray()
+                val checked = BooleanArray(list.size) { list[it].first in chosen }
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Aplikasi di menu Apps")
+                    .setMultiChoiceItems(labels, checked) { _, i, on ->
+                        if (on) chosen.add(list[i].first) else chosen.remove(list[i].first)
+                    }
+                    .setPositiveButton("Simpan") { _, _ ->
+                        // urutan: yang sudah ada tetap, yang baru di belakang
+                        val old = Prefs.pinned(this).filter { it in chosen }
+                        Prefs.setPinned(this, old + (chosen - old.toSet()))
+                        showAppsInfo()
+                    }
+                    .setNegativeButton("Batal", null)
+                    .show()
+            }
+        }.start()
+    }
+
+    private fun gestureButton(title: String, g: Int): View {
+        val btn = Ui.button(this, "", false) {}
+        fun show() {
+            btn.text = "$title: ${Prefs.GESTURE_NAMES[Prefs.gesture(this, g)]}"
+        }
+        btn.setOnClickListener {
+            android.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setItems(Prefs.GESTURE_NAMES.toTypedArray()) { _, i ->
+                    Prefs.setGesture(this, g, i)
+                    show()
+                }
+                .show()
+        }
+        show()
+        return spaced(btn)
+    }
+
+    private fun note(t: String) = TextView(this).apply {
+        text = t
+        textSize = 12.5f
+        setTextColor(p.muted)
+    }
+
+    private fun label(t: String) = TextView(this).apply {
+        text = t
+        textSize = 13f
+        setTextColor(p.on)
+        setPadding(0, dp(8), 0, 0)
+    }
+
+    private fun spaced(v: View): View {
+        v.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(10) }
+        return v
+    }
+
+    private fun row(vararg v: View) = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        v.forEachIndexed { i, x ->
+            addView(x, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                if (i > 0) leftMargin = dp(8)
+            })
+        }
+    }
+
+    private fun segmented(names: List<String>, get: () -> Int, set: (Int) -> Unit): View {
+        val accent = Prefs.bubbleColor(this)
+        val line = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = Ui.round(p.field, dp(12))
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
+        val cells = names.map { TextView(this) }
+        fun paint() {
+            cells.forEachIndexed { i, t ->
+                val on = i == get()
+                t.setTextColor(if (on) Color.WHITE else p.on)
+                t.background = if (on) Ui.round(accent, dp(10)) else null
+            }
+        }
+        cells.forEachIndexed { i, t ->
+            t.text = names[i]
+            t.gravity = Gravity.CENTER
+            t.textSize = 14f
+            t.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            t.setPadding(dp(8), dp(9), dp(8), dp(9))
+            t.setOnClickListener { set(i); paint() }
+            line.addView(t, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        paint()
+        return spaced(line)
+    }
+
+    private fun slider(name: String, s: Setting, suffix: String): View {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val tv = TextView(this).apply {
+            textSize = 13f
+            setTextColor(p.on)
+            setPadding(0, dp(8), 0, 0)
+        }
+        val bar = SeekBar(this).apply { max = s.max - s.min }
+        fun show() {
+            val v = Prefs.get(this, s)
+            bar.progress = v - s.min
+            tv.text = "$name: $v$suffix"
+        }
+        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(b: SeekBar, pr: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                Prefs.set(this@MainActivity, s, pr + s.min)
+                tv.text = "$name: ${pr + s.min}$suffix"
+            }
+
+            override fun onStartTrackingTouch(b: SeekBar) {}
+            override fun onStopTrackingTouch(b: SeekBar) {}
+        })
+        refreshers += { show() }
+        show()
+        box.addView(tv)
+        box.addView(bar)
+        return box
+    }
+
+    private fun swatches(): View {
+        val line = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(8), 0, dp(2))
+        }
+        Prefs.COLORS.forEach { color ->
+            line.addView(View(this).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(color)
+                    setStroke(dp(1), p.outline)
+                }
+                setOnClickListener { Prefs.setBubbleColor(this@MainActivity, color) }
+            }, LinearLayout.LayoutParams(0, dp(30), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
+        }
+        return line
+    }
+
+    // ---------- mulai ----------
+
+    private fun startFlow() {
         if (!Settings.canDrawOverlays(this)) {
             status.text = "Aktifkan izin 'tampil di atas aplikasi lain', lalu tekan Mulai lagi."
             startActivityForResult(
@@ -147,7 +424,6 @@ class MainActivity : Activity() {
             )
             return
         }
-
         val mpm = getSystemService(MediaProjectionManager::class.java)
         startActivityForResult(mpm.createScreenCaptureIntent(), reqProjection)
     }

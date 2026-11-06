@@ -17,8 +17,8 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@drawable/ic_launcher"
-        android:label="FloatStudy"
+        android:icon="@mipmap/ic_launcher"
+        android:label="flooww"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
@@ -38,7 +38,7 @@
         <service
             android:name=".ClickService"
             android:exported="true"
-            android:label="FloatStudy Auto Clicker"
+            android:label="flooww Auto Clicker"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />

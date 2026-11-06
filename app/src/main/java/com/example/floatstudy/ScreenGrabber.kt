@@ -101,6 +101,20 @@ class ScreenGrabber(private val ctx: Context, private val ui: Handler) {
         }
     }
 
+    /** Sidik frame kecil (24x48, abu-abu) untuk mendeteksi layar berubah tanpa membandingkan seluruh piksel. */
+    fun signature(): IntArray? {
+        val full = latest() ?: return null
+        val small = Bitmap.createScaledBitmap(full, 24, 48, true)
+        if (small !== full) full.recycle()
+        val px = IntArray(24 * 48)
+        small.getPixels(px, 0, 24, 0, 0, 24, 48)
+        small.recycle()
+        return IntArray(px.size) {
+            val p = px[it]
+            (((p shr 16) and 0xFF) * 3 + ((p shr 8) and 0xFF) * 6 + (p and 0xFF)) / 10
+        }
+    }
+
     fun release() {
         last?.close()
         last = null

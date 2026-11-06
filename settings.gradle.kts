@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "FloatStudy"
+rootProject.name = "flooww"
 include(":app")

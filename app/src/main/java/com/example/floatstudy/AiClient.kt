@@ -13,64 +13,81 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+class AiError(val code: Int, message: String) : Exception(message)
+
+/** Klien Gemini. Hanya dipakai oleh Chat dan Auto Jawab. */
 object AiClient {
     private val http = OkHttpClient.Builder()
         .callTimeout(90, TimeUnit.SECONDS)
         .build()
 
-    const val SYSTEM =
+    const val CHAT_SYSTEM =
         "Kamu tutor belajar yang sabar. Jawab dalam bahasa Indonesia. " +
             "Jelaskan konsep dan langkah penyelesaian secara runtut supaya siswa paham, " +
             "lalu beri jawaban akhir. Pakai teks biasa tanpa format markdown berat."
 
-    fun ask(
+    /**
+     * turns: pasangan (peran, teks) dengan peran "user" atau "model".
+     * Gambar (bila ada) dilampirkan pada giliran terakhir.
+     * json = true meminta keluaran JSON dan sedikit berpikir untuk ketelitian.
+     */
+    fun generate(
         ctx: Context,
-        prompt: String,
+        turns: List<Pair<String, String>>,
         imageB64: String?,
-        system: String = SYSTEM,
+        system: String,
+        json: Boolean,
         cb: (Result<String>) -> Unit
     ) {
         val key = Prefs.key(ctx)
         if (key.isBlank()) {
-            cb(Result.failure(IllegalStateException("API key belum tertanam. Tambahkan secret ANTHROPIC_API_KEY di GitHub lalu build ulang.")))
+            cb(Result.failure(AiError(401, "API key Gemini belum diisi. Buka aplikasi flooww, bagian API key.")))
             return
         }
+        val model = Prefs.model(ctx)
 
-        val content = JSONArray()
-        if (imageB64 != null) {
-            content.put(
-                JSONObject()
-                    .put("type", "image")
-                    .put(
-                        "source",
-                        JSONObject()
-                            .put("type", "base64")
-                            .put("media_type", "image/jpeg")
-                            .put("data", imageB64)
+        val contents = JSONArray()
+        turns.forEachIndexed { i, (role, text) ->
+            val parts = JSONArray()
+            if (imageB64 != null && i == turns.lastIndex) {
+                parts.put(
+                    JSONObject().put(
+                        "inline_data",
+                        JSONObject().put("mime_type", "image/jpeg").put("data", imageB64)
                     )
-            )
+                )
+            }
+            parts.put(JSONObject().put("text", text))
+            contents.put(JSONObject().put("role", role).put("parts", parts))
         }
-        content.put(JSONObject().put("type", "text").put("text", prompt))
+
+        val gen = JSONObject()
+            .put("temperature", if (json) 0.2 else 0.7)
+            .put("maxOutputTokens", 4096)
+        if (json) gen.put("responseMimeType", "application/json")
+        if (model.contains("2.5")) {
+            val budget = when {
+                json -> 1024
+                model.contains("pro") -> 512
+                else -> 0
+            }
+            gen.put("thinkingConfig", JSONObject().put("thinkingBudget", budget))
+        }
 
         val body = JSONObject()
-            .put("model", Prefs.model(ctx))
-            .put("max_tokens", 1500)
-            .put("system", system)
-            .put(
-                "messages",
-                JSONArray().put(JSONObject().put("role", "user").put("content", content))
-            )
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
+            .put("contents", contents)
+            .put("generationConfig", gen)
 
         val req = Request.Builder()
-            .url("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", key)
-            .header("anthropic-version", "2023-06-01")
+            .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
+            .header("x-goog-api-key", key)
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         http.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                cb(Result.failure(e))
+                cb(Result.failure(AiError(0, "Tidak bisa terhubung. Periksa internet.")))
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -79,23 +96,29 @@ object AiClient {
                     try {
                         val j = JSONObject(raw)
                         if (!r.isSuccessful) {
-                            val msg = j.optJSONObject("error")?.optString("message")
-                            Result.failure(Exception(msg ?: "HTTP ${r.code}"))
+                            val msg = j.optJSONObject("error")?.optString("message").orEmpty()
+                            Result.failure(AiError(r.code, friendly(r.code, msg)))
                         } else {
-                            val arr = j.getJSONArray("content")
+                            val cand = j.getJSONArray("candidates").getJSONObject(0)
+                            val parts = cand.getJSONObject("content").getJSONArray("parts")
                             val sb = StringBuilder()
-                            for (n in 0 until arr.length()) {
-                                val b = arr.getJSONObject(n)
-                                if (b.optString("type") == "text") sb.append(b.optString("text"))
-                            }
+                            for (n in 0 until parts.length()) sb.append(parts.getJSONObject(n).optString("text"))
                             Result.success(sb.toString().trim())
                         }
                     } catch (e: Exception) {
-                        Result.failure(Exception("Respons tidak terbaca (HTTP ${r.code})"))
+                        Result.failure(AiError(r.code, "Respons tidak terbaca (HTTP ${r.code})"))
                     }
                 }
                 cb(result)
             }
         })
+    }
+
+    private fun friendly(code: Int, msg: String): String = when {
+        code == 429 -> "Kuota Gemini habis atau terlalu cepat. Tunggu sebentar atau ganti API key."
+        code == 400 && msg.contains("API key", ignoreCase = true) -> "API key Gemini tidak valid. Periksa di pengaturan aplikasi."
+        code == 401 || code == 403 -> "API key Gemini ditolak. Periksa di pengaturan aplikasi."
+        msg.isNotBlank() -> msg
+        else -> "HTTP $code"
     }
 }

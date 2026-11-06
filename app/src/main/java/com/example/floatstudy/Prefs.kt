@@ -1,52 +1,80 @@
 package com.example.floatstudy
 
 import android.content.Context
+import android.content.SharedPreferences
 
-/** Pengaturan angka yang bisa diubah pengguna lewat menu Atur. */
+/** Pengaturan angka yang bisa diubah pengguna di layar pengaturan aplikasi. */
 enum class Setting(val key: String, val def: Int, val min: Int, val max: Int) {
     BUBBLE_SIZE("bubbleSize", 48, 32, 96),     // dp
     BUBBLE_ALPHA("bubbleAlpha", 90, 20, 100),  // persen
-    MENU_SIZE("menuSize", 100, 60, 150),       // persen
-    MENU_ALPHA("menuAlpha", 95, 30, 100),      // persen
-    WIN_W("winW", 300, 200, 480),              // dp, jendela alat
-    WIN_H("winH", 360, 220, 640),              // dp
-    WIN_ALPHA("winAlpha", 100, 30, 100),       // persen
+    MENU_SIZE("menuSize", 100, 70, 140),       // persen
+    MENU_ALPHA("menuAlpha", 100, 40, 100),     // persen
+    WIN_W("winW", 300, 220, 480),              // dp, jendela alat
+    WIN_H("winH", 360, 240, 640),              // dp
+    WIN_ALPHA("winAlpha", 100, 40, 100),       // persen
     APP_W("appW", 320, 240, 700),              // dp, jendela aplikasi
-    APP_H("appH", 480, 300, 900)               // dp
+    APP_H("appH", 480, 300, 900),              // dp
+    LONG_MS("longMs", 700, 400, 3000)          // ms, lama tekan bubble
 }
 
 object Prefs {
-    const val DEFAULT_MODEL = "claude-sonnet-5-5"
+    const val DEFAULT_MODEL = "gemini-2.5-flash"
     const val DEFAULT_COLOR = 0xFF2563EB.toInt()
+    const val DEFAULT_PROMPT = "Jawab soal pada gambar ini. Jelaskan langkah singkat, lalu tulis jawaban akhir."
 
     val COLORS = intArrayOf(
         0xFF2563EB.toInt(), 0xFF16A34A.toInt(), 0xFFDC2626.toInt(), 0xFF9333EA.toInt(),
         0xFFEA580C.toInt(), 0xFF0891B2.toInt(), 0xFFDB2777.toInt(), 0xFF111827.toInt()
     )
+    val AI_NAMES = listOf("Gemini", "ChatGPT", "Claude")
+    val LANGS = listOf(
+        "Indonesia", "Inggris", "Arab", "Jepang", "Mandarin",
+        "Korea", "Jerman", "Prancis", "Spanyol"
+    )
 
-    private fun sp(c: Context) = c.getSharedPreferences("floatstudy", Context.MODE_PRIVATE)
+    fun sp(c: Context): SharedPreferences = c.getSharedPreferences("floatstudy", Context.MODE_PRIVATE)
 
-    // ---------- API key ----------
+    // ---------- API key Gemini (hanya untuk Chat dan Auto Jawab) ----------
 
-    /** Key yang ditanam saat build (secret ANTHROPIC_API_KEY). Kosong bila tidak ada. */
-    fun builtInKey(): String = BuildConfig.API_KEY
+    /** Key yang ditanam saat build (secret GEMINI_API_KEY). Kosong bila tidak ada. */
+    fun hasBuiltInKey(): Boolean = BuildConfig.GEMINI_API_KEY.isNotBlank()
 
-    fun hasBuiltInKey(): Boolean = BuildConfig.API_KEY.isNotBlank()
-
-    /** Key isian manual (cadangan). */
-    fun manualKey(c: Context): String = sp(c).getString("key", "") ?: ""
+    /** Key isian manual dari layar pengaturan. */
+    fun manualKey(c: Context): String = sp(c).getString("gkey", "") ?: ""
 
     /** Key yang dipakai: isian manual bila ada, kalau tidak key tertanam. */
-    fun key(c: Context): String = manualKey(c).ifBlank { BuildConfig.API_KEY }
+    fun key(c: Context): String = manualKey(c).ifBlank { BuildConfig.GEMINI_API_KEY }
+
+    fun setKey(c: Context, key: String) {
+        sp(c).edit().putString("gkey", key.trim()).apply()
+    }
 
     fun model(c: Context): String =
-        (sp(c).getString("model", DEFAULT_MODEL) ?: DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
+        (sp(c).getString("gmodel", DEFAULT_MODEL) ?: DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
 
-    /** Key kosong = jangan ubah key manual yang sudah tersimpan. */
-    fun save(c: Context, key: String?, model: String) {
-        val e = sp(c).edit().putString("model", model.trim())
-        if (key != null) e.putString("key", key.trim())
-        e.apply()
+    fun setModel(c: Context, model: String) {
+        sp(c).edit().putString("gmodel", model.trim()).apply()
+    }
+
+    // ---------- AI tujuan untuk Tanya AI dan Terjemah ----------
+
+    fun aiTarget(c: Context): Int = sp(c).getInt("aiTarget", 0).coerceIn(0, AI_NAMES.size - 1)
+
+    fun setAiTarget(c: Context, i: Int) {
+        sp(c).edit().putInt("aiTarget", i).apply()
+    }
+
+    fun lang(c: Context): Int = sp(c).getInt("lang", 1).coerceIn(0, LANGS.size - 1)
+
+    fun setLang(c: Context, i: Int) {
+        sp(c).edit().putInt("lang", i).apply()
+    }
+
+    fun prompt(c: Context): String =
+        (sp(c).getString("prompt", DEFAULT_PROMPT) ?: DEFAULT_PROMPT).ifBlank { DEFAULT_PROMPT }
+
+    fun setPrompt(c: Context, p: String) {
+        sp(c).edit().putString("prompt", p.trim()).apply()
     }
 
     // ---------- tampilan ----------
@@ -70,6 +98,29 @@ object Prefs {
     }
 
     // ---------- aplikasi yang dipasang di menu Apps ----------
+
+    /** Aksi gestur bubble. Indeks 0 = tidak ada, 1 = buka menu, 2..11 = alat menu (id alat = indeks - 2). */
+    val GESTURE_NAMES = listOf(
+        "Tidak ada", "Buka menu", "Tanya AI", "Salin", "Terjemah", "Gambar",
+        "Browser", "Chat", "Hitung", "Klik", "Apps", "Auto Jawab"
+    )
+    private val gestureKeys = listOf("gTap", "gDouble", "gLong")
+    private val gestureDefs = intArrayOf(1, 2, 11)
+
+    /** Pilihan untuk gestur g: 0 ketuk, 1 ketuk dua kali, 2 tekan lama. */
+    fun gesture(c: Context, g: Int): Int =
+        sp(c).getInt(gestureKeys[g], gestureDefs[g]).coerceIn(0, GESTURE_NAMES.size - 1)
+
+    fun setGesture(c: Context, g: Int, v: Int) {
+        sp(c).edit().putInt(gestureKeys[g], v).apply()
+    }
+
+    /** Blokir keyboard virtual selama jendela mengambang tampil. Layar pengaturan aplikasi tidak terpengaruh. */
+    fun kbBlock(c: Context): Boolean = sp(c).getBoolean("kbBlock", true)
+
+    fun setKbBlock(c: Context, v: Boolean) {
+        sp(c).edit().putBoolean("kbBlock", v).apply()
+    }
 
     fun pinned(c: Context): List<String> =
         (sp(c).getString("pinned", "") ?: "").split(',').filter { it.isNotBlank() }

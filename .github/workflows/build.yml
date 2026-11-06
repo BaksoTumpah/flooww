@@ -25,11 +25,15 @@ jobs:
 
       - name: Build debug APK
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FLOOWW_KEYSTORE_B64: ${{ secrets.FLOOWW_KEYSTORE_B64 }}
+          FLOOWW_STORE_PASSWORD: ${{ secrets.FLOOWW_STORE_PASSWORD }}
+          FLOOWW_KEY_ALIAS: ${{ secrets.FLOOWW_KEY_ALIAS }}
+          FLOOWW_KEY_PASSWORD: ${{ secrets.FLOOWW_KEY_PASSWORD }}
         run: gradle assembleDebug --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: FloatWidget-debug
+          name: flooww-debug
           path: app/build/outputs/apk/debug/*.apk
