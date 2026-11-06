@@ -76,6 +76,13 @@ class MainActivity : Activity() {
             status
         ))
 
+        val gAi = Group("AI dan terjemah", "Tujuan Tanya AI, API key, bahasa", true)
+        val gLook = Group("Tampilan", "Bubble, menu, jendela", false)
+        val gCtl = Group("Kontrol", "Gestur bubble, keyboard", false)
+        val gApps = Group("Aplikasi", "Menu Apps dan jendela bebas", false)
+        val gMore = Group("Lainnya", "Auto Clicker", false)
+        listOf(gAi, gLook, gCtl, gApps, gMore).forEach { col.addView(it.root) }
+
         // ---- AI untuk Tanya AI ----
         val promptIn = Ui.field(this, "Pertanyaan yang dikirim bersama gambar", true).apply {
             setText(Prefs.prompt(this@MainActivity))
@@ -94,11 +101,11 @@ class MainActivity : Activity() {
             showLang()
         }
         showLang()
-        col.addView(card("AI untuk Tanya AI",
+        gAi.add(sec("Tujuan Tanya AI",
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn)
         ))
-        col.addView(card("Terjemah",
+        gAi.add(sec("Bahasa terjemah",
             spaced(langBtn)
         ))
 
@@ -139,23 +146,24 @@ class MainActivity : Activity() {
         apiViews.add(spaced(Ui.button(this, "Buka Google AI Studio", false) {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
         }))
-        col.addView(card("API key Gemini", *apiViews.toTypedArray()))
+        gAi.add(sec("API key dan model", *apiViews.toTypedArray()))
 
         // ---- tampilan ----
-        col.addView(card("Tampilan bubble",
+        gLook.add(sec("Bubble",
             slider("Ukuran", Setting.BUBBLE_SIZE, " dp"),
             slider("Opasitas", Setting.BUBBLE_ALPHA, "%"),
             label("Warna (juga dipakai menu)"),
             swatches()
         ))
-        col.addView(card("Menu",
+        gLook.add(sec("Menu",
             slider("Ukuran", Setting.MENU_SIZE, "%"),
             slider("Opasitas", Setting.MENU_ALPHA, "%")
         ))
-        col.addView(card("Keyboard di jendela mengambang",
-            segmented(listOf("Diblokir", "Diizinkan"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) }
+        gApps.add(sec("Pilih aplikasi",
+            appsInfo,
+            spaced(Ui.button(this, "Pilih aplikasi", true) { pickApps() })
         ))
-        col.addView(card("Jendela bebas (untuk menu Apps)",
+        gApps.add(sec("Jendela bebas",
             freeInfo,
             spaced(Ui.button(this, "Aktifkan otomatis", true) { enableFreeform() }),
             spaced(Ui.button(this, "Buka Opsi pengembang", false) {
@@ -166,25 +174,26 @@ class MainActivity : Activity() {
                 }
             })
         ))
-        col.addView(card("Aplikasi di menu Apps",
-            appsInfo,
-            spaced(Ui.button(this, "Pilih aplikasi", true) { pickApps() })
-        ))
-        col.addView(card("Gestur bubble",
+        gCtl.add(sec("Gestur bubble",
             gestureButton("Ketuk sekali", 0),
             gestureButton("Ketuk dua kali", 1),
             gestureButton("Tekan lama", 2),
             slider("Lama tekan", Setting.LONG_MS, " ms"),
         ))
-        col.addView(card("Jendela alat",
+        gCtl.add(sec("Keyboard di jendela mengambang",
+            segmented(listOf("Diblokir", "Diizinkan"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) }
+        ))
+        gLook.add(sec("Jendela alat",
             slider("Lebar", Setting.WIN_W, " dp"),
             slider("Tinggi", Setting.WIN_H, " dp"),
             slider("Opasitas", Setting.WIN_ALPHA, "%"),
             slider("Zoom halaman web", Setting.WEB_ZOOM, "%")
         ))
-        col.addView(card("Jendela aplikasi (menu Apps)",
+        gApps.add(sec("Ukuran jendela aplikasi",
             slider("Lebar", Setting.APP_W, " dp"),
-            slider("Tinggi", Setting.APP_H, " dp"),
+            slider("Tinggi", Setting.APP_H, " dp")
+        ))
+        gLook.add(sec("Bawaan",
             spaced(Ui.button(this, "Kembalikan tampilan bawaan", false) {
                 Prefs.resetLook(this)
                 refreshers.forEach { it() }
@@ -192,7 +201,7 @@ class MainActivity : Activity() {
         ))
 
         // ---- auto clicker ----
-        col.addView(card("Auto Clicker",
+        gMore.add(sec("Auto Clicker",
             spaced(Ui.button(this, "Aktifkan di pengaturan aksesibilitas", false) {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             })
@@ -223,6 +232,83 @@ class MainActivity : Activity() {
     }
 
     // ---------- komponen ----------
+
+    /** Kelompok pengaturan yang bisa dibuka dan ditutup. */
+    private inner class Group(title: String, summary: String, open: Boolean) {
+        val root = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.round(p.surface, dp(16), p.outline, dp(1))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+        val body = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), 0, dp(16), dp(8))
+            visibility = if (open) View.VISIBLE else View.GONE
+        }
+
+        init {
+            val chevron = TextView(this@MainActivity).apply {
+                text = if (open) "▾" else "▸"
+                textSize = 18f
+                setTextColor(p.muted)
+            }
+            val head = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(this@MainActivity).apply {
+                        text = title
+                        textSize = 16f
+                        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                        setTextColor(p.on)
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = summary
+                        textSize = 12.5f
+                        setTextColor(p.muted)
+                    })
+                }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(chevron)
+                setOnClickListener {
+                    val show = body.visibility != View.VISIBLE
+                    body.visibility = if (show) View.VISIBLE else View.GONE
+                    chevron.text = if (show) "▾" else "▸"
+                }
+            }
+            root.addView(head)
+            root.addView(body)
+        }
+
+        fun add(v: View) {
+            if (body.childCount > 0) {
+                body.addView(View(this@MainActivity).apply { setBackgroundColor(p.outline) },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
+                        topMargin = dp(4); bottomMargin = dp(4)
+                    })
+            }
+            body.addView(v)
+        }
+    }
+
+    /** Satu bagian di dalam kelompok: judul kecil lalu isinya. */
+    private fun sec(title: String, vararg kids: View): LinearLayout {
+        val c = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        c.addView(TextView(this).apply {
+            text = title
+            textSize = 14f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(p.on)
+        })
+        kids.forEach { c.addView(it) }
+        return c
+    }
 
     private fun card(title: String, vararg kids: View): LinearLayout {
         val c = LinearLayout(this).apply {

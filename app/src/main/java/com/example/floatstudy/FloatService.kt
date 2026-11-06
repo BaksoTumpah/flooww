@@ -1770,10 +1770,6 @@ class FloatService : Service() {
         val col = vbox()
         val title = note("")
         val grid = vbox()
-        val addBtn = btn("+ Tambah aplikasi", true) {
-            toast("Tambah aplikasi di pengaturan aplikasi flooww")
-            startFloating(Intent(this, MainActivity::class.java))
-        }
         val devBtn = btn("Mode jendela") {
             try {
                 startFloating(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
@@ -1838,7 +1834,7 @@ class FloatService : Service() {
             }
         }
 
-        col.addView(row(addBtn, devBtn))
+        col.addView(row(devBtn))
         col.addView(status)
         col.addView(title)
         col.addView(grid)
