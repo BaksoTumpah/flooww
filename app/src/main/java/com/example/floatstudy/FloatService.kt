@@ -847,7 +847,7 @@ class FloatService : Service() {
             // 2) tempel + jatuhkan berkas ke kolom pesan
             "var ok=function(x){return x&&(x.isContentEditable||x.tagName=='TEXTAREA'||(x.getAttribute&&x.getAttribute('role')=='textbox'));};" +
             "var e=document.activeElement;" +
-            "if(!ok(e))e=document.querySelector('rich-textarea [contenteditable],div.ql-editor,textarea,[contenteditable=\\"true\\"],[role=\\"textbox\\"]');" +
+            "if(!ok(e))e=document.querySelector('rich-textarea [contenteditable],div.ql-editor,textarea,[contenteditable],[role=textbox]');" +
             "if(e){e.focus();" +
             "e.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));" +
             "['dragenter','dragover','drop'].forEach(function(n){e.dispatchEvent(new DragEvent(n,{dataTransfer:dt,bubbles:true,cancelable:true}));});" +
