@@ -248,8 +248,13 @@ class FloatService : Service() {
     @Suppress("DEPRECATION")
     private fun startAsForeground(projection: Boolean) {
         val nm = getSystemService(NotificationManager::class.java)
+        nm.deleteNotificationChannel("float")
+        // paling kecil: tanpa suara, tanpa ikon di bar status, hanya baris kecil di daftar notifikasi
         nm.createNotificationChannel(
-            NotificationChannel("float", "flooww", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel("float_min", "flooww", NotificationManager.IMPORTANCE_MIN).apply {
+                setShowBadge(false)
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
+            }
         )
         val stop = PendingIntent.getService(
             this, 0,
@@ -259,9 +264,10 @@ class FloatService : Service() {
         val open = PendingIntent.getActivity(
             this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
-        val n = Notification.Builder(this, "float")
-            .setContentTitle("flooww aktif")
-            .setContentText("Bubble berjalan.")
+        val n = Notification.Builder(this, "float_min")
+            .setContentTitle("flooww")
+            .setOngoing(false)
+            .setVisibility(Notification.VISIBILITY_SECRET)
             .setSmallIcon(android.R.drawable.ic_menu_search)
             .setContentIntent(open)
             .addAction(android.R.drawable.ic_delete, "Hentikan", stop)
