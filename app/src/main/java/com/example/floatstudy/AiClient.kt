@@ -115,6 +115,8 @@ object AiClient {
     }
 
     private fun friendly(code: Int, msg: String): String = when {
+        code == 404 || msg.contains("no longer available", ignoreCase = true) ->
+            "Model Gemini tidak tersedia untuk key ini. Ganti nama model di pengaturan flooww (mis. gemini-3.8-flash)."
         code == 429 -> "Kuota Gemini habis atau terlalu cepat. Tunggu sebentar atau ganti API key."
         code == 400 && msg.contains("API key", ignoreCase = true) -> "API key Gemini tidak valid. Periksa di pengaturan aplikasi."
         code == 401 || code == 403 -> "API key Gemini ditolak. Periksa di pengaturan aplikasi."

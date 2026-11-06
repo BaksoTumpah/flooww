@@ -14,11 +14,12 @@ enum class Setting(val key: String, val def: Int, val min: Int, val max: Int) {
     WIN_ALPHA("winAlpha", 100, 40, 100),       // persen
     APP_W("appW", 320, 240, 700),              // dp, jendela aplikasi
     APP_H("appH", 480, 300, 900),              // dp
-    LONG_MS("longMs", 700, 400, 3000)          // ms, lama tekan bubble
+    LONG_MS("longMs", 700, 400, 3000),         // ms, lama tekan bubble
+    WEB_ZOOM("webZoom", 80, 40, 150)           // %, skala halaman di Browser mengambang
 }
 
 object Prefs {
-    const val DEFAULT_MODEL = "gemini-2.5-flash"
+    const val DEFAULT_MODEL = "gemini-3.8-flash"
     const val DEFAULT_COLOR = 0xFF2563EB.toInt()
     const val DEFAULT_PROMPT = "Jawab soal pada gambar ini. Jelaskan langkah singkat, lalu tulis jawaban akhir."
 
@@ -26,6 +27,8 @@ object Prefs {
         0xFF2563EB.toInt(), 0xFF16A34A.toInt(), 0xFFDC2626.toInt(), 0xFF9333EA.toInt(),
         0xFFEA580C.toInt(), 0xFF0891B2.toInt(), 0xFFDB2777.toInt(), 0xFF111827.toInt()
     )
+    /** Kode bahasa ML Kit untuk LANGS, urutannya sama. */
+    val LANG_CODES = listOf("id", "en", "ar", "ja", "zh", "ko", "de", "fr", "es")
     val AI_NAMES = listOf("Gemini", "ChatGPT", "Claude")
     val LANGS = listOf(
         "Indonesia", "Inggris", "Arab", "Jepang", "Mandarin",
@@ -49,8 +52,11 @@ object Prefs {
         sp(c).edit().putString("gkey", key.trim()).apply()
     }
 
-    fun model(c: Context): String =
-        (sp(c).getString("gmodel", DEFAULT_MODEL) ?: DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
+    // gemini-2.5-flash tidak lagi tersedia untuk pengguna baru: nilai lama otomatis diganti model bawaan
+    fun model(c: Context): String {
+        val m = (sp(c).getString("gmodel", DEFAULT_MODEL) ?: DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
+        return if (m == "gemini-2.5-flash") DEFAULT_MODEL else m
+    }
 
     fun setModel(c: Context, model: String) {
         sp(c).edit().putString("gmodel", model.trim()).apply()

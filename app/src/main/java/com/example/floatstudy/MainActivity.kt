@@ -76,7 +76,7 @@ class MainActivity : Activity() {
             status
         ))
 
-        // ---- AI untuk Tanya AI dan Terjemah ----
+        // ---- AI untuk Tanya AI ----
         val promptIn = Ui.field(this, "Pertanyaan yang dikirim bersama gambar", true).apply {
             setText(Prefs.prompt(this@MainActivity))
             addTextChangedListener(object : TextWatcher {
@@ -94,10 +94,13 @@ class MainActivity : Activity() {
             showLang()
         }
         showLang()
-        col.addView(card("AI untuk Tanya AI dan Terjemah",
+        col.addView(card("AI untuk Tanya AI",
             note("Gambar yang Anda lingkari dibuka di browser mengambang pada website AI ini (bukan aplikasi AI yang terpasang). Tekan tombol lampirkan di situs, gambar soal otomatis terpilih. Login di situs sekali, sesinya tersimpan. Tidak memakai API key."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
-            spaced(promptIn),
+            spaced(promptIn)
+        ))
+        col.addView(card("Terjemah",
+            note("Teks pada area yang dilingkari dibaca dan diterjemahkan langsung di HP, tanpa website dan tanpa API key. Model bahasa diunduh sekali (sekitar 30 MB per bahasa), setelah itu bisa offline. Hanya huruf Latin yang terbaca."),
             spaced(langBtn)
         ))
 
@@ -182,10 +185,11 @@ class MainActivity : Activity() {
             note("Bila ketuk dua kali dipakai, ketuk sekali jadi tertunda sekitar 0,3 detik untuk menunggu ketukan kedua.")
         ))
         col.addView(card("Jendela alat",
-            note("Jendela juga bisa ditarik lewat pegangan ◢ di pojok kanan bawahnya."),
+            note("Jendela bisa ditarik dari tepi mana pun: tepi kanan atau kiri melebarkan, tepi atas atau bawah memanjangkan, pojok mengubah keduanya."),
             slider("Lebar", Setting.WIN_W, " dp"),
             slider("Tinggi", Setting.WIN_H, " dp"),
-            slider("Opasitas", Setting.WIN_ALPHA, "%")
+            slider("Opasitas", Setting.WIN_ALPHA, "%"),
+            slider("Zoom halaman web", Setting.WEB_ZOOM, "%")
         ))
         col.addView(card("Jendela aplikasi (menu Apps)",
             slider("Lebar", Setting.APP_W, " dp"),

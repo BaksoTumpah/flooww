@@ -63,6 +63,10 @@ class FloatService : Service() {
         private const val M_ASK = 0
         private const val M_COPY = 1
         private const val M_TR = 2
+        private const val EDGE_L = 1
+        private const val EDGE_T = 2
+        private const val EDGE_R = 4
+        private const val EDGE_B = 8
         private const val M_IMG = 3
         private const val M_BROWSER = 4
         private const val M_CHAT = 5
@@ -150,6 +154,7 @@ class FloatService : Service() {
             applyBubble()
             applyPanel()
             applyKeyboard()
+            web?.settings?.textZoom = pref(Setting.WEB_ZOOM)
         }
     }
 
@@ -444,6 +449,52 @@ class FloatService : Service() {
         })
     }
 
+    private var rsx = 0
+    private var rsy = 0
+    private var rsw = 0
+    private var rsh = 0
+
+    /**
+     * Ubah ukuran dari tepi mana pun. Tepi kanan/kiri mengubah lebar, atas/bawah mengubah tinggi,
+     * pojok mengubah keduanya. Tepi kiri dan atas juga menggeser jendela supaya sisi seberangnya diam.
+     */
+    private fun resizeEdge(root: View, lp: WindowManager.LayoutParams, mask: Int, phase: Int, dx: Float, dy: Float) {
+        val dm = resources.displayMetrics
+        val minW = dp(Setting.WIN_W.min)
+        val minH = dp(Setting.WIN_H.min)
+        val maxW = minOf(dp(Setting.WIN_W.max), dm.widthPixels)
+        val maxH = minOf(dp(Setting.WIN_H.max), dm.heightPixels)
+        when (phase) {
+            0 -> { rsx = lp.x; rsy = lp.y; rsw = lp.width; rsh = lp.height }
+            1 -> {
+                var x = rsx
+                var y = rsy
+                var w = rsw
+                var h = rsh
+                if (mask and EDGE_R != 0) w = (rsw + dx).toInt().coerceIn(minW, maxW)
+                if (mask and EDGE_B != 0) h = (rsh + dy).toInt().coerceIn(minH, maxH)
+                if (mask and EDGE_L != 0) {
+                    w = (rsw - dx).toInt().coerceIn(minW, maxW)
+                    x = rsx + rsw - w
+                }
+                if (mask and EDGE_T != 0) {
+                    h = (rsh - dy).toInt().coerceIn(minH, maxH)
+                    y = rsy + rsh - h
+                }
+                lp.x = x; lp.y = y; lp.width = w; lp.height = h
+                try {
+                    wm.updateViewLayout(root, lp)
+                } catch (e: Exception) {
+                }
+            }
+            2 -> {
+                val d = dm.density
+                Prefs.set(c, Setting.WIN_W, (lp.width / d).toInt())
+                Prefs.set(c, Setting.WIN_H, (lp.height / d).toInt())
+            }
+        }
+    }
+
     private fun toJpegB64(src: Bitmap): String {
         val scale = minOf(1f, 1400f / maxOf(src.width, src.height))
         val bmp = if (scale < 1f) {
@@ -697,11 +748,10 @@ class FloatService : Service() {
             }
             when (id) {
                 M_ASK -> askWeb(bmp, Prefs.prompt(c))
-                M_TR -> askWeb(
-                    bmp,
-                    "Baca semua teks pada gambar, lalu terjemahkan ke bahasa " +
-                        "${Prefs.LANGS[Prefs.lang(c)]}. Tulis hanya hasil terjemahannya."
-                )
+                M_TR -> {
+                    openTool(M_TR)
+                    runTranslate(bmp)
+                }
                 M_COPY -> {
                     openTool(M_COPY)
                     runCopy(bmp)
@@ -718,6 +768,8 @@ class FloatService : Service() {
 
     // gambar yang akan dilampirkan otomatis saat situs AI membuka pemilih file
     private var pendingUpload: Uri? = null
+    private var pendingB64: String? = null
+    private var attachBtn: ImageView? = null
 
     /**
      * Buka situs AI pilihan di browser mengambang (bukan aplikasi AI yang terpasang).
@@ -728,12 +780,14 @@ class FloatService : Service() {
         val target = Prefs.aiTarget(c)
         val name = Prefs.AI_NAMES[target]
         pendingUpload = null
+        pendingB64 = null
         if (bmp != null) {
             try {
                 val dir = File(cacheDir, "shared").apply { mkdirs() }
                 val f = File(dir, "ask.jpg")
                 f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
                 pendingUpload = Uri.fromFile(f)
+                pendingB64 = toJpegB64(bmp)
             } catch (e: Exception) {
                 toast("Gagal menyiapkan gambar: ${e.message}")
             }
@@ -742,11 +796,57 @@ class FloatService : Service() {
         val base = AI_WEB_Q[target]
         val url = if (base != null) base + URLEncoder.encode(prompt.take(1500), "UTF-8") else AI_WEB[target]
         openTool(M_BROWSER)
+        refreshAttach()
         web?.loadUrl(url)
         toast(
-            if (bmp != null) "Membuka $name. Tekan tombol lampirkan di situs, gambar soal otomatis terpilih."
+            if (bmp != null) "Membuka $name. Gambar soal dilampirkan otomatis. Bila belum, tekan ikon gambar di header."
             else "Membuka $name."
         )
+    }
+
+    private fun refreshAttach() {
+        attachBtn?.visibility = if (curTool == M_BROWSER && pendingB64 != null) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Tempelkan gambar soal ke halaman situs AI: acara tempel (paste) dengan berkas gambar pada kolom pesan,
+     * atau bila tidak ada, isi input berkas. Mengembalikan 1 (tempel), 2 (input berkas), 0 (gagal).
+     */
+    private fun injectImage(onResult: (Int) -> Unit) {
+        val w = web
+        val b64 = pendingB64
+        if (w == null || b64 == null) {
+            onResult(0)
+            return
+        }
+        val js = "(function(b){try{var s=atob(b),a=new Uint8Array(s.length);for(var i=0;i<s.length;i++)a[i]=s.charCodeAt(i);" +
+            "var f=new File([a],'soal.jpg',{type:'image/jpeg'});var dt=new DataTransfer();dt.items.add(f);" +
+            "var ok=function(x){return x&&(x.isContentEditable||x.tagName=='TEXTAREA'||x.getAttribute&&x.getAttribute('role')=='textbox');};" +
+            "var e=document.activeElement;" +
+            "if(!ok(e))e=document.querySelector('textarea,[contenteditable=\"true\"],[role=\"textbox\"]');" +
+            "if(e){e.focus();e.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));return 1;}" +
+            "var i2=document.querySelector('input[type=file]');" +
+            "if(i2){i2.files=dt.files;i2.dispatchEvent(new Event('change',{bubbles:true}));return 2;}" +
+            "return 0;}catch(x){return 0;}})(\"" + b64 + "\")"
+        w.evaluateJavascript(js) { r -> onResult(r?.trim()?.toIntOrNull() ?: 0) }
+    }
+
+    /** Coba beberapa kali setelah halaman dimuat, karena kolom pesan situs AI muncul belakangan. */
+    private fun autoAttach(tries: Int = 4) {
+        if (pendingB64 == null || tries <= 0) return
+        ui.postDelayed({
+            if (pendingB64 == null) return@postDelayed
+            injectImage { r ->
+                if (r != 0) {
+                    pendingB64 = null
+                    pendingUpload = null
+                    refreshAttach()
+                    toast("Gambar soal terlampir")
+                } else {
+                    autoAttach(tries - 1)
+                }
+            }
+        }, 1800)
     }
 
     // ---------- ambil area layar ----------
@@ -828,7 +928,9 @@ class FloatService : Service() {
             val f = File(dir, "crop.png")
             f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
             pendingUpload = Uri.fromFile(f)
+            pendingB64 = toJpegB64(bmp)
             openTool(M_BROWSER)
+            refreshAttach()
             web?.loadUrl("https://lens.google.com/")
             onMsg("Google Lens dibuka. Tekan tombol unggah gambar, gambar terpilih otomatis.")
         } catch (e: Exception) {
@@ -853,6 +955,7 @@ class FloatService : Service() {
         toolViews.forEach { (k, v) -> v.visibility = if (k == id) View.VISIBLE else View.GONE }
         curTool = id
         pasteBtn?.visibility = if (pasteFns.containsKey(id)) View.VISIBLE else View.GONE
+        refreshAttach()
         panelIcon?.setImageResource(ICONS[id])
         panelTitle?.text = NAMES[id]
 
@@ -872,6 +975,7 @@ class FloatService : Service() {
 
     private fun buildTool(id: Int): View = when (id) {
         M_COPY -> copyView()
+        M_TR -> trView()
         M_BROWSER -> browserView()
         M_CHAT -> chatView()
         M_CALC -> calcView()
@@ -974,8 +1078,9 @@ class FloatService : Service() {
     private fun ensurePanel(): LinearLayout {
         panel?.let { return it }
 
-        val root = LinearLayout(c).apply {
+        val root = EdgeLayout(c).apply {
             orientation = LinearLayout.VERTICAL
+            edge = dp(16)
             background = Ui.round(P.surface, dp(20), P.outline, dp(1))
             setPadding(dp(12), dp(6), dp(12), dp(4))
             elevation = dp(10).toFloat()
@@ -1020,11 +1125,33 @@ class FloatService : Service() {
             setOnClickListener { doPaste() }
         }
         pasteBtn = paste
+        val attach = ImageView(c).apply {
+            setImageResource(R.drawable.ic_image)
+            setColorFilter(accent)
+            val pd = dp(9)
+            setPadding(pd, pd, pd, pd)
+            contentDescription = "Lampirkan gambar soal ke halaman"
+            visibility = View.GONE
+            setOnClickListener {
+                injectImage { r ->
+                    if (r != 0) {
+                        pendingB64 = null
+                        pendingUpload = null
+                        refreshAttach()
+                        toast("Gambar soal terlampir")
+                    } else {
+                        toast("Kolom pesan belum ketemu. Ketuk kolom pesan di situs lalu coba lagi.")
+                    }
+                }
+            }
+        }
+        attachBtn = attach
         val header = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(icon, LinearLayout.LayoutParams(dp(30), dp(30)))
             addView(title, LinearLayout.LayoutParams(0, WRAP, 1f))
+            addView(attach, LinearLayout.LayoutParams(dp(36), dp(36)))
             addView(paste, LinearLayout.LayoutParams(dp(36), dp(36)))
             addView(close, LinearLayout.LayoutParams(dp(36), dp(36)))
         }
@@ -1058,7 +1185,7 @@ class FloatService : Service() {
             softInputMode = panelSoftInput()
         }
         makeDraggable(header, root, lp)
-        makeResizable(grip, root, lp)
+        root.onEdge = { mask, phase, dx, dy -> resizeEdge(root, lp, mask, phase, dx, dy) }
         root.alpha = pref(Setting.WIN_ALPHA) / 100f
         panel = root
         panelLp = lp
@@ -1085,6 +1212,84 @@ class FloatService : Service() {
                 }.onFailure { copyOut.text = "Error: ${it.message}" }
             }
         }
+    }
+
+    // ---------- alat: Terjemah (di HP, tanpa website) ----------
+
+    private var trOut: TextView? = null
+    private var trText = ""
+
+    private fun trView(): View {
+        val col = vbox()
+        val out = resultText().apply {
+            text = "Lingkari teks di layar. Teks dibaca lalu diterjemahkan di HP ke bahasa ${Prefs.LANGS[Prefs.lang(c)]}. Bahasa tujuan diatur di aplikasi."
+        }
+        trOut = out
+        col.addView(
+            row(
+                btn("Lingkari area", true) { withRegion(false, out) { runTranslate(it) } },
+                btn("Layar penuh") { withRegion(true, out) { runTranslate(it) } }
+            )
+        )
+        addOut(col, out)
+        col.addView(row(btn("Salin hasil") { if (trText.isNotBlank()) copyText(trText) else toast("Belum ada hasil") }))
+        return col
+    }
+
+    private fun runTranslate(bmp: Bitmap) {
+        val out = trOut ?: return
+        val tag = Prefs.LANG_CODES[Prefs.lang(c)]
+        out.text = "Membaca teks…"
+        Ocr.read(bmp) { r ->
+            ui.post {
+                r.onFailure { out.text = "Error: ${it.message}" }
+                r.onSuccess { src ->
+                    if (src.isBlank()) {
+                        out.text = "Tidak ada teks terbaca."
+                        return@onSuccess
+                    }
+                    out.text = "Mengenali bahasa…"
+                    com.google.mlkit.nl.languageid.LanguageIdentification.getClient()
+                        .identifyLanguage(src)
+                        .addOnSuccessListener { code ->
+                            val from = com.google.mlkit.nl.translate.TranslateLanguage
+                                .fromLanguageTag(if (code == "und") "en" else code)
+                            val to = com.google.mlkit.nl.translate.TranslateLanguage.fromLanguageTag(tag)
+                            when {
+                                from == null || to == null -> out.text = "Bahasa teks ($code) belum didukung penerjemah di HP."
+                                from == to -> out.text = "Teks sudah dalam bahasa ${Prefs.LANGS[Prefs.lang(c)]}.\n\n$src"
+                                else -> translateText(src, from, to, out)
+                            }
+                        }
+                        .addOnFailureListener { out.text = "Gagal mengenali bahasa: ${it.message}" }
+                }
+            }
+        }
+    }
+
+    private fun translateText(src: String, from: String, to: String, out: TextView) {
+        val tr = com.google.mlkit.nl.translate.Translation.getClient(
+            com.google.mlkit.nl.translate.TranslatorOptions.Builder()
+                .setSourceLanguage(from)
+                .setTargetLanguage(to)
+                .build()
+        )
+        out.text = "Menyiapkan model bahasa… (unduh sekali, butuh internet)"
+        tr.downloadModelIfNeeded(com.google.mlkit.common.model.DownloadConditions.Builder().build())
+            .addOnSuccessListener {
+                out.text = "Menerjemahkan…"
+                tr.translate(src)
+                    .addOnSuccessListener { t ->
+                        trText = t
+                        out.text = t + "\n\n— teks asli —\n" + src
+                        tr.close()
+                    }
+                    .addOnFailureListener { out.text = "Gagal menerjemahkan: ${it.message}"; tr.close() }
+            }
+            .addOnFailureListener {
+                out.text = "Model bahasa gagal diunduh: ${it.message}\nPastikan internet aktif."
+                tr.close()
+            }
     }
 
     private fun copyView(): View {
@@ -1132,6 +1337,12 @@ class FloatService : Service() {
             settings.domStorageEnabled = true
             // beberapa situs menolak WebView. Samarkan "wv" agar tampil seperti Chrome biasa.
             settings.userAgentString = settings.userAgentString.replace("; wv", "")
+            // skala lebih kecil: halaman tampak lebih luas di jendela yang tetap kecil
+            settings.textZoom = pref(Setting.WEB_ZOOM)
+            setInitialScale(pref(Setting.WEB_ZOOM))
+            settings.setSupportZoom(true)
+            settings.builtInZoomControls = true
+            settings.displayZoomControls = false
             webChromeClient = object : WebChromeClient() {
                 override fun onShowFileChooser(
                     wv: WebView?,
@@ -1153,6 +1364,7 @@ class FloatService : Service() {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, u: String?) {
                     if (!url.hasFocus() && u != null) url.setText(u)
+                    if (pendingB64 != null) autoAttach()
                 }
             }
             loadUrl("https://www.google.com")
@@ -1785,5 +1997,51 @@ class FloatService : Service() {
                 }
             }
         }
+    }
+}
+
+
+/** Tata letak jendela alat yang menangkap sentuhan di tepinya untuk mengubah ukuran. */
+class EdgeLayout(ctx: android.content.Context) : LinearLayout(ctx) {
+    var edge = 40
+    var onEdge: ((mask: Int, phase: Int, dx: Float, dy: Float) -> Unit)? = null
+    private var mask = 0
+    private var tx = 0f
+    private var ty = 0f
+
+    private fun maskAt(x: Float, y: Float): Int {
+        var m = 0
+        if (x < edge) m = m or 1
+        if (y < edge) m = m or 2
+        if (x > width - edge) m = m or 4
+        if (y > height - edge) m = m or 8
+        return m
+    }
+
+    override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+        if (e.action == MotionEvent.ACTION_DOWN) {
+            val m = maskAt(e.x, e.y)
+            // sudut atas dibiarkan untuk header (geser) dan tombol; hanya tepi atas paling tipis yang menangkap
+            if (m != 0) {
+                mask = m
+                tx = e.rawX
+                ty = e.rawY
+                onEdge?.invoke(mask, 0, 0f, 0f)
+                return true
+            }
+        }
+        return false
+    }
+
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        if (mask == 0) return false
+        when (e.action) {
+            MotionEvent.ACTION_MOVE -> onEdge?.invoke(mask, 1, e.rawX - tx, e.rawY - ty)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                onEdge?.invoke(mask, 2, 0f, 0f)
+                mask = 0
+            }
+        }
+        return true
     }
 }
