@@ -1358,6 +1358,11 @@ class FloatService : Service() {
 
     private var trOut: TextView? = null
     private var trText = ""
+    private var trRev = false  // false: Inggris ke Indonesia, true: Indonesia ke Inggris
+
+    private fun trDirName() = if (trRev) "Indonesia → Inggris" else "Inggris → Indonesia"
+    private fun trFrom() = com.google.mlkit.nl.translate.TranslateLanguage.let { if (trRev) it.INDONESIAN else it.ENGLISH }
+    private fun trTo() = com.google.mlkit.nl.translate.TranslateLanguage.let { if (trRev) it.ENGLISH else it.INDONESIAN }
 
     private fun trView(): View {
         val col = vbox()
@@ -1365,6 +1370,15 @@ class FloatService : Service() {
             text = "Lingkari teks di layar."
         }
         trOut = out
+        val dir = btn("", false) {}
+        dir.text = "⇄  ${trDirName()}"
+        dir.setOnClickListener {
+            trRev = !trRev
+            dir.text = "⇄  ${trDirName()}"
+            // membalik hasil yang sudah ada: hasil jadi teks yang diterjemahkan ke arah sebaliknya
+            if (trText.isNotBlank()) translateText(trText, trFrom(), trTo(), out)
+        }
+        col.addView(row(dir))
         col.addView(
             row(
                 btn("Lingkari area", true) { withRegion(false, out) { runTranslate(it) } },
@@ -1376,7 +1390,7 @@ class FloatService : Service() {
         return col
     }
 
-    /** Terjemah di HP hanya dari Inggris ke Indonesia (model kecil, ringan). */
+    /** Terjemah di HP: Inggris dan Indonesia saja (model kecil, ringan), arah bisa dibalik. */
     private fun runTranslate(bmp: Bitmap) {
         val out = trOut ?: return
         out.text = "Membaca teks…"
@@ -1385,12 +1399,7 @@ class FloatService : Service() {
                 r.onFailure { out.text = "Error: ${it.message}" }
                 r.onSuccess { src ->
                     if (src.isBlank()) out.text = "Tidak ada teks terbaca."
-                    else translateText(
-                        src,
-                        com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH,
-                        com.google.mlkit.nl.translate.TranslateLanguage.INDONESIAN,
-                        out
-                    )
+                    else translateText(src, trFrom(), trTo(), out)
                 }
             }
         }
