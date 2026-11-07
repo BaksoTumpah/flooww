@@ -415,7 +415,7 @@ class MainActivity : Activity() {
     private fun card(title: String, vararg kids: View): LinearLayout {
         val c = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = Ui.clay(this, p.surface, dp(22), 5f)
+            background = Ui.clay(this@MainActivity, p.surface, dp(22), 5f)
             setPadding(dp(18), dp(16), dp(18), dp(22))
         }
         c.addView(TextView(this).apply {
@@ -580,7 +580,7 @@ class MainActivity : Activity() {
         val accent = Prefs.bubbleColor(this)
         val line = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = Ui.dent(this, p.field, dp(16))
+            background = Ui.dent(this@MainActivity, p.field, dp(16))
             setPadding(dp(4), dp(4), dp(4), dp(5))
         }
         val cells = names.map { TextView(this) }
@@ -588,7 +588,7 @@ class MainActivity : Activity() {
             cells.forEachIndexed { i, t ->
                 val on = i == get()
                 t.setTextColor(if (on) Color.WHITE else p.on)
-                t.background = if (on) Ui.clay(this, accent, dp(13), 3f) else null
+                t.background = if (on) Ui.clay(this@MainActivity, accent, dp(13), 3f) else null
             }
         }
         cells.forEachIndexed { i, t ->

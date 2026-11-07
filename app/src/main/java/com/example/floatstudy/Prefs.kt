@@ -26,8 +26,6 @@ object Prefs {
     val COLORS = intArrayOf(
         0xFF7C6CF0.toInt(), 0xFF2EC4B6.toInt(), 0xFFFF6B81.toInt(), 0xFFFFA94D.toInt(),
         0xFF4CC9F0.toInt(), 0xFF56C271.toInt(), 0xFFF368E0.toInt(), 0xFF2D2A4A.toInt()
-    ), 0xFF16A34A.toInt(), 0xFFDC2626.toInt(), 0xFF9333EA.toInt(),
-        0xFFEA580C.toInt(), 0xFF0891B2.toInt(), 0xFFDB2777.toInt(), 0xFF111827.toInt()
     )
     /** Kode bahasa ML Kit untuk LANGS, urutannya sama. */
     val LANG_CODES = listOf("id", "en", "ar", "ja", "zh", "ko", "de", "fr", "es")
