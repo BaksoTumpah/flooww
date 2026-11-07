@@ -132,8 +132,8 @@ object Prefs {
 
     /** Aksi gestur bubble. Indeks 0 = tidak ada, 1 = buka menu, 2..11 = alat menu (id alat = indeks - 2). */
     val GESTURE_NAMES = listOf(
-        "Tidak ada", "Buka menu", "Tanya AI", "Salin", "Terjemah", "Gambar",
-        "Browser", "Chat", "Hitung", "Klik", "Apps", "Auto Jawab"
+        "Tidak ada", "Buka menu", "Tanya AI", "Salin", "Terjemah", "Screenshot",
+        "Browser", "Chat", "Hitung", "Klik", "Apps", "Auto Jawab", "Matikan bubble"
     )
     private val gestureKeys = listOf("gTap", "gDouble", "gLong", "gUp", "gDown", "gSide")
     private val gestureDefs = intArrayOf(1, 2, 11, 0, 0, 0)

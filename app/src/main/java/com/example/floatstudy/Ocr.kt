@@ -12,8 +12,12 @@ object Ocr {
     }
 
     // OCR di perangkat (huruf Latin). Untuk aksara lain pakai fitur AI vision.
-    fun read(bmp: Bitmap, cb: (Result<String>) -> Unit) {
-        recognizer.process(InputImage.fromBitmap(bmp, 0))
+    private val recognizerJa by lazy {
+        TextRecognition.getClient(com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions.Builder().build())
+    }
+
+    fun read(bmp: Bitmap, japanese: Boolean = false, cb: (Result<String>) -> Unit) {
+        (if (japanese) recognizerJa else recognizer).process(InputImage.fromBitmap(bmp, 0))
             .addOnSuccessListener { cb(Result.success(it.text.trim())) }
             .addOnFailureListener { cb(Result.failure(it)) }
     }

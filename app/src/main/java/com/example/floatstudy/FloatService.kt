@@ -74,19 +74,20 @@ class FloatService : Service() {
         private const val M_CLICK = 7
         private const val M_APPS = 8
         private const val M_AUTO = 9
+        private const val M_OFF = 10
 
         private val NAMES = listOf(
-            "Tanya AI", "Salin", "Terjemah", "Gambar", "Browser",
-            "Chat", "Hitung", "Klik", "Apps", "Auto Jawab"
+            "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
+            "Chat", "Hitung", "Klik", "Apps", "Auto Jawab", "Matikan"
         )
         private val ICONS = intArrayOf(
-            R.drawable.ic_ask, R.drawable.ic_copy, R.drawable.ic_translate, R.drawable.ic_image,
+            R.drawable.ic_ask, R.drawable.ic_copy, R.drawable.ic_translate, R.drawable.ic_shot,
             R.drawable.ic_browser, R.drawable.ic_chat, R.drawable.ic_calc, R.drawable.ic_touch,
-            R.drawable.ic_apps, R.drawable.ic_auto
+            R.drawable.ic_apps, R.drawable.ic_auto, R.drawable.ic_power
         )
 
         // alat yang mengambil soal dari layar: lingkaran pilih area muncul dulu, jendela sesudahnya
-        private val CIRCLE_FIRST = setOf(M_ASK, M_COPY, M_TR, M_IMG)
+        private val CIRCLE_FIRST = setOf(M_ASK, M_COPY, M_TR)
 
         /**
          * Semua jendela mengambang: tidak pernah menerima fokus input (keyboard virtual tidak bisa muncul)
@@ -871,6 +872,11 @@ class FloatService : Service() {
         when {
             i in CIRCLE_FIRST -> circleFirst(i)
             i == M_AUTO -> startAuto()
+            i == M_IMG -> screenshotNow()
+            i == M_OFF -> {
+                toast("Bubble dimatikan")
+                stopSelf()
+            }
             else -> openTool(i)
         }
     }
@@ -900,8 +906,47 @@ class FloatService : Service() {
                     openTool(M_COPY)
                     runCopy(bmp)
                 }
-                M_IMG -> searchWithLens(bmp) { toast(it) }
             }
+        }
+    }
+
+    // ---------- screenshot ----------
+
+    /** Ambil layar penuh (bubble disembunyikan) lalu simpan ke galeri, folder Pictures/flooww. */
+    private fun screenshotNow() {
+        val g = grab
+        if (g == null || !g.active) {
+            needProjection()
+            return
+        }
+        pickRegion(true) { bmp ->
+            if (bmp == null) {
+                toast("Gagal mengambil layar")
+                return@pickRegion
+            }
+            Thread {
+                val ok = try {
+                    val name = "flooww_" + java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date()) + ".png"
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        val cv = android.content.ContentValues().apply {
+                            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, name)
+                            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+                            put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/flooww")
+                        }
+                        val u = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv)!!
+                        contentResolver.openOutputStream(u)!!.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    } else {
+                        val d = File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES), "flooww").apply { mkdirs() }
+                        val f = File(d, name)
+                        f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                        android.media.MediaScannerConnection.scanFile(this, arrayOf(f.absolutePath), null, null)
+                    }
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+                ui.post { toast(if (ok) "Screenshot disimpan di galeri (Pictures/flooww)" else "Gagal menyimpan screenshot") }
+            }.start()
         }
     }
 
@@ -1442,11 +1487,14 @@ class FloatService : Service() {
 
     private var trOut: TextView? = null
     private var trText = ""
-    private var trRev = false  // false: Inggris ke Indonesia, true: Indonesia ke Inggris
+    private var trRev = false  // false: bahasa asing ke Indonesia, true: Indonesia ke bahasa asing
+    private var trJa = false   // bahasa asing: false Inggris, true Jepang
 
-    private fun trDirName() = if (trRev) "Indonesia → Inggris" else "Inggris → Indonesia"
-    private fun trFrom(): String = if (trRev) com.google.mlkit.nl.translate.TranslateLanguage.INDONESIAN else com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH
-    private fun trTo(): String = if (trRev) com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH else com.google.mlkit.nl.translate.TranslateLanguage.INDONESIAN
+    private fun trForeignName() = if (trJa) "Jepang" else "Inggris"
+    private fun trForeign(): String = if (trJa) com.google.mlkit.nl.translate.TranslateLanguage.JAPANESE else com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH
+    private fun trDirName() = if (trRev) "Indonesia → ${trForeignName()}" else "${trForeignName()} → Indonesia"
+    private fun trFrom(): String = if (trRev) com.google.mlkit.nl.translate.TranslateLanguage.INDONESIAN else trForeign()
+    private fun trTo(): String = if (trRev) trForeign() else com.google.mlkit.nl.translate.TranslateLanguage.INDONESIAN
 
     private fun trView(): View {
         val col = vbox()
@@ -1462,7 +1510,17 @@ class FloatService : Service() {
             // membalik hasil yang sudah ada: hasil jadi teks yang diterjemahkan ke arah sebaliknya
             if (trText.isNotBlank()) translateText(trText, trFrom(), trTo(), out)
         }
+        val lang = btn("", false) {}
+        lang.text = "Bahasa asing: ${trForeignName()}"
+        lang.setOnClickListener {
+            trJa = !trJa
+            lang.text = "Bahasa asing: ${trForeignName()}"
+            dir.text = "⇄  ${trDirName()}"
+            trText = ""
+            out.text = "Lingkari teks di layar."
+        }
         col.addView(row(dir))
+        col.addView(row(lang))
         col.addView(
             row(
                 btn("Lingkari area", true) { withRegion(false, out) { runTranslate(it) } },
@@ -1478,7 +1536,7 @@ class FloatService : Service() {
     private fun runTranslate(bmp: Bitmap) {
         val out = trOut ?: return
         out.text = "Membaca teks…"
-        Ocr.read(bmp) { r ->
+        Ocr.read(bmp, japanese = trJa && !trRev) { r ->
             ui.post {
                 r.onFailure { out.text = "Error: ${it.message}" }
                 r.onSuccess { src ->
