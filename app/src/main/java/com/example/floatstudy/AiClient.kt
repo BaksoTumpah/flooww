@@ -41,6 +41,16 @@ object AiClient {
         system: String,
         json: Boolean,
         cb: (Result<String>) -> Unit
+    ) = generate(ctx, turns, imageB64, system, json, true, cb)
+
+    private fun generate(
+        ctx: Context,
+        turns: List<Pair<String, String>>,
+        imageB64: String?,
+        system: String,
+        json: Boolean,
+        think: Boolean,
+        cb: (Result<String>) -> Unit
     ) {
         val key = Prefs.key(ctx)
         if (key.isBlank()) {
@@ -66,9 +76,12 @@ object AiClient {
 
         val gen = JSONObject()
             .put("temperature", if (json) 0.2 else 0.7)
-            .put("maxOutputTokens", 4096)
+            .put("maxOutputTokens", 8192)
         if (json) gen.put("responseMimeType", "application/json")
-        if (model.contains("2.5")) {
+        if (think && Regex("gemini-(3|4|5)").containsMatchIn(model)) {
+            // seri 3 ke atas: tingkat berpikir rendah agar token tidak habis untuk berpikir dan jawaban cepat
+            gen.put("thinkingConfig", JSONObject().put("thinkingLevel", if (json) "low" else "minimal"))
+        } else if (model.contains("2.5")) {
             val budget = when {
                 json -> 1024
                 model.contains("pro") -> 512
@@ -88,7 +101,13 @@ object AiClient {
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        send(req, 1, cb)
+        send(req, 1) { r ->
+            val e = r.exceptionOrNull()
+            // sebagian model menolak pengaturan berpikir: ulangi tanpa itu
+            if (think && e is AiError && e.code == 400 && e.message.orEmpty().contains("think", ignoreCase = true)) {
+                generate(ctx, turns, imageB64, system, json, false, cb)
+            } else cb(r)
+        }
     }
 
     private fun send(req: Request, retries: Int, cb: (Result<String>) -> Unit) {
@@ -116,14 +135,27 @@ object AiClient {
                             val msg = j.optJSONObject("error")?.optString("message").orEmpty()
                             Result.failure(AiError(r.code, friendly(r.code, msg)))
                         } else {
-                            val cand = j.getJSONArray("candidates").getJSONObject(0)
-                            val parts = cand.getJSONObject("content").getJSONArray("parts")
+                            val cands = j.optJSONArray("candidates")
+                            val cand = cands?.optJSONObject(0)
+                            val parts = cand?.optJSONObject("content")?.optJSONArray("parts")
                             val sb = StringBuilder()
-                            for (n in 0 until parts.length()) sb.append(parts.getJSONObject(n).optString("text"))
-                            Result.success(sb.toString().trim())
+                            if (parts != null) {
+                                for (n in 0 until parts.length()) {
+                                    val p = parts.getJSONObject(n)
+                                    if (!p.optBoolean("thought", false)) sb.append(p.optString("text"))
+                                }
+                            }
+                            val txt = sb.toString().trim()
+                            if (txt.isNotEmpty()) Result.success(txt)
+                            else {
+                                val why = cand?.optString("finishReason").orEmpty()
+                                    .ifBlank { j.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty() }
+                                    .ifBlank { "kosong" }
+                                Result.failure(AiError(r.code, "Gemini tidak memberi jawaban (alasan: $why). Coba lagi atau persempit area soal."))
+                            }
                         }
                     } catch (e: Exception) {
-                        Result.failure(AiError(r.code, "Respons tidak terbaca (HTTP ${r.code})"))
+                        Result.failure(AiError(r.code, "Respons tidak terbaca (HTTP ${r.code}): ${raw.take(120)}"))
                     }
                 }
                 cb(result)

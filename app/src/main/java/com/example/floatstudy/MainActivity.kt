@@ -147,6 +147,24 @@ class MainActivity : Activity() {
         apiViews.add(spaced(Ui.button(this, "Buka Google AI Studio", false) {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
         }))
+        apiViews.add(spaced(Ui.button(this, "Tes koneksi AI", true) {
+            val dlg = android.app.AlertDialog.Builder(this)
+                .setTitle("Tes koneksi AI")
+                .setMessage("Menghubungi Gemini…")
+                .setPositiveButton("Tutup", null)
+                .show()
+            AiClient.generate(
+                this, listOf("user" to "Balas satu kata saja: OK"), null,
+                "Jawab sangat singkat.", false
+            ) { r ->
+                runOnUiThread {
+                    val key = Prefs.key(this)
+                    val head = "Model: ${Prefs.model(this)}\nKey: " +
+                        (if (key.isBlank()) "belum diisi" else "terisi (…${key.takeLast(4)})") + "\n\n"
+                    dlg.setMessage(head + r.fold({ "Berhasil. Gemini menjawab: $it" }, { "Gagal: ${it.message}" }))
+                }
+            }
+        }))
         gAi.add(sec("API key dan model", *apiViews.toTypedArray()))
 
         // ---- tampilan ----

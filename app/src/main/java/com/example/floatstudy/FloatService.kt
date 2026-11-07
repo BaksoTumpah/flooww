@@ -913,6 +913,7 @@ class FloatService : Service() {
     // gambar yang akan dilampirkan otomatis saat situs AI membuka pemilih file
     private var pendingUpload: Uri? = null
     private var pendingB64: String? = null
+    private var attachDone = false
     private var attachBtn: ImageView? = null
 
     /**
@@ -925,6 +926,7 @@ class FloatService : Service() {
         val name = Prefs.AI_NAMES[target]
         pendingUpload = null
         pendingB64 = null
+        attachDone = false
         if (bmp != null) {
             try {
                 val dir = File(cacheDir, "shared").apply { mkdirs() }
@@ -932,6 +934,13 @@ class FloatService : Service() {
                 f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
                 pendingUpload = Uri.fromFile(f)
                 pendingB64 = toJpegB64(bmp)
+                // cadangan: gambar juga disalin ke clipboard, bisa ditempel lewat tekan lama di kolom pesan
+                try {
+                    val cu = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", f)
+                    (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                        .setPrimaryClip(android.content.ClipData.newUri(contentResolver, "soal", cu))
+                } catch (e: Exception) {
+                }
             } catch (e: Exception) {
                 toast("Gagal menyiapkan gambar: ${e.message}")
             }
@@ -985,15 +994,14 @@ class FloatService : Service() {
 
     /** Coba beberapa kali setelah halaman dimuat, karena kolom pesan situs AI muncul belakangan. */
     private fun autoAttach(tries: Int = 12) {
-        if (pendingB64 == null || tries <= 0) return
+        if (pendingB64 == null || tries <= 0 || attachDone) return
         ui.postDelayed({
-            if (pendingB64 == null) return@postDelayed
+            if (pendingB64 == null || attachDone) return@postDelayed
             injectImage { r ->
                 if (r != 0) {
-                    pendingB64 = null
-                    pendingUpload = null
-                    refreshAttach()
-                    toast("Gambar soal terlampir")
+                    attachDone = true
+                    // jangan dihapus: bila situs mengabaikan, tombol lampir dan pemilih berkas masih bisa memakainya
+                    toast("Gambar dikirim ke kolom. Bila belum muncul, ketuk + lalu Unggah berkas")
                 } else {
                     autoAttach(tries - 1)
                 }
