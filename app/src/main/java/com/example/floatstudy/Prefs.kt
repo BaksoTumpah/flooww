@@ -70,6 +70,13 @@ object Prefs {
         sp(c).edit().putInt("aiTarget", i).apply()
     }
 
+    /** Nama pengguna untuk sapaan. Nanti diisi dari data pembeli (aplikasi admin). */
+    fun userName(c: Context): String = sp(c).getString("userName", "") ?: ""
+
+    fun setUserName(c: Context, n: String) {
+        sp(c).edit().putString("userName", n.trim()).apply()
+    }
+
     fun lang(c: Context): Int = sp(c).getInt("lang", 1).coerceIn(0, LANGS.size - 1)
 
     fun setLang(c: Context, i: Int) {

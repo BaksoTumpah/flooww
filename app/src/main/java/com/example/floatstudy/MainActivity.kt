@@ -48,9 +48,18 @@ class MainActivity : Activity() {
 
         col.addView(TextView(this).apply {
             text = "flooww"
-            textSize = 26f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            textSize = 28f
+            typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
             setTextColor(p.on)
+        })
+        // sapaan: nama diisi dari data pembeli (aplikasi admin); kosong = sapaan umum
+        col.addView(TextView(this).apply {
+            val n = Prefs.userName(this@MainActivity)
+            text = if (n.isBlank()) "Halo!" else "Halo, $n"
+            textSize = 18f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(Prefs.bubbleColor(this@MainActivity))
+            setPadding(0, dp(2), 0, 0)
         })
         col.addView(TextView(this).apply {
             text = "Bubble mengambang untuk belajar. Ketuk bubble, pilih alat, lalu pakai."
@@ -96,18 +105,27 @@ class MainActivity : Activity() {
                 }
             })
         }
+        // dropdown bahasa terjemah
         val langBtn = Ui.button(this, "", false) {}
-        fun showLang() { langBtn.text = "Terjemahkan ke: ${Prefs.LANGS[Prefs.lang(this)]}" }
+        fun showLang() { langBtn.text = "${Prefs.LANGS[Prefs.lang(this)]}   ▾" }
         langBtn.setOnClickListener {
-            Prefs.setLang(this, (Prefs.lang(this) + 1) % Prefs.LANGS.size)
-            showLang()
+            val pm = android.widget.PopupMenu(this, langBtn)
+            Prefs.LANGS.forEachIndexed { i, n -> pm.menu.add(0, i, i, if (i == Prefs.lang(this)) "✓  $n" else n) }
+            pm.setOnMenuItemClickListener {
+                Prefs.setLang(this, it.itemId)
+                showLang()
+                true
+            }
+            pm.show()
+        }
+        showLang()
         }
         showLang()
         gAi.add(sec("Tujuan Tanya AI",
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn)
         ))
-        gAi.add(sec("Bahasa terjemah",
+        gAi.add(sec("Terjemahkan ke",
             spaced(langBtn)
         ))
 
@@ -191,14 +209,8 @@ class MainActivity : Activity() {
             segmented(listOf("Diblokir", "Diizinkan"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) }
         ))
         gLook.add(sec("Jendela alat",
-            slider("Lebar", Setting.WIN_W, " dp"),
-            slider("Tinggi", Setting.WIN_H, " dp"),
             slider("Opasitas", Setting.WIN_ALPHA, "%"),
             slider("Zoom halaman web", Setting.WEB_ZOOM, "%")
-        ))
-        gApps.add(sec("Ukuran jendela aplikasi",
-            slider("Lebar", Setting.APP_W, " dp"),
-            slider("Tinggi", Setting.APP_H, " dp")
         ))
         gLook.add(sec("Bawaan",
             spaced(Ui.button(this, "Kembalikan tampilan bawaan", false) {
