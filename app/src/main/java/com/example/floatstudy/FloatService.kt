@@ -1233,14 +1233,6 @@ class FloatService : Service() {
             "var ins=document.querySelectorAll('input[type=file]');var t=null;" +
             "for(var k=0;k<ins.length;k++){var ac=(ins[k].accept||'');if(!ac||ac.indexOf('image')>=0||ac.indexOf('*')>=0){t=ins[k];break;}}" +
             "if(t){t.files=dt.files;t.dispatchEvent(new Event('input',{bubbles:true}));t.dispatchEvent(new Event('change',{bubbles:true}));return 2;}" +
-            // 1b) Gemini: input berkas dibuat saat menu unggah diklik -> klik tombol tambah, lalu 'Unggah file'
-            (if (Prefs.aiTarget(c) == 0)
-                "var rx=/upload|unggah|attach|lampir|tambah|add file|open upload/i;" +
-                "var bs=document.querySelectorAll('button,[role=button]');var pb=null;" +
-                "for(var j=0;j<bs.length;j++){var l=(bs[j].getAttribute('aria-label')||'')+' '+(bs[j].getAttribute('mattooltip')||'');if(rx.test(l)&&!/send|kirim|mic/i.test(l)){pb=bs[j];break;}}" +
-                "if(pb){pb.click();setTimeout(function(){var it=document.querySelectorAll('[role=menuitem],button,.mat-mdc-menu-item,[mat-menu-item]');" +
-                "for(var q=0;q<it.length;q++){if(/upload file|unggah file|upload from|unggah dari|files/i.test(it[q].innerText||'')){it[q].click();break;}}},700);return 3;}"
-            else "") +
             // 2) tempel + jatuhkan berkas ke kolom pesan
             "var ok=function(x){return x&&(x.isContentEditable||x.tagName=='TEXTAREA'||(x.getAttribute&&x.getAttribute('role')=='textbox'));};" +
             "var e=document.activeElement;" +
@@ -1256,15 +1248,17 @@ class FloatService : Service() {
     /** Coba beberapa kali setelah halaman dimuat, karena kolom pesan situs AI muncul belakangan. */
     private var attachRun: Runnable? = null
 
+    private val COUNT_JS = "(function(){return document.querySelectorAll('img[src^=\"blob:\"],img[src^=\"data:\"],canvas').length;})()"
+
     /**
-     * Kirim gambar otomatis hanya saat halaman sudah tenang: kolom pesan ada, halaman selesai dimuat,
-     * dan tidak ada perubahan tampilan selama 1,5 detik. Dikirim sekali saja (tanpa menggandakan).
+     * Lampirkan gambar secepat mungkin tapi tetap aman: tunggu kolom pesan ada dan halaman tenang sebentar (0,7 detik),
+     * tempel gambar, cek bahwa gambar benar muncul (miniatur atau nama berkas), lalu langsung isi perintah dan kirim.
      */
-    private fun autoAttach(tries: Int = 40) {
+    private fun autoAttach(tries: Int = 50) {
         attachRun?.let { ui.removeCallbacks(it) }
         val w = web ?: return
         if (pendingB64 == null || tries <= 0 || attachDone) return
-        if (tries == 40) {
+        if (tries == 50) {
             w.evaluateJavascript(
                 "(function(){if(!window.__fq){window.__fq=Date.now();" +
                     "try{new MutationObserver(function(){window.__fq=Date.now();}).observe(document,{subtree:true,childList:true,attributes:true});}catch(e){}}})()",
@@ -1275,18 +1269,14 @@ class FloatService : Service() {
             if (pendingB64 == null || attachDone) return@Runnable
             w.evaluateJavascript(
                 "(function(){var e=document.querySelector('textarea,[contenteditable],[role=textbox],input[type=file]');" +
-                    "if(!e||document.readyState!='complete')return -1;return window.__fq?(Date.now()-window.__fq):9999;})()"
+                    "if(!e||document.readyState=='loading')return -1;return window.__fq?(Date.now()-window.__fq):9999;})()"
             ) { v ->
                 val quiet = v?.trim()?.toIntOrNull() ?: -1
-                if (quiet >= 1500 || (tries <= 2 && quiet >= 0)) {
-                    injectImage { code ->
-                        if (code != 0) {
-                            attachDone = true
-                            toast("Melampirkan gambar…")
-                            fillAndSend()
-                        } else {
-                            autoAttach(tries - 1)
-                        }
+                if (quiet >= 700 || (tries <= 2 && quiet >= 0)) {
+                    attachDone = true
+                    w.evaluateJavascript(COUNT_JS) { base ->
+                        val b0 = base?.trim()?.toIntOrNull() ?: 0
+                        attachAndVerify(b0, 0)
                     }
                 } else {
                     autoAttach(tries - 1)
@@ -1294,25 +1284,54 @@ class FloatService : Service() {
             }
         }
         attachRun = r
-        ui.postDelayed(r, 700)
+        ui.postDelayed(r, 400)
     }
 
-    /** Setelah gambar terlampir: isi perintah ke kolom pesan, tunggu tombol kirim aktif, lalu kirim. */
+    /** Tempel gambar, lalu cek tiap 0,3 detik sampai muncul. Bila tidak muncul dalam 3 detik, ulangi sekali. */
+    private fun attachAndVerify(base: Int, round: Int) {
+        val w = web ?: return
+        injectImage { code ->
+            if (code == 0 && round < 3) {
+                ui.postDelayed({ attachAndVerify(base, round + 1) }, 500)
+                return@injectImage
+            }
+            toast("Melampirkan gambar…")
+            var waited = 0
+            val check = object : Runnable {
+                override fun run() {
+                    w.evaluateJavascript(
+                        "(function(b){var n=document.querySelectorAll('img[src^=\"blob:\"],img[src^=\"data:\"],canvas').length;" +
+                            "var t=document.body&&document.body.innerText.indexOf('soal.jpg')>=0;return(n>b||t)?1:0;})($base)"
+                    ) { v ->
+                        val ok = v?.trim() == "1"
+                        waited += 300
+                        when {
+                            ok -> fillAndSend()
+                            waited >= 3000 && round < 1 -> attachAndVerify(base, round + 1)
+                            waited >= 6000 -> fillAndSend()
+                            else -> ui.postDelayed(this, 300)
+                        }
+                    }
+                }
+            }
+            ui.postDelayed(check, 300)
+        }
+    }
+
+    /** Isi perintah ke kolom pesan lalu kirim begitu tombol kirim aktif (dicek tiap 0,25 detik). */
     private fun fillAndSend() {
         val p = pendingPrompt ?: return
         pendingPrompt = null
         val q = org.json.JSONObject.quote(p.take(3000))
-        ui.postDelayed({
-            web?.evaluateJavascript(
-                "(function(){var e=document.querySelector('rich-textarea [contenteditable],div.ql-editor,#prompt-textarea,textarea,[contenteditable=true],[role=textbox]');" +
-                    "if(!e)return 0;e.focus();var t=$q;" +
-                    "if(e.tagName=='TEXTAREA'){var d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');d.set.call(e,t);e.dispatchEvent(new Event('input',{bubbles:true}));}" +
-                    "else{document.execCommand('selectAll',false,null);if(!document.execCommand('insertText',false,t)){e.textContent=t;e.dispatchEvent(new Event('input',{bubbles:true}));}}" +
-                    "var n=0;var iv=setInterval(function(){n++;var b=document.querySelector('button[data-testid=send-button],button[aria-label*=Send],button[aria-label*=Kirim],button[aria-label*=send],button.send-button');" +
-                    "if(b&&!b.disabled&&b.getAttribute('aria-disabled')!='true'){clearInterval(iv);b.click();}else if(n>20)clearInterval(iv);},700);return 1;})()",
-                null
-            )
-        }, 3500)
+        web?.evaluateJavascript(
+            "(function(){var e=document.querySelector('rich-textarea [contenteditable],div.ql-editor,#prompt-textarea,textarea,[contenteditable=true],[role=textbox]');" +
+                "if(!e)return 0;e.focus();var t=$q;" +
+                "if(e.tagName=='TEXTAREA'){var d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');d.set.call(e,t);e.dispatchEvent(new Event('input',{bubbles:true}));}" +
+                "else{document.execCommand('selectAll',false,null);if(!document.execCommand('insertText',false,t)){e.textContent=t;e.dispatchEvent(new Event('input',{bubbles:true}));}}" +
+                "var n=0;var iv=setInterval(function(){n++;var b=document.querySelector('button[data-testid=send-button],button[aria-label*=Send],button[aria-label*=Kirim],button[aria-label*=send],button.send-button');" +
+                "if(b&&!b.disabled&&b.getAttribute('aria-disabled')!='true'){clearInterval(iv);b.click();}else if(n>60)clearInterval(iv);},250);return 1;})()",
+            null
+        )
     }
 
     /** Jembatan agar skrip halaman bisa mengambil gambar soal. */
