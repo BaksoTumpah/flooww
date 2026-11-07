@@ -195,19 +195,24 @@ class Osk(private val c: Context, private val wm: WindowManager) {
 
     private fun plain(s: String, h: Int) = key(s, 1f, h) { type(s) }
 
+    /** Tahan ⌫: hapus berulang, makin lama makin cepat (setelah sekitar 1 detik menghapus 2 sampai 3 huruf per langkah). */
     private fun delKey(w: Float, h: Int): View = key("⌫", w, h, special = true).also { k ->
+        var n = 0
         val rep = object : Runnable {
             override fun run() {
-                backspace()
-                ui.postDelayed(this, 55)
+                n++
+                val times = if (n > 25) 3 else if (n > 12) 2 else 1
+                repeat(times) { backspace() }
+                ui.postDelayed(this, if (n > 12) 35L else 70L)
             }
         }
         k.setOnTouchListener { v, ev ->
             when (ev.action) {
                 MotionEvent.ACTION_DOWN -> {
                     v.isPressed = true
+                    n = 0
                     backspace()
-                    ui.postDelayed(rep, 380)
+                    ui.postDelayed(rep, 320)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     v.isPressed = false
