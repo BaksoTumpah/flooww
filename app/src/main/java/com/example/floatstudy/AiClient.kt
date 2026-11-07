@@ -41,7 +41,14 @@ object AiClient {
         system: String,
         json: Boolean,
         cb: (Result<String>) -> Unit
-    ) = generate(ctx, turns, imageB64, system, json, true, cb)
+    ) {
+        val m = Prefs.model(ctx)
+        // urutan percobaan: model pilihan (dua kali), lalu model cadangan bila server penuh
+        val queue = listOf(m, m, "gemini-3.6-flash", "gemini-3.5-flash-lite").let { l ->
+            l.filterIndexed { i, x -> i < 2 || x != m }
+        }
+        generate(ctx, turns, imageB64, system, json, true, queue, cb)
+    }
 
     private fun generate(
         ctx: Context,
@@ -50,6 +57,7 @@ object AiClient {
         system: String,
         json: Boolean,
         think: Boolean,
+        queue: List<String>,
         cb: (Result<String>) -> Unit
     ) {
         val key = Prefs.key(ctx)
@@ -57,7 +65,7 @@ object AiClient {
             cb(Result.failure(AiError(401, "API key Gemini belum diisi. Buka aplikasi flooww, bagian API key.")))
             return
         }
-        val model = Prefs.model(ctx)
+        val model = queue.first()
 
         val contents = JSONArray()
         turns.forEachIndexed { i, (role, text) ->
@@ -105,7 +113,12 @@ object AiClient {
             val e = r.exceptionOrNull()
             // sebagian model menolak pengaturan berpikir: ulangi tanpa itu
             if (think && e is AiError && e.code == 400 && e.message.orEmpty().contains("think", ignoreCase = true)) {
-                generate(ctx, turns, imageB64, system, json, false, cb)
+                generate(ctx, turns, imageB64, system, json, false, queue, cb)
+            } else if (e is AiError && retryable(e) && queue.size > 1) {
+                // server penuh atau model tidak ada: tunggu sebentar lalu coba berikutnya
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    generate(ctx, turns, imageB64, system, json, think, queue.drop(1), cb)
+                }, 1200)
             } else cb(r)
         }
     }
@@ -163,7 +176,14 @@ object AiClient {
         })
     }
 
+    private fun retryable(e: AiError): Boolean =
+        e.code in listOf(404, 429, 500, 502, 503, 504) ||
+            e.message.orEmpty().contains("high demand", ignoreCase = true) ||
+            e.message.orEmpty().contains("overloaded", ignoreCase = true)
+
     private fun friendly(code: Int, msg: String): String = when {
+        code in listOf(500, 502, 503, 504) || msg.contains("high demand", ignoreCase = true) ->
+            "Server Gemini sedang penuh (bukan masalah internetmu). Sudah dicoba ulang otomatis. Coba lagi beberapa detik lagi."
         code == 404 || msg.contains("no longer available", ignoreCase = true) ->
             "Model Gemini tidak tersedia untuk key ini. Ganti nama model di pengaturan flooww (mis. gemini-3.8-flash)."
         code == 429 -> "Kuota Gemini habis atau terlalu cepat. Tunggu sebentar atau ganti API key."
