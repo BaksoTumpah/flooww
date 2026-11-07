@@ -153,10 +153,12 @@ class MainActivity : Activity() {
                 .setMessage("Menghubungi Gemini…")
                 .setPositiveButton("Tutup", null)
                 .show()
+            AiClient.progress = { mm -> runOnUiThread { dlg.setMessage("Mencoba model $mm…") } }
             AiClient.generate(
                 this, listOf("user" to "Balas satu kata saja: OK"), null,
                 "Jawab sangat singkat.", false
             ) { r ->
+                AiClient.progress = null
                 runOnUiThread {
                     val key = Prefs.key(this)
                     val head = "Model: ${Prefs.model(this)}\nKey: " +

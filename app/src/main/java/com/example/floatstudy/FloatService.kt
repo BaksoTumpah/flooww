@@ -993,20 +993,25 @@ class FloatService : Service() {
     }
 
     /** Coba beberapa kali setelah halaman dimuat, karena kolom pesan situs AI muncul belakangan. */
-    private fun autoAttach(tries: Int = 12) {
+    private var attachRun: Runnable? = null
+
+    private fun autoAttach(tries: Int = 8) {
+        attachRun?.let { ui.removeCallbacks(it) }
         if (pendingB64 == null || tries <= 0 || attachDone) return
-        ui.postDelayed({
-            if (pendingB64 == null || attachDone) return@postDelayed
-            injectImage { r ->
-                if (r != 0) {
+        // tunggu halaman benar-benar siap (kolom pesan sudah aktif), baru kirim gambar
+        val r = Runnable {
+            if (pendingB64 == null || attachDone) return@Runnable
+            injectImage { code ->
+                if (code != 0) {
                     attachDone = true
-                    // jangan dihapus: bila situs mengabaikan, tombol lampir dan pemilih berkas masih bisa memakainya
-                    toast("Gambar dikirim ke kolom. Bila belum muncul, ketuk + lalu Unggah berkas")
+                    toast("Gambar dikirim ke kolom. Bila belum muncul, tekan tombol gambar di atas")
                 } else {
                     autoAttach(tries - 1)
                 }
             }
-        }, 1500)
+        }
+        attachRun = r
+        ui.postDelayed(r, 3500)
     }
 
     /** Jembatan agar skrip halaman bisa mengambil gambar soal. */

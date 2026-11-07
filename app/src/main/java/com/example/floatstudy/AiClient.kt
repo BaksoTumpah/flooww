@@ -18,9 +18,9 @@ class AiError(val code: Int, message: String) : Exception(message)
 /** Klien Gemini. Hanya dipakai oleh Chat dan Auto Jawab. */
 object AiClient {
     private val http = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(75, TimeUnit.SECONDS)
-        .callTimeout(100, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(35, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -44,11 +44,13 @@ object AiClient {
     ) {
         val m = Prefs.model(ctx)
         // urutan percobaan: model pilihan (dua kali), lalu model cadangan bila server penuh
-        val queue = listOf(m, m, "gemini-3.6-flash", "gemini-3.5-flash-lite").let { l ->
-            l.filterIndexed { i, x -> i < 2 || x != m }
-        }
+        val queue = listOf(m, "gemini-3.6-flash", "gemini-3.5-flash-lite").distinct()
         generate(ctx, turns, imageB64, system, json, true, queue, cb)
     }
+
+    /** Dipanggil tiap kali sebuah model dicoba (untuk tampilan "Mencoba …"). */
+    @Volatile
+    var progress: ((String) -> Unit)? = null
 
     private fun generate(
         ctx: Context,
@@ -66,6 +68,7 @@ object AiClient {
             return
         }
         val model = queue.first()
+        progress?.invoke(model)
 
         val contents = JSONArray()
         turns.forEachIndexed { i, (role, text) ->
@@ -109,7 +112,7 @@ object AiClient {
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        send(req, 1) { r ->
+        send(req, 0) { r ->
             val e = r.exceptionOrNull()
             // sebagian model menolak pengaturan berpikir: ulangi tanpa itu
             if (think && e is AiError && e.code == 400 && e.message.orEmpty().contains("think", ignoreCase = true)) {
@@ -118,7 +121,7 @@ object AiClient {
                 // server penuh atau model tidak ada: tunggu sebentar lalu coba berikutnya
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                     generate(ctx, turns, imageB64, system, json, think, queue.drop(1), cb)
-                }, 1200)
+                }, 600)
             } else cb(r)
         }
     }
@@ -177,7 +180,7 @@ object AiClient {
     }
 
     private fun retryable(e: AiError): Boolean =
-        e.code in listOf(404, 429, 500, 502, 503, 504) ||
+        e.code in listOf(0, 404, 429, 500, 502, 503, 504) ||
             e.message.orEmpty().contains("high demand", ignoreCase = true) ||
             e.message.orEmpty().contains("overloaded", ignoreCase = true)
 
