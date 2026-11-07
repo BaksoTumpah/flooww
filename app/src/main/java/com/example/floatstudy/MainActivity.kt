@@ -207,7 +207,6 @@ class MainActivity : Activity() {
             segmented(listOf("Diblokir", "Diizinkan"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) }
         ))
         gLook.add(sec("Jendela alat",
-            slider("Opasitas", Setting.WIN_ALPHA, "%"),
             slider("Zoom halaman web", Setting.WEB_ZOOM, "%")
         ))
         gLook.add(sec("Bawaan",
