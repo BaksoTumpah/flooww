@@ -707,22 +707,7 @@ class FloatService : Service() {
                 else -> cornerRadius = dp(3).toFloat()
             }
         }
-        val clayBg: android.graphics.drawable.Drawable? = if (shape == 0) {
-            val slab = GradientDrawable().apply {
-                this.shape = GradientDrawable.OVAL
-                setColor(Ui.mix(col, 0xFF000000.toInt(), 0.25f))
-            }
-            val face = GradientDrawable().apply {
-                this.shape = GradientDrawable.OVAL
-                gradientType = GradientDrawable.RADIAL_GRADIENT
-                gradientRadius = dpf(sizeDp * 0.75f).toFloat()
-                setGradientCenter(0.35f, 0.3f)
-                colors = intArrayOf(Ui.mix(col, 0xFFFFFFFF.toInt(), 0.45f), col)
-                setStroke(dp(1), 0x77FFFFFF)
-            }
-            android.graphics.drawable.LayerDrawable(arrayOf(slab, face)).apply { setLayerInset(1, 0, 0, 0, dp(3)) }
-        } else null
-        b.background = if (clayBg != null) clayBg else if (shape == 2) {
+        b.background = if (shape == 2) {
             // batang tipis di tepi, area sentuh tetap lebih lebar
             val gap = dp(12)
             android.graphics.drawable.InsetDrawable(
