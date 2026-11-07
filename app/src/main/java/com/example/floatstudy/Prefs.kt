@@ -19,7 +19,6 @@ enum class Setting(val key: String, val def: Int, val min: Int, val max: Int) {
 }
 
 object Prefs {
-    const val DEFAULT_MODEL = "llama-3.3-70b-versatile"
     const val DEFAULT_COLOR = 0xFF7C6CF0.toInt()
     const val DEFAULT_PROMPT = "Jawab soal pada gambar ini. Jelaskan langkah singkat, lalu tulis jawaban akhir."
 
@@ -37,26 +36,74 @@ object Prefs {
 
     fun sp(c: Context): SharedPreferences = c.getSharedPreferences("floatstudy", Context.MODE_PRIVATE)
 
-    // ---------- API key Groq (hanya untuk Chat dan Auto Jawab) ----------
+    // ---------- penyedia AI (hanya untuk Chat dan Auto Jawab) ----------
 
-    /** Key isian dari layar pengaturan. */
-    fun key(c: Context): String = sp(c).getString("groqKey", "") ?: ""
+    val PROVIDER_NAMES = listOf("Gemini", "OpenRouter", "Groq", "Kustom")
+    private val PROVIDER_BASE = listOf(
+        "https://generativelanguage.googleapis.com/v1beta/openai",
+        "https://openrouter.ai/api/v1",
+        "https://api.groq.com/openai/v1",
+        ""
+    )
+    private val PROVIDER_MODEL = listOf("gemini-flash-latest", "openrouter/free", "llama-3.3-70b-versatile", "")
+    private val PROVIDER_VISION = listOf("gemini-flash-latest", "openrouter/free", "qwen/qwen3.8-27b", "")
+    val PROVIDER_KEY_URL = listOf(
+        "https://aistudio.google.com/apikey",
+        "https://openrouter.ai/keys",
+        "https://console.groq.com/keys",
+        ""
+    )
 
-    fun setKey(c: Context, key: String) {
-        sp(c).edit().putString("groqKey", key.trim()).apply()
+    /** Penyedia terpilih. Pemasang lama yang sudah punya key Groq tetap di Groq. */
+    fun provider(c: Context): Int {
+        val v = sp(c).getInt("provider", -1)
+        if (v in PROVIDER_NAMES.indices) return v
+        return if ((sp(c).getString("groqKey", "") ?: "").isNotBlank()) 2 else 0
     }
 
-    fun model(c: Context): String =
-        (sp(c).getString("groqModel", DEFAULT_MODEL) ?: DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
+    fun setProvider(c: Context, v: Int) {
+        sp(c).edit().putInt("provider", v.coerceIn(0, PROVIDER_NAMES.size - 1)).apply()
+    }
 
-    const val DEFAULT_VISION = "qwen/qwen3.8-27b"
+    fun providerName(c: Context): String = PROVIDER_NAMES[provider(c)]
+
+    private fun k(c: Context, base: String): String {
+        val p = provider(c)
+        return if (p == 2) when (base) { "key" -> "groqKey"; "model" -> "groqModel"; else -> "groqVision" } else "$base$p"
+    }
+
+    /** Alamat dasar API (kompatibel OpenAI). Hanya bisa diubah untuk Kustom. */
+    fun base(c: Context): String {
+        val p = provider(c)
+        return if (p == 3) (sp(c).getString("customBase", "") ?: "").trim().trimEnd('/') else PROVIDER_BASE[p]
+    }
+
+    fun setBase(c: Context, v: String) {
+        sp(c).edit().putString("customBase", v.trim()).apply()
+    }
+
+    fun key(c: Context): String = sp(c).getString(k(c, "key"), "") ?: ""
+
+    fun setKey(c: Context, key: String) {
+        sp(c).edit().putString(k(c, "key"), key.trim()).apply()
+    }
+
+    fun defaultModel(c: Context) = PROVIDER_MODEL[provider(c)]
+    fun defaultVision(c: Context) = PROVIDER_VISION[provider(c)]
+
+    fun model(c: Context): String =
+        (sp(c).getString(k(c, "model"), "") ?: "").ifBlank { defaultModel(c) }
+
+    fun setModel(c: Context, model: String) {
+        sp(c).edit().putString(k(c, "model"), model.trim()).apply()
+    }
 
     /** Model yang bisa membaca gambar (dipakai mode Auto Jawab "Gambar"). */
     fun visionModel(c: Context): String =
-        (sp(c).getString("groqVision", DEFAULT_VISION) ?: DEFAULT_VISION).ifBlank { DEFAULT_VISION }
+        (sp(c).getString(k(c, "vision"), "") ?: "").ifBlank { defaultVision(c) }
 
     fun setVisionModel(c: Context, m: String) {
-        sp(c).edit().putString("groqVision", m.trim()).apply()
+        sp(c).edit().putString(k(c, "vision"), m.trim()).apply()
     }
 
     /** Cara Auto Jawab membaca layar: 0 teks (OCR di HP, cepat), 1 gambar (model gambar). */
@@ -64,10 +111,6 @@ object Prefs {
 
     fun setAutoMode(c: Context, v: Int) {
         sp(c).edit().putInt("autoMode", v).apply()
-    }
-
-    fun setModel(c: Context, model: String) {
-        sp(c).edit().putString("groqModel", model.trim()).apply()
     }
 
     // ---------- AI tujuan untuk Tanya AI dan Terjemah ----------

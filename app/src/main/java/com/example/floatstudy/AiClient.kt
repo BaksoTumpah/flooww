@@ -15,9 +15,8 @@ import java.util.concurrent.TimeUnit
 
 class AiError(val code: Int, message: String) : Exception(message)
 
-/** Klien Groq (API kompatibel OpenAI). Hanya dipakai oleh Chat dan Auto Jawab. */
+/** Klien API kompatibel OpenAI (Gemini, OpenRouter, Groq, atau alamat sendiri). Hanya dipakai oleh Chat dan Auto Jawab. */
 object AiClient {
-    private const val BASE = "https://api.groq.com/openai/v1"
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -45,7 +44,7 @@ object AiClient {
     ) {
         val key = Prefs.key(ctx)
         if (key.isBlank()) {
-            cb(Result.failure(AiError(401, "API key Groq belum diisi. Buka aplikasi flooww, bagian API key.")))
+            cb(Result.failure(AiError(401, "API key ${Prefs.providerName(ctx)} belum diisi. Buka aplikasi flooww, bagian API key.")))
             return
         }
         val msgs = JSONArray().put(JSONObject().put("role", "system").put("content", system))
@@ -74,7 +73,7 @@ object AiClient {
         if (json) body.put("response_format", JSONObject().put("type", "json_object"))
 
         val req = Request.Builder()
-            .url("$BASE/chat/completions")
+            .url("${Prefs.base(ctx)}/chat/completions")
             .header("Authorization", "Bearer $key")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
@@ -94,7 +93,7 @@ object AiClient {
                     is javax.net.ssl.SSLException -> "gagal koneksi aman (cek jam HP, VPN)"
                     else -> e.javaClass.simpleName + (e.message?.let { ": $it" } ?: "")
                 }
-                cb(Result.failure(AiError(0, "Gagal terhubung ke Groq: $why. Pastikan izin baterai flooww 'Tanpa batasan'.")))
+                cb(Result.failure(AiError(0, "Gagal terhubung ke server AI: $why. Pastikan izin baterai flooww 'Tanpa batasan'.")))
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -117,7 +116,7 @@ object AiClient {
                             .replace(Regex("(?s)<think>.*?</think>"), "").trim()
                         if (txt.isNotEmpty()) Result.success(txt)
                         else Result.failure(
-                            AiError(code, "Groq tidak memberi jawaban (alasan: ${ch?.optString("finish_reason").orEmpty().ifBlank { "kosong" }}).")
+                            AiError(code, "AI tidak memberi jawaban (alasan: ${ch?.optString("finish_reason").orEmpty().ifBlank { "kosong" }}).")
                         )
                     }
                 } catch (e: Exception) {
@@ -129,17 +128,17 @@ object AiClient {
     }
 
     private fun friendly(code: Int, msg: String, retryAfter: String?): String = when {
-        code == 401 || code == 403 -> "API key Groq ditolak. Periksa key di pengaturan aplikasi."
+        code == 401 || code == 403 -> "API key ditolak. Periksa key di pengaturan aplikasi."
         code == 404 || msg.contains("decommissioned", true) || msg.contains("does not exist", true) ->
-            "Model Groq tidak tersedia. Ganti nama model di pengaturan flooww (mis. ${Prefs.DEFAULT_MODEL})."
-        code == 429 -> "Batas pemakaian Groq tercapai" + (retryAfter?.let { ", coba lagi sekitar $it detik lagi" } ?: ", tunggu sebentar") + "."
-        code in listOf(500, 502, 503, 504) -> "Server Groq sedang bermasalah. Coba lagi sebentar lagi."
+            "Model tidak tersedia. Ganti nama model di pengaturan flooww."
+        code == 429 -> "Batas pemakaian gratis tercapai" + (retryAfter?.let { ", coba lagi sekitar $it detik lagi" } ?: ", tunggu sebentar") + "."
+        code in listOf(500, 502, 503, 504) -> "Server AI sedang sibuk atau bermasalah. Coba lagi sebentar lagi."
         msg.isNotBlank() -> msg
         else -> "HTTP $code"
     }
 
     /**
-     * Pemeriksaan bertahap untuk layar "Tes koneksi": internet, server Groq + key + daftar model, lalu satu jawaban.
+     * Pemeriksaan bertahap untuk layar "Tes koneksi": internet, server + key + daftar model, lalu satu jawaban.
      * Berjalan di thread sendiri; onLine dipanggil dari thread itu.
      */
     fun diagnose(ctx: Context, onLine: (String) -> Unit) {
@@ -160,17 +159,18 @@ object AiClient {
             }
             val key = Prefs.key(ctx)
             val model = Prefs.model(ctx)
+            onLine("Penyedia: ${Prefs.providerName(ctx)} (${Prefs.base(ctx)})")
             onLine("Model dipilih: $model")
             onLine("Key: " + if (key.isBlank()) "BELUM DIISI" else "terisi (…${key.takeLast(4)})")
             val net = get("https://www.google.com/generate_204")
             onLine("1. Internet: " + if (net.first in 200..399) "OK (${net.third} ms)" else "GAGAL ${net.second.take(80)}")
-            val ls = get("$BASE/models", key.ifBlank { null })
+            val ls = get("${Prefs.base(ctx)}/models", key.ifBlank { null })
             if (ls.first == 200) {
                 val names = try {
                     val arr = JSONObject(ls.second).getJSONArray("data")
                     (0 until arr.length()).map { arr.getJSONObject(it).getString("id") }
                 } catch (e: Exception) { emptyList() }
-                onLine("2. Server Groq + key: OK (${ls.third} ms)")
+                onLine("2. Server + key: OK (${ls.third} ms)")
                 onLine("   Model $model " + if (model in names) "tersedia" else "TIDAK ada untuk key ini")
                 val vm = Prefs.visionModel(ctx)
                 onLine("   Model gambar $vm " + if (vm in names) "tersedia" else "TIDAK ada untuk key ini")
@@ -178,7 +178,7 @@ object AiClient {
                 if (chat.isNotEmpty()) onLine("   Model yang ada: " + chat.take(8).joinToString(", "))
             } else {
                 val msg = try { JSONObject(ls.second).optJSONObject("error")?.optString("message").orEmpty() } catch (e: Exception) { ls.second }
-                onLine("2. Server Groq: GAGAL HTTP ${ls.first} ${msg.take(120)} (${ls.third} ms)")
+                onLine("2. Server: GAGAL HTTP ${ls.first} ${msg.take(120)} (${ls.third} ms)")
             }
             val t0 = System.currentTimeMillis()
             onLine("3. Meminta jawaban dari $model…")

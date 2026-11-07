@@ -112,8 +112,8 @@ class MainActivity : Activity() {
 
         // ---- API key ----
         val apiViews = mutableListOf<View>()
-        apiViews.add(note("Untuk Chat dan Auto Jawab. Key gratis dari Groq Console"))
-        val keyIn = Ui.field(this, "API key Groq").apply {
+        apiViews.add(note("Untuk Chat dan Auto Jawab. Pilih penyedia, buat key gratisnya lewat tombol di bawah, lalu tempel di sini. Gemini: login Google saja, bisa baca gambar."))
+        val keyIn = Ui.field(this, "API key").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setText(Prefs.key(this@MainActivity))
             addTextChangedListener(object : TextWatcher {
@@ -124,7 +124,7 @@ class MainActivity : Activity() {
                 }
             })
         }
-        val modelIn = Ui.field(this, "Model (bawaan ${Prefs.DEFAULT_MODEL})").apply {
+        val modelIn = Ui.field(this, "Model").apply {
             setText(Prefs.model(this@MainActivity))
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -134,11 +134,48 @@ class MainActivity : Activity() {
                 }
             })
         }
+        val visionIn = Ui.field(this, "Model gambar").apply {
+            setText(Prefs.visionModel(this@MainActivity))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    Prefs.setVisionModel(this@MainActivity, s?.toString().orEmpty())
+                }
+            })
+        }
+        val baseIn = Ui.field(this, "Alamat API (contoh https://host/v1)").apply {
+            setText(Prefs.sp(this@MainActivity).getString("customBase", ""))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    Prefs.setBase(this@MainActivity, s?.toString().orEmpty())
+                }
+            })
+        }
+        val baseBox = spaced(baseIn)
+        val keyBtn = spaced(Ui.button(this, "Buat API key", false) {
+            val u = Prefs.PROVIDER_KEY_URL[Prefs.provider(this)]
+            if (u.isNotBlank()) startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(u)))
+        })
+        fun refreshProvider() {
+            val pv = Prefs.provider(this)
+            keyIn.setText(Prefs.key(this))
+            modelIn.setText(Prefs.model(this))
+            visionIn.setText(Prefs.visionModel(this))
+            baseBox.visibility = if (pv == 3) View.VISIBLE else View.GONE
+            keyBtn.visibility = if (pv == 3) View.GONE else View.VISIBLE
+        }
+        apiViews.add(segmented(Prefs.PROVIDER_NAMES, { Prefs.provider(this) }) {
+            Prefs.setProvider(this, it)
+            refreshProvider()
+        })
+        apiViews.add(baseBox)
         apiViews.add(spaced(keyIn))
         apiViews.add(spaced(modelIn))
-        apiViews.add(spaced(Ui.button(this, "Buka Groq Console", false) {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.groq.com/keys")))
-        }))
+        apiViews.add(keyBtn)
+        refreshProvider()
         apiViews.add(spaced(Ui.button(this, "Tes koneksi AI", true) {
             val log = StringBuilder()
             val dlg = android.app.AlertDialog.Builder(this)
@@ -151,16 +188,6 @@ class MainActivity : Activity() {
                 runOnUiThread { dlg.setMessage(log.toString()) }
             }
         }))
-        val visionIn = Ui.field(this, "Model gambar (bawaan ${Prefs.DEFAULT_VISION})").apply {
-            setText(Prefs.visionModel(this@MainActivity))
-            addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-                override fun afterTextChanged(s: Editable?) {
-                    Prefs.setVisionModel(this@MainActivity, s?.toString().orEmpty())
-                }
-            })
-        }
         apiViews.add(spaced(visionIn))
         gAi.add(sec("Cara Auto Jawab membaca layar",
             segmented(listOf("Teks (cepat)", "Gambar"), { Prefs.autoMode(this) }) { Prefs.setAutoMode(this, it) },

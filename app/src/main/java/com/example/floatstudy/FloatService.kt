@@ -1692,7 +1692,7 @@ class FloatService : Service() {
         return col
     }
 
-    // ---------- alat: Chat (memakai API key Groq) ----------
+    // ---------- alat: Chat (memakai API key AI) ----------
 
     private fun chatView(): View {
         val col = vbox()
@@ -2127,7 +2127,7 @@ class FloatService : Service() {
 
     private fun startAuto() {
         if (Prefs.key(c).isBlank()) {
-            toast("Isi API key Groq di aplikasi flooww dulu")
+            toast("Isi API key ${Prefs.providerName(c)} di aplikasi flooww dulu")
             startFloating(Intent(this, MainActivity::class.java))
             return
         }
@@ -2244,7 +2244,7 @@ class FloatService : Service() {
             }
             return
         }
-        // baca teks di HP (OCR) dulu, lalu kirim teksnya ke Groq; posisi tanda diambil dari OCR
+        // baca teks di HP (OCR) dulu, lalu kirim teksnya ke AI; posisi tanda diambil dari OCR
         Ocr.lines(bmp) { ocr ->
             val lines = ocr.getOrNull()
             if (lines == null || lines.isEmpty()) {
