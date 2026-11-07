@@ -119,8 +119,6 @@ class MainActivity : Activity() {
             pm.show()
         }
         showLang()
-        }
-        showLang()
         gAi.add(sec("Tujuan Tanya AI",
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn)
