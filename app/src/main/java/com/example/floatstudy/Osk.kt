@@ -5,15 +5,21 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
-import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.view.inputmethod.EditorInfo
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+
+/** Tujuan ketikan keyboard flooww: kolom teks, teks yang dipilih, atau halaman web. */
+interface OskTarget {
+    fun type(s: String)
+    fun backspace()
+    fun enter()
+    fun copy()
+    fun paste()
+}
 
 /**
  * Keyboard layar buatan flooww. Berupa jendela overlay sendiri di dasar layar yang tidak pernah menerima fokus,
@@ -23,7 +29,7 @@ class Osk(private val c: Context, private val wm: WindowManager) {
     private val ui = Handler(Looper.getMainLooper())
     private val pal get() = Ui.pal(c)
     private var view: LinearLayout? = null
-    private var target: EditText? = null
+    private var target: OskTarget? = null
     private var shift = false
     private var symbols = false
     private var attached = false
@@ -32,9 +38,12 @@ class Osk(private val c: Context, private val wm: WindowManager) {
     /** Dipanggil dengan tinggi keyboard (px) saat tampil, dan 0 saat disembunyikan. */
     var onHeight: ((Int) -> Unit)? = null
 
+    /** Dipanggil saat keyboard ditutup, mis. untuk menghapus blok teks. */
+    var onHidden: (() -> Unit)? = null
+
     private fun dp(v: Int) = (v * c.resources.displayMetrics.density).toInt()
 
-    fun show(t: EditText) {
+    fun show(t: OskTarget) {
         hideJob?.let { ui.removeCallbacks(it) }
         hideJob = null
         target = t
@@ -75,9 +84,11 @@ class Osk(private val c: Context, private val wm: WindowManager) {
             } catch (e: Exception) {
             }
         }
+        val was = attached
         attached = false
         target = null
         onHeight?.invoke(0)
+        if (was) onHidden?.invoke()
     }
 
     val isShown get() = attached
@@ -104,10 +115,14 @@ class Osk(private val c: Context, private val wm: WindowManager) {
                 false
             }
         }
-        // baris atas: tombol tutup
+        // baris atas: salin, tempel, dan tombol turunkan keyboard
+        val topH = keyH * 2 / 3
         root.addView(LinearLayout(c).apply {
-            gravity = Gravity.END
-            addView(key("▼", 1.4f, keyH * 2 / 3, special = true) { hide() })
+            orientation = LinearLayout.HORIZONTAL
+            addView(key("Salin", 1.6f, topH, special = true) { target?.copy() })
+            addView(key("Tempel", 1.6f, topH, special = true) { target?.paste() })
+            addView(spacer(4f))
+            addView(key("▼", 1.4f, topH, special = true) { hide() })
         })
         fun row(vararg keys: View) = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -240,25 +255,14 @@ class Osk(private val c: Context, private val wm: WindowManager) {
     // ---------- mengetik ke target ----------
 
     private fun type(s: String) {
-        val e = target ?: return
-        val ed = e.text
-        ed.append(s)
-        e.setSelection(ed.length)
+        target?.type(s)
     }
 
     private fun backspace() {
-        val e = target ?: return
-        val ed = e.text
-        if (ed.isNotEmpty()) ed.delete(ed.length - 1, ed.length)
-        e.setSelection(ed.length)
+        target?.backspace()
     }
 
     private fun enter() {
-        val e = target ?: return
-        val multi = (e.inputType and InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0
-        if (multi) type("\n") else {
-            e.onEditorAction(EditorInfo.IME_ACTION_GO)
-            hide()
-        }
+        target?.enter()
     }
 }

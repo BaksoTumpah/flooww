@@ -334,18 +334,242 @@ class FloatService : Service() {
         inputs.add(this)
         applyKb(this)
         // keyboard flooww: ketuk kolom -> keyboard muncul di dasar layar tanpa mengambil fokus
-        setOnTouchListener { _, ev ->
-            if (ev.action == MotionEvent.ACTION_UP && kbBlocked()) osk.show(this)
-            false
+        selectable(this)
+    }
+
+    // ---------- blok teks dan salin tanpa fokus ----------
+
+    private var selTv: TextView? = null
+    private var selA = 0
+    private var selB = 0
+    private var selSpan: android.text.style.BackgroundColorSpan? = null
+
+    private fun clearSel() {
+        val tv = selTv
+        val sp = selSpan
+        if (tv != null && sp != null) (tv.text as? android.text.Spannable)?.removeSpan(sp)
+        selTv = null
+        selSpan = null
+        selA = 0
+        selB = 0
+    }
+
+    private fun setSel(tv: TextView, a: Int, b: Int) {
+        if (selTv !== tv) clearSel()
+        if (tv.text !is android.text.Spannable) tv.setText(tv.text, TextView.BufferType.SPANNABLE)
+        val sp = tv.text as android.text.Spannable
+        selSpan?.let { sp.removeSpan(it) }
+        val lo = minOf(a, b).coerceIn(0, sp.length)
+        val hi = maxOf(a, b).coerceIn(0, sp.length)
+        val span = android.text.style.BackgroundColorSpan((accent and 0x00FFFFFF) or 0x66000000)
+        if (hi > lo) sp.setSpan(span, lo, hi, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        selTv = tv
+        selA = lo
+        selB = hi
+        selSpan = span
+    }
+
+    private fun selRange(tv: TextView): IntRange? {
+        if (selTv !== tv) return null
+        val n = tv.text.length
+        val a = selA.coerceIn(0, n)
+        val b = selB.coerceIn(0, n)
+        return if (b > a) a until b else null
+    }
+
+    private fun wordAt(t: CharSequence, o: Int): Pair<Int, Int> {
+        if (t.isEmpty()) return 0 to 0
+        var a = o.coerceIn(0, t.length - 1)
+        var b = a
+        fun w(ch: Char) = ch.isLetterOrDigit() || ch == '_'
+        if (!w(t[a]) && a > 0 && w(t[a - 1])) {
+            a--
+            b = a
+        }
+        if (w(t[a])) {
+            while (a > 0 && w(t[a - 1])) a--
+            b = a
+            while (b < t.length && w(t[b])) b++
+        } else b = a + 1
+        return a to b
+    }
+
+    /** Tahan teks untuk memblok, geser untuk memperluas, lalu salin lewat tombol di keyboard flooww. Tidak butuh fokus jendela. */
+    private fun selectable(tv: TextView) {
+        val slop = android.view.ViewConfiguration.get(c).scaledTouchSlop
+        var sx = 0f
+        var sy = 0f
+        var active = false
+        var aS = 0
+        var aE = 0
+        val start = Runnable {
+            active = true
+            val o = tv.getOffsetForPosition(sx, sy)
+            val (a, b) = wordAt(tv.text, o)
+            aS = a
+            aE = b
+            setSel(tv, a, b)
+            tv.parent?.requestDisallowInterceptTouchEvent(true)
+            tv.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            osk.show(TvTarget(tv))
+        }
+        tv.setOnTouchListener { _, ev ->
+            when (ev.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    sx = ev.x
+                    sy = ev.y
+                    active = false
+                    if (kbBlocked() || tv !is EditText) tv.postDelayed(start, 450)
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (active) {
+                        val o = tv.getOffsetForPosition(ev.x, ev.y)
+                        if (o < aS) setSel(tv, o, aE) else setSel(tv, aS, maxOf(o, aE))
+                    } else if (Math.abs(ev.x - sx) > slop || Math.abs(ev.y - sy) > slop) tv.removeCallbacks(start)
+                    active
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    tv.removeCallbacks(start)
+                    val was = active
+                    active = false
+                    if (!was && ev.action == MotionEvent.ACTION_UP) {
+                        clearSel()
+                        if (tv is EditText && kbBlocked()) osk.show(TvTarget(tv))
+                    }
+                    was
+                }
+                else -> active
+            }
         }
     }
+
+    private inner class TvTarget(val tv: TextView) : OskTarget {
+        private val ed get() = tv as? EditText
+
+        override fun type(s: String) {
+            val e = ed ?: return
+            val r = selRange(e)
+            if (r != null) {
+                e.text.replace(r.first, r.last + 1, s)
+                e.setSelection(r.first + s.length)
+                clearSel()
+            } else {
+                e.text.append(s)
+                e.setSelection(e.text.length)
+            }
+        }
+
+        override fun backspace() {
+            val e = ed ?: return
+            val r = selRange(e)
+            if (r != null) {
+                e.text.delete(r.first, r.last + 1)
+                e.setSelection(r.first)
+                clearSel()
+            } else if (e.text.isNotEmpty()) {
+                e.text.delete(e.text.length - 1, e.text.length)
+                e.setSelection(e.text.length)
+            }
+        }
+
+        override fun enter() {
+            val e = ed ?: return
+            if ((e.inputType and android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0) type("\n")
+            else {
+                e.onEditorAction(EditorInfo.IME_ACTION_GO)
+                osk.hide()
+            }
+        }
+
+        override fun copy() {
+            val r = selRange(tv)
+            val t = if (r != null) tv.text.substring(r.first, r.last + 1) else tv.text.toString()
+            if (t.isBlank()) toast("Tidak ada teks") else copyText(t)
+        }
+
+        override fun paste() {
+            if (ed == null) {
+                toast("Kolom ini tidak bisa ditempel")
+                return
+            }
+            val t = clipText()
+            if (t.isBlank()) toast("Belum ada teks") else type(t)
+        }
+    }
+
+    /** Halaman web: ketikan dan tempel masuk ke kolom yang aktif di halaman lewat skrip. */
+    private inner class WebTarget(val w: WebView) : OskTarget {
+        private fun js(code: String, cb: ((String?) -> Unit)? = null) = w.evaluateJavascript(code, cb)
+
+        override fun type(s: String) {
+            js("document.execCommand('insertText',false," + org.json.JSONObject.quote(s) + ")")
+        }
+
+        override fun backspace() {
+            js("document.execCommand('delete')")
+        }
+
+        override fun enter() {
+            js(
+                "(function(){var e=document.activeElement;if(!e)return;var o={key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true};" +
+                    "var d=!e.dispatchEvent(new KeyboardEvent('keydown',o));e.dispatchEvent(new KeyboardEvent('keypress',o));e.dispatchEvent(new KeyboardEvent('keyup',o));" +
+                    "if(d)return;if(e.tagName=='TEXTAREA'||e.isContentEditable)document.execCommand('insertLineBreak');" +
+                    "else if(e.form){if(e.form.requestSubmit)e.form.requestSubmit();else e.form.submit();}})()"
+            )
+        }
+
+        override fun copy() {
+            js(
+                "(function(){var t=String(window.getSelection());var a=document.activeElement;" +
+                    "if(!t&&a&&a.value!==undefined){t=a.value.substring(a.selectionStart,a.selectionEnd)||a.value;}return t;})()"
+            ) { r ->
+                val t = try {
+                    org.json.JSONTokener(r ?: "\"\"").nextValue() as? String ?: ""
+                } catch (e: Exception) {
+                    ""
+                }
+                ui.post { if (t.isBlank()) toast("Tidak ada teks dipilih") else copyText(t) }
+            }
+        }
+
+        override fun paste() {
+            val t = clipText()
+            if (t.isBlank()) toast("Belum ada teks") else type(t)
+        }
+    }
+
+    /** Jembatan dari halaman web: kolom ketik fokus atau teks diblok, maka keyboard flooww muncul. */
+    inner class OskBridge {
+        @android.webkit.JavascriptInterface
+        fun show() {
+            ui.post { web?.let { if (kbBlocked()) osk.show(WebTarget(it)) } }
+        }
+    }
+
+    private val WEB_SEL_JS = (
+        "(function(){if(window.__fsel)return;window.__fsel=1;var t=null,sx=0,sy=0,act=false;" +
+            "function ed(el){return el&&(/^(INPUT|TEXTAREA)\$/.test(el.tagName)||el.isContentEditable);}" +
+            "function rangeAt(x,y){if(document.caretRangeFromPoint)return document.caretRangeFromPoint(x,y);" +
+            "var p=document.caretPositionFromPoint&&document.caretPositionFromPoint(x,y);if(!p)return null;" +
+            "var r=document.createRange();r.setStart(p.offsetNode,p.offset);return r;}" +
+            "document.addEventListener('touchstart',function(e){var q=e.touches[0];sx=q.clientX;sy=q.clientY;act=false;clearTimeout(t);" +
+            "t=setTimeout(function(){var el=document.elementFromPoint(sx,sy);if(ed(el))return;var r=rangeAt(sx,sy);if(!r)return;" +
+            "var s=window.getSelection();s.removeAllRanges();s.addRange(r);s.modify('move','backward','word');s.modify('extend','forward','word');" +
+            "act=true;if(window.floowwOsk)floowwOsk.show();},450);},{passive:true});" +
+            "document.addEventListener('touchmove',function(e){var q=e.touches[0];" +
+            "if(!act){if(Math.abs(q.clientX-sx)>10||Math.abs(q.clientY-sy)>10)clearTimeout(t);return;}" +
+            "e.preventDefault();var r=rangeAt(q.clientX,q.clientY);if(r)window.getSelection().extend(r.startContainer,r.startOffset);},{passive:false});" +
+            "document.addEventListener('touchend',function(){clearTimeout(t);act=false;},{passive:true});" +
+            "document.addEventListener('focusin',function(e){if(ed(e.target)&&window.floowwOsk)floowwOsk.show();});})();"
+        )
 
     private fun resultText() = TextView(c).apply {
         textSize = 14f
         setTextColor(P.on)
         setPadding(dp(12), dp(10), dp(12), dp(10))
-        setTextIsSelectable(true)
         background = Ui.dent(c, P.field, dp(14))
+        selectable(this)
     }
 
     private fun note(t: String) = TextView(c).apply {
@@ -1267,6 +1491,10 @@ class FloatService : Service() {
     private val osk by lazy {
         Osk(c, wm).also { k ->
             k.onHeight = { h -> liftPanel(h) }
+            k.onHidden = {
+                clearSel()
+                web?.evaluateJavascript("(function(){var s=window.getSelection();if(s)s.removeAllRanges();})()", null)
+            }
         }
     }
     private var liftedFrom = -1
@@ -1636,6 +1864,11 @@ class FloatService : Service() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             addJavascriptInterface(ImgBridge(), "floowwImg")
+            addJavascriptInterface(OskBridge(), "floowwOsk")
+            // blok teks dibuat sendiri (lihat WEB_SEL_JS); menu bawaan WebView butuh fokus jendela
+            isLongClickable = false
+            setOnLongClickListener { true }
+            isHapticFeedbackEnabled = false
             // beberapa situs menolak WebView. Samarkan "wv" agar tampil seperti Chrome biasa.
             settings.userAgentString = settings.userAgentString.replace("; wv", "")
             // skala lebih kecil: halaman tampak lebih luas di jendela yang tetap kecil
@@ -1665,6 +1898,7 @@ class FloatService : Service() {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, u: String?) {
                     if (!url.hasFocus() && u != null) url.setText(u)
+                    view?.evaluateJavascript(WEB_SEL_JS, null)
                     if (pendingB64 != null) autoAttach()
                 }
             }
@@ -1760,7 +1994,7 @@ class FloatService : Service() {
                     text = n.second
                     textSize = 14f
                     setTextColor(P.on)
-                    setTextIsSelectable(true)
+                    selectable(this)
                 })
                 card.addView(row(
                     btn("Salin") { copyText(n.second) },
