@@ -40,6 +40,7 @@ object AiClient {
         turns: List<Pair<String, String>>,
         system: String,
         json: Boolean,
+        imageB64: String? = null,
         cb: (Result<String>) -> Unit
     ) {
         val key = Prefs.key(ctx)
@@ -48,14 +49,28 @@ object AiClient {
             return
         }
         val msgs = JSONArray().put(JSONObject().put("role", "system").put("content", system))
-        for ((role, text) in turns) {
-            msgs.put(JSONObject().put("role", if (role == "model") "assistant" else "user").put("content", text))
+        turns.forEachIndexed { i, (role, text) ->
+            val m = JSONObject().put("role", if (role == "model") "assistant" else "user")
+            if (imageB64 != null && i == turns.lastIndex) {
+                // gambar dilampirkan pada giliran terakhir (model gambar)
+                m.put(
+                    "content",
+                    JSONArray()
+                        .put(JSONObject().put("type", "text").put("text", text))
+                        .put(
+                            JSONObject().put("type", "image_url").put(
+                                "image_url", JSONObject().put("url", "data:image/jpeg;base64,$imageB64")
+                            )
+                        )
+                )
+            } else m.put("content", text)
+            msgs.put(m)
         }
         val body = JSONObject()
-            .put("model", Prefs.model(ctx))
+            .put("model", if (imageB64 != null) Prefs.visionModel(ctx) else Prefs.model(ctx))
             .put("messages", msgs)
             .put("temperature", if (json) 0.1 else 0.6)
-            .put("max_tokens", 2048)
+            .put("max_tokens", if (imageB64 != null) 6000 else 2048)
         if (json) body.put("response_format", JSONObject().put("type", "json_object"))
 
         val req = Request.Builder()
@@ -97,7 +112,9 @@ object AiClient {
                         Result.failure(AiError(code, friendly(code, msg, retryAfter)))
                     } else {
                         val ch = j.optJSONArray("choices")?.optJSONObject(0)
-                        val txt = ch?.optJSONObject("message")?.optString("content").orEmpty().trim()
+                        // sebagian model berpikir menaruh <think>…</think> di isi jawaban: dibuang
+                        val txt = ch?.optJSONObject("message")?.optString("content").orEmpty()
+                            .replace(Regex("(?s)<think>.*?</think>"), "").trim()
                         if (txt.isNotEmpty()) Result.success(txt)
                         else Result.failure(
                             AiError(code, "Groq tidak memberi jawaban (alasan: ${ch?.optString("finish_reason").orEmpty().ifBlank { "kosong" }}).")
@@ -155,6 +172,8 @@ object AiClient {
                 } catch (e: Exception) { emptyList() }
                 onLine("2. Server Groq + key: OK (${ls.third} ms)")
                 onLine("   Model $model " + if (model in names) "tersedia" else "TIDAK ada untuk key ini")
+                val vm = Prefs.visionModel(ctx)
+                onLine("   Model gambar $vm " + if (vm in names) "tersedia" else "TIDAK ada untuk key ini")
                 val chat = names.filter { !it.contains("whisper") && !it.contains("tts") && !it.contains("guard") }
                 if (chat.isNotEmpty()) onLine("   Model yang ada: " + chat.take(8).joinToString(", "))
             } else {
@@ -163,7 +182,7 @@ object AiClient {
             }
             val t0 = System.currentTimeMillis()
             onLine("3. Meminta jawaban dari $model…")
-            generate(ctx, listOf("user" to "Balas satu kata saja: OK"), "Jawab sangat singkat.", false) { r ->
+            generate(ctx, listOf("user" to "Balas satu kata saja: OK"), "Jawab sangat singkat.", false, null) { r ->
                 val ms = System.currentTimeMillis() - t0
                 onLine("   " + r.fold({ "Berhasil ($ms ms): $it" }, { "GAGAL ($ms ms): ${it.message}" }))
                 onLine("Selesai.")

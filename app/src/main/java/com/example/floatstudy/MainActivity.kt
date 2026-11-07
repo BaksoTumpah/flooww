@@ -151,6 +151,21 @@ class MainActivity : Activity() {
                 runOnUiThread { dlg.setMessage(log.toString()) }
             }
         }))
+        val visionIn = Ui.field(this, "Model gambar (bawaan ${Prefs.DEFAULT_VISION})").apply {
+            setText(Prefs.visionModel(this@MainActivity))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: Editable?) {
+                    Prefs.setVisionModel(this@MainActivity, s?.toString().orEmpty())
+                }
+            })
+        }
+        apiViews.add(spaced(visionIn))
+        gAi.add(sec("Cara Auto Jawab membaca layar",
+            segmented(listOf("Teks (cepat)", "Gambar"), { Prefs.autoMode(this) }) { Prefs.setAutoMode(this, it) },
+            note("Teks: layar dibaca di HP, hanya teks dikirim, paling cepat dan hemat kuota. Gambar: tangkapan layar dikirim ke model gambar, lebih lengkap untuk soal bergambar tapi lebih lambat.")
+        ))
         gAi.add(sec("API key dan model", *apiViews.toTypedArray()))
 
         // ---- tampilan ----

@@ -49,6 +49,23 @@ object Prefs {
     fun model(c: Context): String =
         (sp(c).getString("groqModel", DEFAULT_MODEL) ?: DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
 
+    const val DEFAULT_VISION = "qwen/qwen3.8-27b"
+
+    /** Model yang bisa membaca gambar (dipakai mode Auto Jawab "Gambar"). */
+    fun visionModel(c: Context): String =
+        (sp(c).getString("groqVision", DEFAULT_VISION) ?: DEFAULT_VISION).ifBlank { DEFAULT_VISION }
+
+    fun setVisionModel(c: Context, m: String) {
+        sp(c).edit().putString("groqVision", m.trim()).apply()
+    }
+
+    /** Cara Auto Jawab membaca layar: 0 teks (OCR di HP, cepat), 1 gambar (model gambar). */
+    fun autoMode(c: Context): Int = sp(c).getInt("autoMode", 0).coerceIn(0, 1)
+
+    fun setAutoMode(c: Context, v: Int) {
+        sp(c).edit().putInt("autoMode", v).apply()
+    }
+
     fun setModel(c: Context, model: String) {
         sp(c).edit().putString("groqModel", model.trim()).apply()
     }

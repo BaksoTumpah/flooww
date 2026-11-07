@@ -27,6 +27,63 @@ object AutoAnswer {
             "atau tertulis pilih lebih dari satu), tentukan opsi yang benar. Untuk soal esai atau isian, tulis jawaban " +
             "singkat, maksimal 25 kata. Lewati soal yang terpotong atau tidak terbaca penuh. Balas hanya JSON."
 
+    const val SYSTEM_IMG =
+        "Kamu pengoreksi soal yang teliti. Kamu menerima tangkapan layar yang bisa berisi beberapa soal. " +
+            "Temukan semua soal yang terlihat penuh. Untuk soal pilihan ganda biasa (satu jawaban benar) " +
+            "dan pilihan ganda kompleks (lebih dari satu jawaban benar, biasanya kotak centang atau " +
+            "tertulis pilih lebih dari satu), tentukan opsi yang benar. Untuk soal esai atau isian, " +
+            "tulis jawaban singkat, maksimal 25 kata. Lewati soal yang terpotong atau tidak terbaca penuh. " +
+            "Balas hanya JSON."
+
+    val PROMPT_IMG = """
+Baca seluruh layar lalu balas JSON dengan bentuk persis ini:
+{"items":[{"type":"single","marks":[{"label":"B","box":[ymin,xmin,ymax,xmax]}],"answer":"","anchor":[ymin,xmin,ymax,xmax]}]}
+Aturan:
+- type adalah "single", "multiple", atau "essay".
+- Untuk single dan multiple: isi marks hanya dengan opsi yang benar. box adalah kotak di sekeliling baris opsi itu (penanda pilihan dan teksnya).
+- Untuk essay: marks kosong, answer berisi jawaban singkat, anchor adalah kotak soal atau kolom jawabannya.
+- Semua koordinat bernilai 0 sampai 1000 relatif terhadap seluruh gambar.
+- Bila tidak ada soal, balas {"items":[]}.
+""".trimIndent()
+
+    private fun box(a: JSONArray?): RectF? {
+        if (a == null || a.length() < 4) return null
+        val ymin = a.optDouble(0).toFloat() / 1000f
+        val xmin = a.optDouble(1).toFloat() / 1000f
+        val ymax = a.optDouble(2).toFloat() / 1000f
+        val xmax = a.optDouble(3).toFloat() / 1000f
+        if (xmax <= xmin || ymax <= ymin) return null
+        return RectF(
+            xmin.coerceIn(0f, 1f), ymin.coerceIn(0f, 1f),
+            xmax.coerceIn(0f, 1f), ymax.coerceIn(0f, 1f)
+        )
+    }
+
+    /** Mode gambar: kotak dalam skala 0..1000 dari model. */
+    fun parseImg(raw: String): AnswerResult {
+        val s = raw.indexOf('{')
+        val e = raw.lastIndexOf('}')
+        if (s < 0 || e <= s) return AnswerResult(emptyList(), emptyList())
+        val items = JSONObject(raw.substring(s, e + 1)).optJSONArray("items")
+            ?: return AnswerResult(emptyList(), emptyList())
+        val marks = mutableListOf<RectF>()
+        val notes = mutableListOf<AnswerNote>()
+        for (i in 0 until items.length()) {
+            val it = items.optJSONObject(i) ?: continue
+            if (it.optString("type") == "essay") {
+                val text = it.optString("answer").trim()
+                val an = box(it.optJSONArray("anchor"))
+                if (text.isNotEmpty() && an != null) notes.add(AnswerNote(text, an))
+            } else {
+                val ms = it.optJSONArray("marks") ?: continue
+                for (k in 0 until ms.length()) {
+                    box(ms.optJSONObject(k)?.optJSONArray("box"))?.let { r -> marks.add(r) }
+                }
+            }
+        }
+        return AnswerResult(marks, notes)
+    }
+
     /** Daftar baris bernomor + instruksi bentuk JSON. */
     fun prompt(lines: List<Ocr.Line>): String {
         val sb = StringBuilder()

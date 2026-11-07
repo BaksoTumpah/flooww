@@ -1647,7 +1647,7 @@ class FloatService : Service() {
             val pending = bubbleOf("model", "…")
             var turns = chatTurns.takeLast(11)
             if (turns.firstOrNull()?.first == "model") turns = turns.drop(1)
-            AiClient.generate(c, turns, AiClient.CHAT_SYSTEM, false) { r ->
+            AiClient.generate(c, turns, AiClient.CHAT_SYSTEM, false, null) { r ->
                 ui.post {
                     r.onSuccess { t ->
                         pending.text = t
@@ -2147,6 +2147,14 @@ class FloatService : Service() {
         marks?.setChip("Membaca layar…")
         val bw = bmp.width
         val bh = bmp.height
+        if (Prefs.autoMode(c) == 1) {
+            // mode gambar: tangkapan layar dikirim ke model gambar; kotak dari model
+            val b64 = toJpegB64(bmp)
+            AiClient.generate(c, listOf("user" to AutoAnswer.PROMPT_IMG), AutoAnswer.SYSTEM_IMG, true, b64) { r ->
+                handleAutoResult(gen, r, emptyList(), bw, bh)
+            }
+            return
+        }
         // baca teks di HP (OCR) dulu, lalu kirim teksnya ke Groq; posisi tanda diambil dari OCR
         Ocr.lines(bmp) { ocr ->
             val lines = ocr.getOrNull()
@@ -2161,7 +2169,7 @@ class FloatService : Service() {
                 }
                 return@lines
             }
-            AiClient.generate(c, listOf("user" to AutoAnswer.prompt(lines)), AutoAnswer.SYSTEM, true) { r ->
+            AiClient.generate(c, listOf("user" to AutoAnswer.prompt(lines)), AutoAnswer.SYSTEM, true, null) { r ->
                 handleAutoResult(gen, r, lines, bw, bh)
             }
         }
@@ -2174,7 +2182,7 @@ class FloatService : Service() {
                 autoLastEnd = System.currentTimeMillis()
                 r.onSuccess { raw ->
                     val res = try {
-                        AutoAnswer.parse(raw, lines, bw, bh)
+                        if (lines.isEmpty()) AutoAnswer.parseImg(raw) else AutoAnswer.parse(raw, lines, bw, bh)
                     } catch (e: Exception) {
                         AnswerResult(emptyList(), emptyList())
                     }
