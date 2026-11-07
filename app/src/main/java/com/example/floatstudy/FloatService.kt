@@ -248,7 +248,10 @@ class FloatService : Service() {
     @Suppress("DEPRECATION")
     private fun startAsForeground(projection: Boolean) {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.deleteNotificationChannel("float")
+        try {
+            nm.deleteNotificationChannel("float")
+        } catch (e: Exception) {
+        }
         // paling kecil: tanpa suara, tanpa ikon di bar status, hanya baris kecil di daftar notifikasi
         nm.createNotificationChannel(
             NotificationChannel("float_min", "flooww", NotificationManager.IMPORTANCE_MIN).apply {
@@ -273,9 +276,24 @@ class FloatService : Service() {
             .addAction(android.R.drawable.ic_delete, "Hentikan", stop)
             .build()
         if (Build.VERSION.SDK_INT >= 29) {
-            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            if (projection || grab?.active == true) type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            startForeground(1, n, type)
+            val withProj = projection || grab?.active == true
+            // Android 14+: bisa specialUse saja sebelum izin tangkap layar ada.
+            // Android 10-13: tipe specialUse belum dikenal, pakai mediaProjection seperti biasa.
+            val type = if (Build.VERSION.SDK_INT >= 34) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+                    (if (withProj) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0)
+            } else {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            }
+            try {
+                startForeground(1, n, type)
+            } catch (e: Exception) {
+                try {
+                    startForeground(1, n)
+                } catch (e2: Exception) {
+                    toast("Gagal memulai layanan: ${e2.javaClass.simpleName}")
+                }
+            }
         } else {
             startForeground(1, n)
         }
