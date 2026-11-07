@@ -211,6 +211,8 @@ class FloatService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        // wm harus siap sebelum dipakai (realSize, bubble)
+        wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
         @Suppress("DEPRECATION")
         val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
@@ -225,7 +227,6 @@ class FloatService : Service() {
             grab = g
         }
         if (bubble == null) {
-            wm = getSystemService(WINDOW_SERVICE) as WindowManager
             Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefListener)
             showBubble()
         }
