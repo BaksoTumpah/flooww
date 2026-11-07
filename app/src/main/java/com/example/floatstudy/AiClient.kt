@@ -15,12 +15,14 @@ import java.util.concurrent.TimeUnit
 
 class AiError(val code: Int, message: String) : Exception(message)
 
-/** Klien Gemini. Hanya dipakai oleh Chat dan Auto Jawab. */
+/** Klien Groq (API kompatibel OpenAI). Hanya dipakai oleh Chat dan Auto Jawab. */
 object AiClient {
+    private const val BASE = "https://api.groq.com/openai/v1"
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(35, TimeUnit.SECONDS)
+        .callTimeout(40, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -31,99 +33,37 @@ object AiClient {
 
     /**
      * turns: pasangan (peran, teks) dengan peran "user" atau "model".
-     * Gambar (bila ada) dilampirkan pada giliran terakhir.
-     * json = true meminta keluaran JSON dan sedikit berpikir untuk ketelitian.
+     * json = true meminta keluaran JSON.
      */
     fun generate(
         ctx: Context,
         turns: List<Pair<String, String>>,
-        imageB64: String?,
         system: String,
         json: Boolean,
-        cb: (Result<String>) -> Unit
-    ) {
-        val m = Prefs.model(ctx)
-        // urutan percobaan: model pilihan (dua kali), lalu model cadangan bila server penuh
-        val queue = listOf(m, "gemini-3.6-flash", "gemini-3.5-flash-lite").distinct()
-        generate(ctx, turns, imageB64, system, json, true, queue, cb)
-    }
-
-    /** Dipanggil tiap kali sebuah model dicoba (untuk tampilan "Mencoba …"). */
-    @Volatile
-    var progress: ((String) -> Unit)? = null
-
-    private fun generate(
-        ctx: Context,
-        turns: List<Pair<String, String>>,
-        imageB64: String?,
-        system: String,
-        json: Boolean,
-        think: Boolean,
-        queue: List<String>,
         cb: (Result<String>) -> Unit
     ) {
         val key = Prefs.key(ctx)
         if (key.isBlank()) {
-            cb(Result.failure(AiError(401, "API key Gemini belum diisi. Buka aplikasi flooww, bagian API key.")))
+            cb(Result.failure(AiError(401, "API key Groq belum diisi. Buka aplikasi flooww, bagian API key.")))
             return
         }
-        val model = queue.first()
-        progress?.invoke(model)
-
-        val contents = JSONArray()
-        turns.forEachIndexed { i, (role, text) ->
-            val parts = JSONArray()
-            if (imageB64 != null && i == turns.lastIndex) {
-                parts.put(
-                    JSONObject().put(
-                        "inline_data",
-                        JSONObject().put("mime_type", "image/jpeg").put("data", imageB64)
-                    )
-                )
-            }
-            parts.put(JSONObject().put("text", text))
-            contents.put(JSONObject().put("role", role).put("parts", parts))
+        val msgs = JSONArray().put(JSONObject().put("role", "system").put("content", system))
+        for ((role, text) in turns) {
+            msgs.put(JSONObject().put("role", if (role == "model") "assistant" else "user").put("content", text))
         }
-
-        val gen = JSONObject()
-            .put("temperature", if (json) 0.2 else 0.7)
-            .put("maxOutputTokens", 8192)
-        if (json) gen.put("responseMimeType", "application/json")
-        if (think && Regex("gemini-(3|4|5)").containsMatchIn(model)) {
-            // seri 3 ke atas: tingkat berpikir rendah agar token tidak habis untuk berpikir dan jawaban cepat
-            gen.put("thinkingConfig", JSONObject().put("thinkingLevel", if (json) "low" else "minimal"))
-        } else if (model.contains("2.5")) {
-            val budget = when {
-                json -> 1024
-                model.contains("pro") -> 512
-                else -> 0
-            }
-            gen.put("thinkingConfig", JSONObject().put("thinkingBudget", budget))
-        }
-
         val body = JSONObject()
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", system))))
-            .put("contents", contents)
-            .put("generationConfig", gen)
+            .put("model", Prefs.model(ctx))
+            .put("messages", msgs)
+            .put("temperature", if (json) 0.1 else 0.6)
+            .put("max_tokens", 2048)
+        if (json) body.put("response_format", JSONObject().put("type", "json_object"))
 
         val req = Request.Builder()
-            .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent")
-            .header("x-goog-api-key", key)
+            .url("$BASE/chat/completions")
+            .header("Authorization", "Bearer $key")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
-
-        send(req, 0) { r ->
-            val e = r.exceptionOrNull()
-            // sebagian model menolak pengaturan berpikir: ulangi tanpa itu
-            if (think && e is AiError && e.code == 400 && e.message.orEmpty().contains("think", ignoreCase = true)) {
-                generate(ctx, turns, imageB64, system, json, false, queue, cb)
-            } else if (e is AiError && retryable(e) && queue.size > 1) {
-                // server penuh atau model tidak ada: tunggu sebentar lalu coba berikutnya
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    generate(ctx, turns, imageB64, system, json, think, queue.drop(1), cb)
-                }, 600)
-            } else cb(r)
-        }
+        send(req, 1, cb)
     }
 
     private fun send(req: Request, retries: Int, cb: (Result<String>) -> Unit) {
@@ -139,65 +79,50 @@ object AiClient {
                     is javax.net.ssl.SSLException -> "gagal koneksi aman (cek jam HP, VPN)"
                     else -> e.javaClass.simpleName + (e.message?.let { ": $it" } ?: "")
                 }
-                cb(Result.failure(AiError(0, "Gagal terhubung ke Gemini: $why. Pastikan izin baterai flooww 'Tanpa batasan'.")))
+                cb(Result.failure(AiError(0, "Gagal terhubung ke Groq: $why. Pastikan izin baterai flooww 'Tanpa batasan'.")))
             }
 
             override fun onResponse(call: Call, response: Response) {
-                val result: Result<String> = response.use { r ->
-                    val raw = r.body?.string().orEmpty()
-                    try {
-                        val j = JSONObject(raw)
-                        if (!r.isSuccessful) {
-                            val msg = j.optJSONObject("error")?.optString("message").orEmpty()
-                            Result.failure(AiError(r.code, friendly(r.code, msg)))
-                        } else {
-                            val cands = j.optJSONArray("candidates")
-                            val cand = cands?.optJSONObject(0)
-                            val parts = cand?.optJSONObject("content")?.optJSONArray("parts")
-                            val sb = StringBuilder()
-                            if (parts != null) {
-                                for (n in 0 until parts.length()) {
-                                    val p = parts.getJSONObject(n)
-                                    if (!p.optBoolean("thought", false)) sb.append(p.optString("text"))
-                                }
-                            }
-                            val txt = sb.toString().trim()
-                            if (txt.isNotEmpty()) Result.success(txt)
-                            else {
-                                val why = cand?.optString("finishReason").orEmpty()
-                                    .ifBlank { j.optJSONObject("promptFeedback")?.optString("blockReason").orEmpty() }
-                                    .ifBlank { "kosong" }
-                                Result.failure(AiError(r.code, "Gemini tidak memberi jawaban (alasan: $why). Coba lagi atau persempit area soal."))
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Result.failure(AiError(r.code, "Respons tidak terbaca (HTTP ${r.code}): ${raw.take(120)}"))
+                val code = response.code
+                val retryAfter = response.header("retry-after")
+                val raw = response.use { it.body?.string().orEmpty() }
+                if (code in listOf(500, 502, 503, 504) && retries > 0) {
+                    send(req, retries - 1, cb)
+                    return
+                }
+                val result: Result<String> = try {
+                    val j = JSONObject(raw)
+                    if (code !in 200..299) {
+                        val msg = j.optJSONObject("error")?.optString("message").orEmpty()
+                        Result.failure(AiError(code, friendly(code, msg, retryAfter)))
+                    } else {
+                        val ch = j.optJSONArray("choices")?.optJSONObject(0)
+                        val txt = ch?.optJSONObject("message")?.optString("content").orEmpty().trim()
+                        if (txt.isNotEmpty()) Result.success(txt)
+                        else Result.failure(
+                            AiError(code, "Groq tidak memberi jawaban (alasan: ${ch?.optString("finish_reason").orEmpty().ifBlank { "kosong" }}).")
+                        )
                     }
+                } catch (e: Exception) {
+                    Result.failure(AiError(code, "Respons tidak terbaca (HTTP $code): ${raw.take(120)}"))
                 }
                 cb(result)
             }
         })
     }
 
-    private fun retryable(e: AiError): Boolean =
-        e.code in listOf(0, 404, 429, 500, 502, 503, 504) ||
-            e.message.orEmpty().contains("high demand", ignoreCase = true) ||
-            e.message.orEmpty().contains("overloaded", ignoreCase = true)
-
-    private fun friendly(code: Int, msg: String): String = when {
-        code in listOf(500, 502, 503, 504) || msg.contains("high demand", ignoreCase = true) ->
-            "Server Gemini sedang penuh (bukan masalah internetmu). Sudah dicoba ulang otomatis. Coba lagi beberapa detik lagi."
-        code == 404 || msg.contains("no longer available", ignoreCase = true) ->
-            "Model Gemini tidak tersedia untuk key ini. Ganti nama model di pengaturan flooww (mis. gemini-3.8-flash)."
-        code == 429 -> "Kuota Gemini habis atau terlalu cepat. Tunggu sebentar atau ganti API key."
-        code == 400 && msg.contains("API key", ignoreCase = true) -> "API key Gemini tidak valid. Periksa di pengaturan aplikasi."
-        code == 401 || code == 403 -> "API key Gemini ditolak. Periksa di pengaturan aplikasi."
+    private fun friendly(code: Int, msg: String, retryAfter: String?): String = when {
+        code == 401 || code == 403 -> "API key Groq ditolak. Periksa key di pengaturan aplikasi."
+        code == 404 || msg.contains("decommissioned", true) || msg.contains("does not exist", true) ->
+            "Model Groq tidak tersedia. Ganti nama model di pengaturan flooww (mis. ${Prefs.DEFAULT_MODEL})."
+        code == 429 -> "Batas pemakaian Groq tercapai" + (retryAfter?.let { ", coba lagi sekitar $it detik lagi" } ?: ", tunggu sebentar") + "."
+        code in listOf(500, 502, 503, 504) -> "Server Groq sedang bermasalah. Coba lagi sebentar lagi."
         msg.isNotBlank() -> msg
         else -> "HTTP $code"
     }
 
     /**
-     * Pemeriksaan bertahap untuk layar "Tes koneksi": internet, server Gemini + key + daftar model, lalu satu jawaban.
+     * Pemeriksaan bertahap untuk layar "Tes koneksi": internet, server Groq + key + daftar model, lalu satu jawaban.
      * Berjalan di thread sendiri; onLine dipanggil dari thread itu.
      */
     fun diagnose(ctx: Context, onLine: (String) -> Unit) {
@@ -208,7 +133,7 @@ object AiClient {
                 val t0 = System.currentTimeMillis()
                 return try {
                     val rb = Request.Builder().url(url)
-                    if (key != null) rb.header("x-goog-api-key", key)
+                    if (key != null) rb.header("Authorization", "Bearer $key")
                     probe.newCall(rb.build()).execute().use { r ->
                         Triple(r.code, r.body?.string().orEmpty(), System.currentTimeMillis() - t0)
                     }
@@ -222,25 +147,23 @@ object AiClient {
             onLine("Key: " + if (key.isBlank()) "BELUM DIISI" else "terisi (…${key.takeLast(4)})")
             val net = get("https://www.google.com/generate_204")
             onLine("1. Internet: " + if (net.first in 200..399) "OK (${net.third} ms)" else "GAGAL ${net.second.take(80)}")
-            val ls = get("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", key.ifBlank { null })
+            val ls = get("$BASE/models", key.ifBlank { null })
             if (ls.first == 200) {
                 val names = try {
-                    val arr = JSONObject(ls.second).getJSONArray("models")
-                    (0 until arr.length()).map { arr.getJSONObject(it).getString("name").removePrefix("models/") }
+                    val arr = JSONObject(ls.second).getJSONArray("data")
+                    (0 until arr.length()).map { arr.getJSONObject(it).getString("id") }
                 } catch (e: Exception) { emptyList() }
-                val has = model in names
-                onLine("2. Server Gemini + key: OK (${ls.third} ms)")
-                onLine("   Model $model " + if (has) "tersedia" else "TIDAK ada untuk key ini")
-                val flash = names.filter { it.startsWith("gemini") && it.contains("flash") && !it.contains("image") && !it.contains("tts") && !it.contains("live") }
-                if (flash.isNotEmpty()) onLine("   Model flash yang ada: " + flash.take(6).joinToString(", "))
+                onLine("2. Server Groq + key: OK (${ls.third} ms)")
+                onLine("   Model $model " + if (model in names) "tersedia" else "TIDAK ada untuk key ini")
+                val chat = names.filter { !it.contains("whisper") && !it.contains("tts") && !it.contains("guard") }
+                if (chat.isNotEmpty()) onLine("   Model yang ada: " + chat.take(8).joinToString(", "))
             } else {
                 val msg = try { JSONObject(ls.second).optJSONObject("error")?.optString("message").orEmpty() } catch (e: Exception) { ls.second }
-                onLine("2. Server Gemini: GAGAL HTTP ${ls.first} ${msg.take(120)} (${ls.third} ms)")
+                onLine("2. Server Groq: GAGAL HTTP ${ls.first} ${msg.take(120)} (${ls.third} ms)")
             }
             val t0 = System.currentTimeMillis()
-            progress = { m -> onLine("3. Meminta jawaban dari $m…") }
-            generate(ctx, listOf("user" to "Balas satu kata saja: OK"), null, "Jawab sangat singkat.", false) { r ->
-                progress = null
+            onLine("3. Meminta jawaban dari $model…")
+            generate(ctx, listOf("user" to "Balas satu kata saja: OK"), "Jawab sangat singkat.", false) { r ->
                 val ms = System.currentTimeMillis() - t0
                 onLine("   " + r.fold({ "Berhasil ($ms ms): $it" }, { "GAGAL ($ms ms): ${it.message}" }))
                 onLine("Selesai.")

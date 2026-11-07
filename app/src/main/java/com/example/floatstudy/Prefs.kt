@@ -19,7 +19,7 @@ enum class Setting(val key: String, val def: Int, val min: Int, val max: Int) {
 }
 
 object Prefs {
-    const val DEFAULT_MODEL = "gemini-3.8-flash"
+    const val DEFAULT_MODEL = "llama-3.3-70b-versatile"
     const val DEFAULT_COLOR = 0xFF7C6CF0.toInt()
     const val DEFAULT_PROMPT = "Jawab soal pada gambar ini. Jelaskan langkah singkat, lalu tulis jawaban akhir."
 
@@ -37,29 +37,20 @@ object Prefs {
 
     fun sp(c: Context): SharedPreferences = c.getSharedPreferences("floatstudy", Context.MODE_PRIVATE)
 
-    // ---------- API key Gemini (hanya untuk Chat dan Auto Jawab) ----------
+    // ---------- API key Groq (hanya untuk Chat dan Auto Jawab) ----------
 
-    /** Key yang ditanam saat build (secret GEMINI_API_KEY). Kosong bila tidak ada. */
-    fun hasBuiltInKey(): Boolean = BuildConfig.GEMINI_API_KEY.isNotBlank()
-
-    /** Key isian manual dari layar pengaturan. */
-    fun manualKey(c: Context): String = sp(c).getString("gkey", "") ?: ""
-
-    /** Key yang dipakai: isian manual bila ada, kalau tidak key tertanam. */
-    fun key(c: Context): String = manualKey(c).ifBlank { BuildConfig.GEMINI_API_KEY }
+    /** Key isian dari layar pengaturan. */
+    fun key(c: Context): String = sp(c).getString("groqKey", "") ?: ""
 
     fun setKey(c: Context, key: String) {
-        sp(c).edit().putString("gkey", key.trim()).apply()
+        sp(c).edit().putString("groqKey", key.trim()).apply()
     }
 
-    // gemini-2.5-flash tidak lagi tersedia untuk pengguna baru: nilai lama otomatis diganti model bawaan
-    fun model(c: Context): String {
-        val m = (sp(c).getString("gmodel", DEFAULT_MODEL) ?: DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
-        return if (m == "gemini-2.5-flash") DEFAULT_MODEL else m
-    }
+    fun model(c: Context): String =
+        (sp(c).getString("groqModel", DEFAULT_MODEL) ?: DEFAULT_MODEL).ifBlank { DEFAULT_MODEL }
 
     fun setModel(c: Context, model: String) {
-        sp(c).edit().putString("gmodel", model.trim()).apply()
+        sp(c).edit().putString("groqModel", model.trim()).apply()
     }
 
     // ---------- AI tujuan untuk Tanya AI dan Terjemah ----------

@@ -5,13 +5,6 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// API key Gemini opsional: diambil dari env/secret saat build, tidak pernah ditulis ke source.
-// Untuk APK yang disebar, biarkan kosong. Pengguna mengisi key sendiri di aplikasi.
-val geminiKey: String = (System.getenv("GEMINI_API_KEY")
-    ?: (project.findProperty("GEMINI_API_KEY") as String?)
-    ?: "")
-    .trim().replace("\"", "").replace("\\", "")
-
 android {
     namespace = "com.example.floatstudy"
     compileSdk = 34
@@ -25,7 +18,6 @@ android {
         versionName = "0.6.0"
         // hanya arm64 (hampir semua HP sejak 2017): library ML Kit native tidak digandakan 4 arsitektur
         ndk { abiFilters += listOf("arm64-v8a") }
-        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
     }
 
     // Tanda tangan tetap supaya APK baru bisa memperbarui yang lama (tanpa copot pasang).

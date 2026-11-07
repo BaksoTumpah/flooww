@@ -112,18 +112,10 @@ class MainActivity : Activity() {
 
         // ---- API key ----
         val apiViews = mutableListOf<View>()
-        apiViews.add(note("Untuk Chat dan Auto Jawab. Key gratis dari Google AI Studio"))
-        if (Prefs.hasBuiltInKey()) {
-            apiViews.add(TextView(this).apply {
-                text = "Key bawaan sudah tertanam di aplikasi ini. Isian di bawah menggantikannya bila diisi."
-                textSize = 12f
-                setTextColor(0xFF16A34A.toInt())
-                setPadding(0, dp(4), 0, 0)
-            })
-        }
-        val keyIn = Ui.field(this, "API key Gemini").apply {
+        apiViews.add(note("Untuk Chat dan Auto Jawab. Key gratis dari Groq Console"))
+        val keyIn = Ui.field(this, "API key Groq").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            setText(Prefs.manualKey(this@MainActivity))
+            setText(Prefs.key(this@MainActivity))
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -144,8 +136,8 @@ class MainActivity : Activity() {
         }
         apiViews.add(spaced(keyIn))
         apiViews.add(spaced(modelIn))
-        apiViews.add(spaced(Ui.button(this, "Buka Google AI Studio", false) {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
+        apiViews.add(spaced(Ui.button(this, "Buka Groq Console", false) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://console.groq.com/keys")))
         }))
         apiViews.add(spaced(Ui.button(this, "Tes koneksi AI", true) {
             val log = StringBuilder()

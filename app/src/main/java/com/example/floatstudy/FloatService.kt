@@ -1603,7 +1603,7 @@ class FloatService : Service() {
         return col
     }
 
-    // ---------- alat: Chat (memakai API key Gemini) ----------
+    // ---------- alat: Chat (memakai API key Groq) ----------
 
     private fun chatView(): View {
         val col = vbox()
@@ -1647,7 +1647,7 @@ class FloatService : Service() {
             val pending = bubbleOf("model", "…")
             var turns = chatTurns.takeLast(11)
             if (turns.firstOrNull()?.first == "model") turns = turns.drop(1)
-            AiClient.generate(c, turns, null, AiClient.CHAT_SYSTEM, false) { r ->
+            AiClient.generate(c, turns, AiClient.CHAT_SYSTEM, false) { r ->
                 ui.post {
                     r.onSuccess { t ->
                         pending.text = t
@@ -2038,7 +2038,7 @@ class FloatService : Service() {
 
     private fun startAuto() {
         if (Prefs.key(c).isBlank()) {
-            toast("Isi API key Gemini di aplikasi flooww dulu")
+            toast("Isi API key Groq di aplikasi flooww dulu")
             startFloating(Intent(this, MainActivity::class.java))
             return
         }
@@ -2145,16 +2145,36 @@ class FloatService : Service() {
         val bmp = grab?.latest() ?: return
         autoState = 1
         marks?.setChip("Membaca layar…")
-        val b64 = toJpegB64(bmp)
-        AiClient.generate(
-            c, listOf("user" to AutoAnswer.PROMPT), b64, AutoAnswer.SYSTEM, true
-        ) { r ->
+        val bw = bmp.width
+        val bh = bmp.height
+        // baca teks di HP (OCR) dulu, lalu kirim teksnya ke Groq; posisi tanda diambil dari OCR
+        Ocr.lines(bmp) { ocr ->
+            val lines = ocr.getOrNull()
+            if (lines == null || lines.isEmpty()) {
+                ui.post {
+                    if (!autoOn || gen != autoGen) return@post
+                    autoLastEnd = System.currentTimeMillis()
+                    autoGap = minOf(autoGap * 2, 60000L)
+                    marks?.showResult(null, if (lines == null) "Gagal membaca teks layar" else "Tidak ada teks di layar")
+                    autoState = 2
+                    autoBase = null
+                }
+                return@lines
+            }
+            AiClient.generate(c, listOf("user" to AutoAnswer.prompt(lines)), AutoAnswer.SYSTEM, true) { r ->
+                handleAutoResult(gen, r, lines, bw, bh)
+            }
+        }
+    }
+
+    private fun handleAutoResult(gen: Int, r: Result<String>, lines: List<Ocr.Line>, bw: Int, bh: Int) {
+        run {
             ui.post {
                 if (!autoOn || gen != autoGen) return@post
                 autoLastEnd = System.currentTimeMillis()
                 r.onSuccess { raw ->
                     val res = try {
-                        AutoAnswer.parse(raw)
+                        AutoAnswer.parse(raw, lines, bw, bh)
                     } catch (e: Exception) {
                         AnswerResult(emptyList(), emptyList())
                     }
@@ -2162,7 +2182,7 @@ class FloatService : Service() {
                         autoGap = minOf(autoGap * 2, 60000L) // hemat kuota saat tidak ada soal
                         marks?.showResult(null, "Tidak ada soal di layar")
                     } else {
-                        autoGap = 8000L
+                        autoGap = 12000L
                         marks?.showResult(res, null)
                     }
                     autoState = 2

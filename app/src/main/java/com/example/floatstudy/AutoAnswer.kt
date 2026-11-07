@@ -21,38 +21,53 @@ class AnswerResult(val marks: List<RectF>, val notes: List<AnswerNote>) {
 
 object AutoAnswer {
     const val SYSTEM =
-        "Kamu pengoreksi soal yang teliti. Kamu menerima tangkapan layar yang bisa berisi beberapa soal. " +
-            "Temukan semua soal yang terlihat penuh. Untuk soal pilihan ganda biasa (satu jawaban benar) " +
-            "dan pilihan ganda kompleks (lebih dari satu jawaban benar, biasanya kotak centang atau " +
-            "tertulis pilih lebih dari satu), tentukan opsi yang benar. Untuk soal esai atau isian, " +
-            "tulis jawaban singkat, maksimal 25 kata. Lewati soal yang terpotong atau tidak terbaca penuh. " +
-            "Balas hanya JSON."
+        "Kamu pengoreksi soal yang teliti. Kamu menerima hasil baca teks dari layar HP, satu baris per nomor, " +
+            "yang bisa berisi beberapa soal. Temukan semua soal yang tampil utuh. Untuk soal pilihan ganda biasa " +
+            "(satu jawaban benar) dan pilihan ganda kompleks (lebih dari satu jawaban benar, biasanya kotak centang " +
+            "atau tertulis pilih lebih dari satu), tentukan opsi yang benar. Untuk soal esai atau isian, tulis jawaban " +
+            "singkat, maksimal 25 kata. Lewati soal yang terpotong atau tidak terbaca penuh. Balas hanya JSON."
 
-    val PROMPT = """
-Baca seluruh layar lalu balas JSON dengan bentuk persis ini:
-{"items":[{"type":"single","marks":[{"label":"B","box":[ymin,xmin,ymax,xmax]}],"answer":"","anchor":[ymin,xmin,ymax,xmax]}]}
+    /** Daftar baris bernomor + instruksi bentuk JSON. */
+    fun prompt(lines: List<Ocr.Line>): String {
+        val sb = StringBuilder()
+        sb.append("Teks di layar (nomor|isi):\n")
+        lines.forEachIndexed { i, l -> sb.append(i).append('|').append(l.text.take(300)).append('\n') }
+        sb.append(
+            """
+
+Balas JSON dengan bentuk persis ini:
+{"items":[{"type":"single","marks":[12],"answer":"","anchor":0}]}
 Aturan:
 - type adalah "single", "multiple", atau "essay".
-- Untuk single dan multiple: isi marks hanya dengan opsi yang benar. box adalah kotak di sekeliling baris opsi itu (penanda pilihan dan teksnya).
-- Untuk essay: marks kosong, answer berisi jawaban singkat, anchor adalah kotak soal atau kolom jawabannya.
-- Semua koordinat bernilai 0 sampai 1000 relatif terhadap seluruh gambar.
+- Untuk single dan multiple: marks berisi NOMOR baris opsi yang benar (baris yang memuat huruf atau penanda opsi itu). Gunakan nomor persis seperti di daftar.
+- Untuk essay: marks kosong, answer berisi jawaban singkat, anchor adalah nomor baris terakhir dari soal itu.
 - Bila tidak ada soal, balas {"items":[]}.
-""".trimIndent()
+"""
+        )
+        return sb.toString()
+    }
 
-    private fun box(a: JSONArray?): RectF? {
-        if (a == null || a.length() < 4) return null
-        val ymin = a.optDouble(0).toFloat() / 1000f
-        val xmin = a.optDouble(1).toFloat() / 1000f
-        val ymax = a.optDouble(2).toFloat() / 1000f
-        val xmax = a.optDouble(3).toFloat() / 1000f
-        if (xmax <= xmin || ymax <= ymin) return null
+    /** Kotak satu baris diperluas ke seluruh baris sejajar (penanda opsi dan teksnya), lalu dinormalisasi 0..1. */
+    private fun rowBox(lines: List<Ocr.Line>, idx: Int, w: Float, h: Float): RectF {
+        val b = lines[idx].box
+        val r = RectF(b)
+        for ((i, l) in lines.withIndex()) {
+            if (i == idx) continue
+            val o = minOf(b.bottom, l.box.bottom) - maxOf(b.top, l.box.top)
+            if (o > 0.5f * minOf(b.height(), l.box.height())) {
+                // hanya yang berdekatan di baris yang sama
+                if (l.box.left < b.left && b.left - l.box.right < b.height() * 3 ||
+                    l.box.left >= b.left && l.box.left - b.right < b.height() * 3
+                ) r.union(l.box)
+            }
+        }
         return RectF(
-            xmin.coerceIn(0f, 1f), ymin.coerceIn(0f, 1f),
-            xmax.coerceIn(0f, 1f), ymax.coerceIn(0f, 1f)
+            (r.left / w).coerceIn(0f, 1f), (r.top / h).coerceIn(0f, 1f),
+            (r.right / w).coerceIn(0f, 1f), (r.bottom / h).coerceIn(0f, 1f)
         )
     }
 
-    fun parse(raw: String): AnswerResult {
+    fun parse(raw: String, lines: List<Ocr.Line>, w: Int, h: Int): AnswerResult {
         val s = raw.indexOf('{')
         val e = raw.lastIndexOf('}')
         if (s < 0 || e <= s) return AnswerResult(emptyList(), emptyList())
@@ -60,16 +75,19 @@ Aturan:
             ?: return AnswerResult(emptyList(), emptyList())
         val marks = mutableListOf<RectF>()
         val notes = mutableListOf<AnswerNote>()
+        val fw = w.toFloat()
+        val fh = h.toFloat()
         for (i in 0 until items.length()) {
             val it = items.optJSONObject(i) ?: continue
             if (it.optString("type") == "essay") {
                 val text = it.optString("answer").trim()
-                val a = box(it.optJSONArray("anchor"))
-                if (text.isNotEmpty() && a != null) notes.add(AnswerNote(text, a))
+                val a = it.optInt("anchor", -1)
+                if (text.isNotEmpty() && a in lines.indices) notes.add(AnswerNote(text, rowBox(lines, a, fw, fh)))
             } else {
                 val ms = it.optJSONArray("marks") ?: continue
                 for (k in 0 until ms.length()) {
-                    box(ms.optJSONObject(k)?.optJSONArray("box"))?.let { r -> marks.add(r) }
+                    val id = ms.optInt(k, -1)
+                    if (id in lines.indices) marks.add(rowBox(lines, id, fw, fh))
                 }
             }
         }
