@@ -149,7 +149,10 @@ class MainActivity : Activity() {
             slider("Lama tekan", Setting.LONG_MS, " ms"),
         ))
         gCtl.add(sec("Keyboard di jendela mengambang",
-            segmented(listOf("Diblokir", "Diizinkan"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) }
+            note("Keyboard flooww: muncul di dasar layar, tidak mengambil fokus aplikasi di bawahnya. Keyboard HP: memakai keyboard bawaan, tapi fokus berpindah ke jendela."),
+            segmented(listOf("Keyboard flooww", "Keyboard HP"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) },
+            slider("Tinggi tombol keyboard flooww", Setting.OSK_H, "%"),
+            slider("Opasitas keyboard flooww", Setting.OSK_ALPHA, "%")
         ))
         gLook.add(sec("Jendela alat",
             slider("Zoom halaman web", Setting.WEB_ZOOM, "%")

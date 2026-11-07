@@ -15,7 +15,9 @@ enum class Setting(val key: String, val def: Int, val min: Int, val max: Int) {
     APP_W("appW", 320, 240, 700),              // dp, jendela aplikasi
     APP_H("appH", 480, 300, 900),              // dp
     LONG_MS("longMs", 700, 400, 3000),         // ms, lama tekan bubble
-    WEB_ZOOM("webZoom", 80, 40, 150)           // %, skala halaman di Browser mengambang
+    WEB_ZOOM("webZoom", 80, 40, 150),          // %, skala halaman di Browser mengambang
+    OSK_H("oskH", 100, 70, 170),               // %, tinggi tombol keyboard flooww
+    OSK_ALPHA("oskAlpha", 100, 50, 100)        // %, opasitas keyboard flooww
 }
 
 object Prefs {

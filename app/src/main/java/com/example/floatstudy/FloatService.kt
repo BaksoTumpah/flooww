@@ -289,6 +289,7 @@ class FloatService : Service() {
         if (::wm.isInitialized) {
             hideMenu()
             hidePanel()
+            osk.hide()
             listOf<View?>(selector, target, bubble).forEach { v ->
                 v?.let {
                     try {
@@ -332,6 +333,11 @@ class FloatService : Service() {
     private fun field(hint: String, multi: Boolean = false) = Ui.field(c, hint, multi).apply {
         inputs.add(this)
         applyKb(this)
+        // keyboard flooww: ketuk kolom -> keyboard muncul di dasar layar tanpa mengambil fokus
+        setOnTouchListener { _, ev ->
+            if (ev.action == MotionEvent.ACTION_UP && kbBlocked()) osk.show(this)
+            false
+        }
     }
 
     private fun resultText() = TextView(c).apply {
@@ -1230,6 +1236,7 @@ class FloatService : Service() {
 
     /** Tombol ✕: sembunyikan saja. Isi jendela tidak dihapus. */
     private fun hidePanel() {
+        if (osk.isShown) osk.hide()
         val p = panel ?: return
         if (!panelAttached) return
         try {
@@ -1255,6 +1262,37 @@ class FloatService : Service() {
         }
 
     private val inputs = mutableListOf<EditText>()
+
+    // keyboard layar flooww (jendela sendiri, tidak pernah fokus)
+    private val osk by lazy {
+        Osk(c, wm).also { k ->
+            k.onHeight = { h -> liftPanel(h) }
+        }
+    }
+    private var liftedFrom = -1
+    private var liftedTo = -1
+
+    /** Naikkan jendela alat bila tertutup keyboard; kembalikan saat keyboard hilang. */
+    private fun liftPanel(h: Int) {
+        val p = panel ?: return
+        val lp = panelLp ?: return
+        if (!panelAttached) return
+        if (h > 0) {
+            val maxY = (realSize().second - h - lp.height).coerceAtLeast(0)
+            if (lp.y > maxY) {
+                liftedFrom = lp.y
+                liftedTo = maxY
+                lp.y = maxY
+                try { wm.updateViewLayout(p, lp) } catch (e: Exception) {}
+            }
+        } else if (liftedFrom >= 0) {
+            if (lp.y == liftedTo) {
+                lp.y = liftedFrom
+                try { wm.updateViewLayout(p, lp) } catch (e: Exception) {}
+            }
+            liftedFrom = -1
+        }
+    }
 
     // teks terakhir hasil salin dari gambar. Android 10+ melarang layanan latar membaca clipboard, jadi disimpan sendiri
     private var lastCopied = ""
@@ -1286,7 +1324,7 @@ class FloatService : Service() {
         e.showSoftInputOnFocus = !b
         e.isFocusable = !b
         e.isFocusableInTouchMode = !b
-        if (b) e.clearFocus()
+        if (b) e.clearFocus() else if (osk.isShown) osk.hide()
     }
 
     /** Dipanggil saat pengaturan keyboard di aplikasi berubah: berlaku langsung pada jendela yang sedang tampil. */
