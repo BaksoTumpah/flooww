@@ -29,6 +29,7 @@ class MainActivity : Activity() {
     private val reqOverlay = 1
     private val reqProjection = 2
     private val reqNotif = 3
+    private val reqMedia = 4
 
     private lateinit var p: Pal
     private lateinit var status: TextView
@@ -216,6 +217,21 @@ class MainActivity : Activity() {
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             }, { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), reqNotif) })
         }
+        l += Step("Akses foto (Galeri mengambang)", {
+            if (Build.VERSION.SDK_INT >= 33) {
+                checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                    (Build.VERSION.SDK_INT >= 34 &&
+                        checkSelfPermission("android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == PackageManager.PERMISSION_GRANTED)
+            } else {
+                checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            }
+        }, {
+            requestPermissions(
+                if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+                else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+                reqMedia
+            )
+        }, true)
         l += Step("Tanpa batasan baterai", { batteryOk() }, {
             try {
                 startActivity(

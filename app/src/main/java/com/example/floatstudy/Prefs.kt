@@ -36,6 +36,22 @@ object Prefs {
 
     fun sp(c: Context): SharedPreferences = c.getSharedPreferences("floatstudy", Context.MODE_PRIVATE)
 
+    // ---------- catatan cepat ----------
+
+    /** Daftar catatan (waktu, teks), terbaru di atas. */
+    fun notes(c: Context): List<Pair<Long, String>> = try {
+        val a = org.json.JSONArray(sp(c).getString("notes", "[]"))
+        (0 until a.length()).map { val o = a.getJSONObject(it); o.getLong("t") to o.getString("x") }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    fun setNotes(c: Context, l: List<Pair<Long, String>>) {
+        val a = org.json.JSONArray()
+        l.forEach { a.put(org.json.JSONObject().put("t", it.first).put("x", it.second)) }
+        sp(c).edit().putString("notes", a.toString()).apply()
+    }
+
     // ---------- AI tujuan untuk Tanya AI dan Terjemah ----------
 
     fun aiTarget(c: Context): Int = sp(c).getInt("aiTarget", 0).coerceIn(0, AI_NAMES.size - 1)
@@ -99,7 +115,7 @@ object Prefs {
     /** Aksi gestur bubble. Indeks 0 = tidak ada, 1 = buka menu, 2..11 = alat menu (id alat = indeks - 2). */
     val GESTURE_NAMES = listOf(
         "Tidak ada", "Buka menu", "Tanya AI", "Salin", "Terjemah", "Screenshot",
-        "Browser", "Hitung", "Klik", "Apps", "Matikan bubble"
+        "Browser", "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Matikan bubble"
     )
     private val gestureKeys = listOf("gTap", "gDouble", "gLong", "gUp", "gDown", "gSide")
     private val gestureDefs = intArrayOf(1, 2, 0, 0, 0, 0)
@@ -113,20 +129,24 @@ object Prefs {
     /** Chat dan Auto Jawab dihapus: pilihan gestur lama digeser ke urutan baru (yang menunjuk fitur terhapus jadi "Tidak ada"). */
     private fun migrateGestures(c: Context) {
         val sp = sp(c)
-        if (sp.getBoolean("gmig2", false)) return
+        if (sp.getBoolean("gmig3", false)) return
         val e = sp.edit()
+        val v2 = !sp.getBoolean("gmig2", false)
         for (k in gestureKeys) {
             if (!sp.contains(k)) continue
-            val v = sp.getInt(k, 0)
-            e.putInt(k, when {
+            var v = sp.getInt(k, 0)
+            if (v2) v = when {
                 v <= 6 -> v
                 v == 7 || v == 11 -> 0
                 v in 8..10 -> v - 1
                 v == 12 -> 10
                 else -> 0
-            })
+            }
+            // Catatan dan Galeri disisipkan sebelum "Matikan bubble"
+            if (v == 10) v = 12
+            e.putInt(k, v)
         }
-        e.putBoolean("gmig2", true).apply()
+        e.putBoolean("gmig2", true).putBoolean("gmig3", true).apply()
     }
 
     fun setGesture(c: Context, g: Int, v: Int) {

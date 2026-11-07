@@ -72,16 +72,18 @@ class FloatService : Service() {
         private const val M_CALC = 5
         private const val M_CLICK = 6
         private const val M_APPS = 7
-        private const val M_OFF = 8
+        private const val M_NOTE = 8
+        private const val M_GAL = 9
+        private const val M_OFF = 10
 
         private val NAMES = listOf(
             "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
-            "Hitung", "Klik", "Apps", "Matikan"
+            "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Matikan"
         )
         private val ICONS = intArrayOf(
             R.drawable.ic_ask, R.drawable.ic_copy, R.drawable.ic_translate, R.drawable.ic_shot,
             R.drawable.ic_browser, R.drawable.ic_calc, R.drawable.ic_touch,
-            R.drawable.ic_apps, R.drawable.ic_power
+            R.drawable.ic_apps, R.drawable.ic_note, R.drawable.ic_image, R.drawable.ic_power
         )
 
         // alat yang mengambil soal dari layar: lingkaran pilih area muncul dulu, jendela sesudahnya
@@ -1221,6 +1223,8 @@ class FloatService : Service() {
         M_CALC -> calcView()
         M_CLICK -> clickView()
         M_APPS -> appsView()
+        M_NOTE -> noteView()
+        M_GAL -> galleryView()
         else -> vbox()
     }
 
@@ -1500,7 +1504,12 @@ class FloatService : Service() {
             )
         )
         addOut(col, out)
-        col.addView(row(btn("Salin hasil") { if (trText.isNotBlank()) copyText(trText) else toast("Belum ada hasil") }))
+        col.addView(
+            row(
+                btn("Salin hasil") { if (trText.isNotBlank()) copyText(trText) else toast("Belum ada hasil") },
+                btn("Simpan ke catatan") { if (trText.isNotBlank()) addNote(trText) else toast("Belum ada hasil") }
+            )
+        )
         return col
     }
 
@@ -1567,6 +1576,7 @@ class FloatService : Service() {
                 }
             )
         )
+        col.addView(row(btn("Simpan ke catatan") { if (ocrText.isNotBlank()) addNote(ocrText) else toast("Belum ada teks") }))
         return col
     }
 
@@ -1662,6 +1672,276 @@ class FloatService : Service() {
         col.addView(w, lay(MATCH, 0, 1f, 2))
         web = w
         return col
+    }
+
+    // ---------- alat: Catatan cepat ----------
+
+    private var noteRefresh: (() -> Unit)? = null
+
+    private fun addNote(t: String) {
+        val x = t.trim()
+        if (x.isEmpty()) {
+            toast("Teks kosong")
+            return
+        }
+        Prefs.setNotes(c, listOf(System.currentTimeMillis() to x) + Prefs.notes(c))
+        noteRefresh?.invoke()
+        toast("Disimpan ke catatan")
+    }
+
+    private fun noteView(): View {
+        val col = vbox()
+        val input = field("Tulis catatan", true)
+        // keyboard diblokir: teks terakhir hasil Salin/Terjemah bisa ditempel lewat tombol tempel di header
+        pasteFns[M_NOTE] = { t ->
+            val cur = input.text.toString()
+            input.setText(if (cur.isBlank()) t else cur + "\n" + t)
+            input.setSelection(input.text.length)
+        }
+        val list = vbox().apply { setPadding(dp(2), dp(2), dp(2), dp(2)) }
+        val fmt = java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale("id"))
+
+        fun render() {
+            list.removeAllViews()
+            val items = Prefs.notes(c)
+            if (items.isEmpty()) {
+                list.addView(note("Belum ada catatan. Tulis di atas lalu Simpan, atau pakai tombol Simpan ke catatan di menu Salin dan Terjemah."))
+                return
+            }
+            items.forEach { n ->
+                val card = vbox().apply {
+                    background = Ui.clay(c, P.surface, dp(14), 3f)
+                    setPadding(dp(12), dp(8), dp(12), dp(8))
+                }
+                card.addView(TextView(c).apply {
+                    text = fmt.format(java.util.Date(n.first))
+                    textSize = 11f
+                    setTextColor(P.muted)
+                })
+                card.addView(TextView(c).apply {
+                    text = n.second
+                    textSize = 14f
+                    setTextColor(P.on)
+                    setTextIsSelectable(true)
+                })
+                card.addView(row(
+                    btn("Salin") { copyText(n.second) },
+                    btn("Hapus") {
+                        Prefs.setNotes(c, Prefs.notes(c).filter { it.first != n.first })
+                        render()
+                    }
+                ))
+                list.addView(card, LinearLayout.LayoutParams(MATCH, WRAP).apply { setMargins(dp(2), dp(3), dp(2), dp(3)) })
+            }
+        }
+        noteRefresh = { render() }
+        render()
+
+        col.addView(input, lay(MATCH, WRAP, 0f, 2))
+        col.addView(
+            row(
+                btn("Simpan", true) {
+                    val t = input.text.toString()
+                    if (t.isNotBlank()) {
+                        input.setText("")
+                        addNote(t)
+                    }
+                },
+                btn("Kosongkan") { input.setText("") }
+            )
+        )
+        col.addView(ScrollView(c).apply { addView(list) }, lay(MATCH, 0, 1f, 2))
+        return col
+    }
+
+    // ---------- alat: Galeri mengambang ----------
+
+    private val galPool by lazy { java.util.concurrent.Executors.newFixedThreadPool(3) }
+    private val galCache = android.util.LruCache<Long, Bitmap>(80)
+
+    private fun galGranted(): Boolean =
+        if (Build.VERSION.SDK_INT >= 33) {
+            checkSelfPermission(android.Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                (Build.VERSION.SDK_INT >= 34 &&
+                    checkSelfPermission("android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == android.content.pm.PackageManager.PERMISSION_GRANTED)
+        } else {
+            checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+    private fun galIds(offset: Int, limit: Int): List<Long> {
+        val q = android.os.Bundle().apply {
+            putInt(android.content.ContentResolver.QUERY_ARG_LIMIT, limit)
+            putInt(android.content.ContentResolver.QUERY_ARG_OFFSET, offset)
+            putStringArray(android.content.ContentResolver.QUERY_ARG_SORT_COLUMNS, arrayOf(android.provider.MediaStore.Images.Media.DATE_ADDED))
+            putInt(android.content.ContentResolver.QUERY_ARG_SORT_DIRECTION, android.content.ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+        }
+        val out = mutableListOf<Long>()
+        try {
+            contentResolver.query(
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(android.provider.MediaStore.Images.Media._ID), q, null
+            )?.use { cur -> while (cur.moveToNext()) out.add(cur.getLong(0)) }
+        } catch (e: Exception) {
+        }
+        return out
+    }
+
+    private fun galUri(id: Long) =
+        android.content.ContentUris.withAppendedId(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+
+    @Suppress("DEPRECATION")
+    private fun galThumb(id: Long): Bitmap? {
+        galCache.get(id)?.let { return it }
+        val b = try {
+            if (Build.VERSION.SDK_INT >= 29) contentResolver.loadThumbnail(galUri(id), android.util.Size(240, 240), null)
+            else android.provider.MediaStore.Images.Thumbnails.getThumbnail(
+                contentResolver, id, android.provider.MediaStore.Images.Thumbnails.MINI_KIND, null
+            )
+        } catch (e: Exception) {
+            null
+        }
+        if (b != null) galCache.put(id, b)
+        return b
+    }
+
+    /** Gambar penuh, diperkecil agar muat memori (sisi terpanjang sekitar 1600 px). */
+    private fun galFull(id: Long): Bitmap? = try {
+        val u = galUri(id)
+        if (Build.VERSION.SDK_INT >= 28) {
+            android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(contentResolver, u)) { dec, info, _ ->
+                dec.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                val big = maxOf(info.size.width, info.size.height)
+                if (big > 1600) dec.setTargetSampleSize(big / 1600 + 1)
+            }
+        } else {
+            val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(u)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o) }
+            val big = maxOf(o.outWidth, o.outHeight)
+            val o2 = android.graphics.BitmapFactory.Options().apply { inSampleSize = if (big > 1600) big / 1600 + 1 else 1 }
+            contentResolver.openInputStream(u)?.use { android.graphics.BitmapFactory.decodeStream(it, null, o2) }
+        }
+    } catch (e: Throwable) {
+        null
+    }
+
+    private fun galleryView(): View {
+        val root = FrameLayout(c)
+        val listPane = vbox()
+        val viewPane = vbox().apply { visibility = View.GONE }
+        root.addView(listPane, FrameLayout.LayoutParams(MATCH, MATCH))
+        root.addView(viewPane, FrameLayout.LayoutParams(MATCH, MATCH))
+
+        val ids = mutableListOf<Long>()
+        val grid = vbox().apply { setPadding(dp(2), dp(2), dp(2), dp(2)) }
+        var loadFn: () -> Unit = {}
+        val more = btn("Muat lebih banyak") { loadFn() }
+        val msg = note("")
+
+        // ---- penampil gambar ----
+        val img = ImageView(c).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(Color.BLACK)
+        }
+        var cur = 0
+        fun showImg(i: Int) {
+            if (ids.isEmpty()) return
+            cur = ((i % ids.size) + ids.size) % ids.size
+            val id = ids[cur]
+            img.setImageBitmap(galThumb(id))
+            galPool.execute {
+                val b = galFull(id)
+                ui.post { if (b != null && ids.getOrNull(cur) == id) img.setImageBitmap(b) }
+            }
+        }
+        viewPane.addView(img, lay(MATCH, 0, 1f, 2))
+        viewPane.addView(
+            row(
+                btn("‹") { showImg(cur - 1) },
+                btn("›") { showImg(cur + 1) },
+                btn("Salin teks") {
+                    val d = img.drawable as? android.graphics.drawable.BitmapDrawable
+                    val b = d?.bitmap
+                    if (b == null) toast("Gambar belum siap")
+                    else Ocr.read(b) { r ->
+                        ui.post {
+                            r.onSuccess { t -> if (t.isBlank()) toast("Tidak ada teks terbaca") else copyText(t) }
+                            r.onFailure { toast("Gagal membaca teks") }
+                        }
+                    }
+                },
+                btn("Tutup", true) {
+                    viewPane.visibility = View.GONE
+                    listPane.visibility = View.VISIBLE
+                }
+            )
+        )
+
+        fun addRows(from: Int) {
+            val n = ids.size
+            var i = from
+            while (i < n) {
+                val line = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
+                for (k in 0 until 3) {
+                    val idx = i + k
+                    if (idx < n) {
+                        val id = ids[idx]
+                        val iv = ImageView(c).apply {
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            setBackgroundColor(P.field)
+                            setOnClickListener {
+                                listPane.visibility = View.GONE
+                                viewPane.visibility = View.VISIBLE
+                                showImg(idx)
+                            }
+                        }
+                        line.addView(iv, LinearLayout.LayoutParams(0, dp(96), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+                        galPool.execute {
+                            val b = galThumb(id)
+                            ui.post { if (b != null) iv.setImageBitmap(b) }
+                        }
+                    } else {
+                        line.addView(View(c), LinearLayout.LayoutParams(0, dp(96), 1f))
+                    }
+                }
+                grid.addView(line)
+                i += 3
+            }
+        }
+
+        fun loadPage() {
+            if (!galGranted()) {
+                msg.text = "Izin akses foto belum diberikan. Tekan Beri izin, setujui, lalu Muat ulang."
+                return
+            }
+            val from = ids.size
+            val got = galIds(from, 60)
+            if (got.isEmpty() && from == 0) msg.text = "Tidak ada foto."
+            else msg.text = ""
+            ids.addAll(got)
+            addRows(from - from % 3)
+            more.visibility = if (got.size < 60) View.GONE else View.VISIBLE
+        }
+        loadFn = { loadPage() }
+
+        listPane.addView(
+            row(
+                btn("Beri izin") { startFloating(Intent(c, MainActivity::class.java)) },
+                btn("Muat ulang") {
+                    ids.clear()
+                    grid.removeAllViews()
+                    loadPage()
+                }
+            )
+        )
+        listPane.addView(msg)
+        listPane.addView(ScrollView(c).apply {
+            addView(vbox().apply {
+                addView(grid)
+                addView(more)
+            })
+        }, lay(MATCH, 0, 1f, 2))
+        loadPage()
+        return root
     }
 
     // ---------- alat: Hitung ----------
