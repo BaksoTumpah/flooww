@@ -21,8 +21,10 @@ android {
         setProperty("archivesBaseName", "flooww")
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "0.5.0"
+        versionCode = 7
+        versionName = "0.6.0"
+        // hanya arm64 (hampir semua HP sejak 2017): library ML Kit native tidak digandakan 4 arsitektur
+        ndk { abiFilters += listOf("arm64-v8a") }
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
     }
 
@@ -61,6 +63,10 @@ android {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("flooww")
         }
+    }
+    packaging {
+        // library native dikompres di dalam APK (unduhan lebih kecil)
+        jniLibs { useLegacyPackaging = true }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

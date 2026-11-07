@@ -30,10 +30,16 @@ jobs:
           FLOOWW_STORE_PASSWORD: ${{ secrets.FLOOWW_STORE_PASSWORD }}
           FLOOWW_KEY_ALIAS: ${{ secrets.FLOOWW_KEY_ALIAS }}
           FLOOWW_KEY_PASSWORD: ${{ secrets.FLOOWW_KEY_PASSWORD }}
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug assembleRelease --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: flooww-debug
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload APK release
+        uses: actions/upload-artifact@v4
+        with:
+          name: flooww-release
+          path: app/build/outputs/apk/release/*.apk
