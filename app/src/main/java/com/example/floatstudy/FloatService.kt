@@ -69,21 +69,19 @@ class FloatService : Service() {
         private const val EDGE_B = 8
         private const val M_IMG = 3
         private const val M_BROWSER = 4
-        private const val M_CHAT = 5
-        private const val M_CALC = 6
-        private const val M_CLICK = 7
-        private const val M_APPS = 8
-        private const val M_AUTO = 9
-        private const val M_OFF = 10
+        private const val M_CALC = 5
+        private const val M_CLICK = 6
+        private const val M_APPS = 7
+        private const val M_OFF = 8
 
         private val NAMES = listOf(
             "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
-            "Chat", "Hitung", "Klik", "Apps", "Auto Jawab", "Matikan"
+            "Hitung", "Klik", "Apps", "Matikan"
         )
         private val ICONS = intArrayOf(
             R.drawable.ic_ask, R.drawable.ic_copy, R.drawable.ic_translate, R.drawable.ic_shot,
-            R.drawable.ic_browser, R.drawable.ic_chat, R.drawable.ic_calc, R.drawable.ic_touch,
-            R.drawable.ic_apps, R.drawable.ic_auto, R.drawable.ic_power
+            R.drawable.ic_browser, R.drawable.ic_calc, R.drawable.ic_touch,
+            R.drawable.ic_apps, R.drawable.ic_power
         )
 
         // alat yang mengambil soal dari layar: lingkaran pilih area muncul dulu, jendela sesudahnya
@@ -127,7 +125,6 @@ class FloatService : Service() {
     private var web: WebView? = null
     private var ocrText = ""
     private var allApps: List<AppItem>? = null
-    private val chatTurns = mutableListOf<Pair<String, String>>()
 
     private lateinit var copyOut: TextView
 
@@ -138,16 +135,6 @@ class FloatService : Service() {
     private var clicksDone = 0
     private var maxClicks = 0
     private var intervalMs = 1000L
-
-    // auto jawab
-    private var autoOn = false
-    private var marks: MarksView? = null
-    private var autoState = 0 // 0 menunggu layar tenang, 1 membaca, 2 menampilkan hasil
-    private var autoPrev: IntArray? = null
-    private var autoBase: IntArray? = null
-    private var autoLastEnd = 0L
-    private var autoGap = 8000L
-    private var autoGen = 0
 
     // pengaturan di aplikasi langsung berlaku pada bubble dan jendela
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -177,14 +164,6 @@ class FloatService : Service() {
                 return
             }
             ui.postDelayed(this, intervalMs)
-        }
-    }
-
-    private val autoRunner = object : Runnable {
-        override fun run() {
-            if (!autoOn) return
-            autoTick()
-            if (autoOn) ui.postDelayed(this, 1000)
         }
     }
 
@@ -305,11 +284,10 @@ class FloatService : Service() {
         Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefListener)
         ui.removeCallbacksAndMessages(null)
         clicking = false
-        autoOn = false
         if (::wm.isInitialized) {
             hideMenu()
             hidePanel()
-            listOf<View?>(selector, target, marks, bubble).forEach { v ->
+            listOf<View?>(selector, target, bubble).forEach { v ->
                 v?.let {
                     try {
                         wm.removeView(it)
@@ -323,7 +301,6 @@ class FloatService : Service() {
         panel = null
         selector = null
         target = null
-        marks = null
         bubble = null
         grab?.release()
         grab = null
@@ -412,7 +389,7 @@ class FloatService : Service() {
             var longDone = false
             var pendingTap: Runnable? = null
             // gestur hanya berlaku bila dipilih di pengaturan dan tidak sedang ada mode aktif
-            fun busy() = autoOn || clicking || menu != null
+            fun busy() = clicking || menu != null
             fun longOn() = onLong != null && !busy() && Prefs.gesture(c, 2) != 0
             fun dblOn() = onDouble != null && !busy() && Prefs.gesture(c, 1) != 0
             val longRun = Runnable {
@@ -650,17 +627,15 @@ class FloatService : Service() {
 
     private fun onBubbleTap() {
         when {
-            autoOn -> stopAuto()
             clicking -> stopClicking()
             menu != null -> hideMenu()
             else -> runGesture(Prefs.gesture(c, 0))
         }
     }
 
-    /** Ketuk dua kali (1) atau tekan lama (2). Saat Auto Jawab atau auto clicker aktif, gestur ini mematikannya. */
+    /** Ketuk dua kali (1) atau tekan lama (2). Saat auto clicker aktif, gestur ini mematikannya. */
     private fun onBubbleGesture(g: Int) {
         when {
-            autoOn -> stopAuto()
             clicking -> stopClicking()
             else -> {
                 hideMenu()
@@ -679,7 +654,7 @@ class FloatService : Service() {
     }
 
     /** Bentuk yang tampil: saat Auto Jawab atau auto clicker aktif selalu bulat supaya tombol berhenti jelas. */
-    private fun shapeNow() = if (autoOn || clicking) 0 else Prefs.shape(c)
+    private fun shapeNow() = if (clicking) 0 else Prefs.shape(c)
 
     /** Bentuk tepi (panah dan garis) menempel di sisi layar terdekat. */
     private fun snapBubble() {
@@ -707,7 +682,7 @@ class FloatService : Service() {
         val shape = shapeNow()
         val (sw, _) = realSize()
         val onLeft = lp.x + lp.width / 2 < sw / 2
-        val col = if (autoOn || clicking) 0xFFDC2626.toInt() else accent
+        val col = if (clicking) 0xFFDC2626.toInt() else accent
         // 0 bulat, 1 panah kecil di tepi, 2 garis tepi
         when (shape) {
             1 -> { lp.width = dpf(sizeDp * 0.55f); lp.height = dp(sizeDp) }
@@ -736,7 +711,6 @@ class FloatService : Service() {
         } else d
         b.alpha = pref(Setting.BUBBLE_ALPHA) / 100f
         b.text = when {
-            autoOn -> "✕"
             clicking -> "■"
             shape == 1 -> if (onLeft) "›" else "‹"
             else -> ""
@@ -871,7 +845,6 @@ class FloatService : Service() {
         hideMenu()
         when {
             i in CIRCLE_FIRST -> circleFirst(i)
-            i == M_AUTO -> startAuto()
             i == M_IMG -> screenshotNow()
             i == M_OFF -> {
                 toast("Bubble dimatikan")
@@ -1245,7 +1218,6 @@ class FloatService : Service() {
         M_COPY -> copyView()
         M_TR -> trView()
         M_BROWSER -> browserView()
-        M_CHAT -> chatView()
         M_CALC -> calcView()
         M_CLICK -> clickView()
         M_APPS -> appsView()
@@ -1692,78 +1664,6 @@ class FloatService : Service() {
         return col
     }
 
-    // ---------- alat: Chat (memakai API key AI) ----------
-
-    private fun chatView(): View {
-        val col = vbox()
-        val list = vbox().apply { setPadding(dp(2), dp(4), dp(2), dp(4)) }
-        val scroll = ScrollView(c).apply { addView(list) }
-        val empty = note("Tanya apa saja.")
-        list.addView(empty)
-
-        fun bubbleOf(role: String, text: String): TextView {
-            val mine = role == "user"
-            val tv = TextView(c).apply {
-                this.text = text
-                textSize = 14f
-                setTextColor(if (mine) Color.WHITE else P.on)
-                setTextIsSelectable(true)
-                background = Ui.clay(c, if (mine) accent else P.surface, dp(16), 3f)
-                setPadding(dp(12), dp(8), dp(12), dp(8))
-                maxWidth = (panelW() * 0.84f).toInt()
-            }
-            list.addView(tv, LinearLayout.LayoutParams(WRAP, WRAP).apply {
-                gravity = if (mine) Gravity.END else Gravity.START
-                setMargins(dp(2), dp(3), dp(2), dp(3))
-            })
-            scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
-            return tv
-        }
-
-        val input = field("Tulis pertanyaan", true)
-        pasteFns[M_CHAT] = { t ->
-            val cur = input.text.toString()
-            input.setText(if (cur.isBlank()) t else cur + "\n" + t)
-            input.setSelection(input.text.length)
-        }
-        val send = btn("Kirim", true) {
-            val q = input.text.toString().trim()
-            if (q.isEmpty()) return@btn
-            input.setText("")
-            list.removeView(empty)
-            chatTurns.add("user" to q)
-            bubbleOf("user", q)
-            val pending = bubbleOf("model", "…")
-            var turns = chatTurns.takeLast(11)
-            if (turns.firstOrNull()?.first == "model") turns = turns.drop(1)
-            AiClient.generate(c, turns, AiClient.CHAT_SYSTEM, false, null) { r ->
-                ui.post {
-                    r.onSuccess { t ->
-                        pending.text = t
-                        chatTurns.add("model" to t)
-                    }.onFailure { e ->
-                        pending.text = e.message ?: "Gagal"
-                        chatTurns.removeLastOrNull()
-                    }
-                    scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
-                }
-            }
-        }
-        col.addView(scroll, lay(MATCH, 0, 1f, 2))
-        col.addView(LinearLayout(c).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.BOTTOM
-            addView(input, lay(0, WRAP, 1f, 2))
-            addView(LinearLayout(c).apply {
-                orientation = LinearLayout.VERTICAL
-                addView(send, lay(WRAP, WRAP, 0f, 2))
-                // setText dari kode, tanpa fokus: aplikasi di bawah jendela tetap memegang fokus
-                addView(btn("Hapus") { input.setText("") }, lay(WRAP, WRAP, 0f, 2))
-            })
-        })
-        return col
-    }
-
     // ---------- alat: Hitung ----------
 
     private fun calcView(): View {
@@ -2121,183 +2021,6 @@ class FloatService : Service() {
         col.addView(grid)
         render()
         return scrolled(col)
-    }
-
-    // ---------- Auto Jawab ----------
-
-    private fun startAuto() {
-        if (Prefs.key(c).isBlank()) {
-            toast("Isi API key ${Prefs.providerName(c)} di aplikasi flooww dulu")
-            startFloating(Intent(this, MainActivity::class.java))
-            return
-        }
-        val g = grab
-        if (g == null || !g.active) {
-            needProjection()
-            return
-        }
-        hidePanel()
-        autoOn = true
-        autoGen++
-        autoState = 0
-        autoPrev = null
-        autoBase = null
-        autoLastEnd = 0L
-        autoGap = 8000L
-
-        val v = MarksView(c)
-        val lp = WindowManager.LayoutParams(
-            MATCH, MATCH,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                OVERLAY_FLAGS or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
-            PixelFormat.TRANSLUCENT
-        )
-        if (Build.VERSION.SDK_INT >= 28) {
-            lp.layoutInDisplayCutoutMode =
-                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        }
-        wm.addView(v, lp)
-        marks = v
-        v.setChip("Auto Jawab aktif. Ketuk ✕ untuk mematikan.")
-        applyBubble()
-        // bubble dipindah ke atas lapisan tanda supaya tetap terlihat dan bisa diketuk
-        bubble?.let {
-            try {
-                wm.removeView(it)
-                wm.addView(it, bubbleLp)
-            } catch (e: Exception) {
-            }
-        }
-        ui.postDelayed(autoRunner, 800)
-    }
-
-    private fun stopAuto() {
-        if (!autoOn && marks == null) return
-        autoOn = false
-        autoGen++
-        ui.removeCallbacks(autoRunner)
-        marks?.let {
-            try {
-                wm.removeView(it)
-            } catch (e: Exception) {
-            }
-        }
-        marks = null
-        applyBubble()
-        toast("Auto Jawab dimatikan")
-    }
-
-    private fun sigDiff(a: IntArray, b: IntArray): Double {
-        val n = minOf(a.size, b.size)
-        if (n == 0) return 0.0
-        var s = 0L
-        for (i in 0 until n) s += abs(a[i] - b[i])
-        return s.toDouble() / n
-    }
-
-    private fun autoTick() {
-        val g = grab
-        if (g == null || !g.active) {
-            stopAuto()
-            return
-        }
-        val (w, h) = realSize()
-        g.resizeIfNeeded(w, h)
-        val sig = g.signature() ?: return
-        when (autoState) {
-            2 -> {
-                val base = autoBase
-                if (base == null) {
-                    autoBase = sig
-                } else if (sigDiff(sig, base) > 3.0) {
-                    // layar berubah (geser, pindah soal): hapus tanda lama dan tunggu layar tenang
-                    marks?.clear()
-                    autoState = 0
-                    autoPrev = null
-                }
-            }
-            0 -> {
-                val prev = autoPrev
-                autoPrev = sig
-                val calm = prev != null && sigDiff(sig, prev) < 1.0
-                val waited = System.currentTimeMillis() - autoLastEnd >= autoGap
-                if (calm && waited) scanNow()
-            }
-        }
-    }
-
-    private fun scanNow() {
-        val gen = autoGen
-        val bmp = grab?.latest() ?: return
-        autoState = 1
-        marks?.setChip("Membaca layar…")
-        val bw = bmp.width
-        val bh = bmp.height
-        if (Prefs.autoMode(c) == 1) {
-            // mode gambar: tangkapan layar dikirim ke model gambar; kotak dari model
-            val b64 = toJpegB64(bmp)
-            AiClient.generate(c, listOf("user" to AutoAnswer.PROMPT_IMG), AutoAnswer.SYSTEM_IMG, true, b64) { r ->
-                handleAutoResult(gen, r, emptyList(), bw, bh)
-            }
-            return
-        }
-        // baca teks di HP (OCR) dulu, lalu kirim teksnya ke AI; posisi tanda diambil dari OCR
-        Ocr.lines(bmp) { ocr ->
-            val lines = ocr.getOrNull()
-            if (lines == null || lines.isEmpty()) {
-                ui.post {
-                    if (!autoOn || gen != autoGen) return@post
-                    autoLastEnd = System.currentTimeMillis()
-                    autoGap = minOf(autoGap * 2, 60000L)
-                    marks?.showResult(null, if (lines == null) "Gagal membaca teks layar" else "Tidak ada teks di layar")
-                    autoState = 2
-                    autoBase = null
-                }
-                return@lines
-            }
-            AiClient.generate(c, listOf("user" to AutoAnswer.prompt(lines)), AutoAnswer.SYSTEM, true, null) { r ->
-                handleAutoResult(gen, r, lines, bw, bh)
-            }
-        }
-    }
-
-    private fun handleAutoResult(gen: Int, r: Result<String>, lines: List<Ocr.Line>, bw: Int, bh: Int) {
-        run {
-            ui.post {
-                if (!autoOn || gen != autoGen) return@post
-                autoLastEnd = System.currentTimeMillis()
-                r.onSuccess { raw ->
-                    val res = try {
-                        if (lines.isEmpty()) AutoAnswer.parseImg(raw) else AutoAnswer.parse(raw, lines, bw, bh)
-                    } catch (e: Exception) {
-                        AnswerResult(emptyList(), emptyList())
-                    }
-                    if (res.isEmpty) {
-                        autoGap = minOf(autoGap * 2, 60000L) // hemat kuota saat tidak ada soal
-                        marks?.showResult(null, "Tidak ada soal di layar")
-                    } else {
-                        autoGap = 12000L
-                        marks?.showResult(res, null)
-                    }
-                    autoState = 2
-                    autoBase = null
-                }.onFailure { e ->
-                    val code = (e as? AiError)?.code ?: 0
-                    if (code == 400 || code == 401 || code == 403) {
-                        toast(e.message ?: "API key bermasalah")
-                        stopAuto()
-                    } else {
-                        if (code == 429) autoLastEnd = System.currentTimeMillis() + 25000L
-                        marks?.showResult(null, e.message ?: "Gagal membaca layar")
-                        autoState = 0
-                        autoPrev = null
-                    }
-                }
-            }
-        }
     }
 }
 

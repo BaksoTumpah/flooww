@@ -36,83 +36,6 @@ object Prefs {
 
     fun sp(c: Context): SharedPreferences = c.getSharedPreferences("floatstudy", Context.MODE_PRIVATE)
 
-    // ---------- penyedia AI (hanya untuk Chat dan Auto Jawab) ----------
-
-    val PROVIDER_NAMES = listOf("Gemini", "OpenRouter", "Groq", "Kustom")
-    private val PROVIDER_BASE = listOf(
-        "https://generativelanguage.googleapis.com/v1beta/openai",
-        "https://openrouter.ai/api/v1",
-        "https://api.groq.com/openai/v1",
-        ""
-    )
-    private val PROVIDER_MODEL = listOf("gemini-flash-latest", "openrouter/free", "llama-3.3-70b-versatile", "")
-    private val PROVIDER_VISION = listOf("gemini-flash-latest", "openrouter/free", "qwen/qwen3.8-27b", "")
-    val PROVIDER_KEY_URL = listOf(
-        "https://aistudio.google.com/apikey",
-        "https://openrouter.ai/keys",
-        "https://console.groq.com/keys",
-        ""
-    )
-
-    /** Penyedia terpilih. Pemasang lama yang sudah punya key Groq tetap di Groq. */
-    fun provider(c: Context): Int {
-        val v = sp(c).getInt("provider", -1)
-        if (v in PROVIDER_NAMES.indices) return v
-        return if ((sp(c).getString("groqKey", "") ?: "").isNotBlank()) 2 else 0
-    }
-
-    fun setProvider(c: Context, v: Int) {
-        sp(c).edit().putInt("provider", v.coerceIn(0, PROVIDER_NAMES.size - 1)).apply()
-    }
-
-    fun providerName(c: Context): String = PROVIDER_NAMES[provider(c)]
-
-    private fun k(c: Context, base: String): String {
-        val p = provider(c)
-        return if (p == 2) when (base) { "key" -> "groqKey"; "model" -> "groqModel"; else -> "groqVision" } else "$base$p"
-    }
-
-    /** Alamat dasar API (kompatibel OpenAI). Hanya bisa diubah untuk Kustom. */
-    fun base(c: Context): String {
-        val p = provider(c)
-        return if (p == 3) (sp(c).getString("customBase", "") ?: "").trim().trimEnd('/') else PROVIDER_BASE[p]
-    }
-
-    fun setBase(c: Context, v: String) {
-        sp(c).edit().putString("customBase", v.trim()).apply()
-    }
-
-    fun key(c: Context): String = sp(c).getString(k(c, "key"), "") ?: ""
-
-    fun setKey(c: Context, key: String) {
-        sp(c).edit().putString(k(c, "key"), key.trim()).apply()
-    }
-
-    fun defaultModel(c: Context) = PROVIDER_MODEL[provider(c)]
-    fun defaultVision(c: Context) = PROVIDER_VISION[provider(c)]
-
-    fun model(c: Context): String =
-        (sp(c).getString(k(c, "model"), "") ?: "").ifBlank { defaultModel(c) }
-
-    fun setModel(c: Context, model: String) {
-        sp(c).edit().putString(k(c, "model"), model.trim()).apply()
-    }
-
-    /** Model yang bisa membaca gambar (dipakai mode Auto Jawab "Gambar"). */
-    fun visionModel(c: Context): String =
-        (sp(c).getString(k(c, "vision"), "") ?: "").ifBlank { defaultVision(c) }
-
-    fun setVisionModel(c: Context, m: String) {
-        sp(c).edit().putString(k(c, "vision"), m.trim()).apply()
-    }
-
-    /** Cara Auto Jawab membaca layar: 0 teks (OCR di HP, cepat), 1 gambar (model gambar). */
-    fun autoMode(c: Context): Int = sp(c).getInt("autoMode", 0).coerceIn(0, 1)
-
-    fun setAutoMode(c: Context, v: Int) {
-        sp(c).edit().putInt("autoMode", v).apply()
-    }
-
     // ---------- AI tujuan untuk Tanya AI dan Terjemah ----------
 
     fun aiTarget(c: Context): Int = sp(c).getInt("aiTarget", 0).coerceIn(0, AI_NAMES.size - 1)
@@ -176,14 +99,35 @@ object Prefs {
     /** Aksi gestur bubble. Indeks 0 = tidak ada, 1 = buka menu, 2..11 = alat menu (id alat = indeks - 2). */
     val GESTURE_NAMES = listOf(
         "Tidak ada", "Buka menu", "Tanya AI", "Salin", "Terjemah", "Screenshot",
-        "Browser", "Chat", "Hitung", "Klik", "Apps", "Auto Jawab", "Matikan bubble"
+        "Browser", "Hitung", "Klik", "Apps", "Matikan bubble"
     )
     private val gestureKeys = listOf("gTap", "gDouble", "gLong", "gUp", "gDown", "gSide")
-    private val gestureDefs = intArrayOf(1, 2, 11, 0, 0, 0)
+    private val gestureDefs = intArrayOf(1, 2, 0, 0, 0, 0)
 
     /** Pilihan untuk gestur g: 0 ketuk, 1 dua kali, 2 tekan lama, 3 sapu atas, 4 sapu bawah, 5 sapu ke arah tengah layar. */
-    fun gesture(c: Context, g: Int): Int =
-        sp(c).getInt(gestureKeys[g], gestureDefs[g]).coerceIn(0, GESTURE_NAMES.size - 1)
+    fun gesture(c: Context, g: Int): Int {
+        migrateGestures(c)
+        return sp(c).getInt(gestureKeys[g], gestureDefs[g]).coerceIn(0, GESTURE_NAMES.size - 1)
+    }
+
+    /** Chat dan Auto Jawab dihapus: pilihan gestur lama digeser ke urutan baru (yang menunjuk fitur terhapus jadi "Tidak ada"). */
+    private fun migrateGestures(c: Context) {
+        val sp = sp(c)
+        if (sp.getBoolean("gmig2", false)) return
+        val e = sp.edit()
+        for (k in gestureKeys) {
+            if (!sp.contains(k)) continue
+            val v = sp.getInt(k, 0)
+            e.putInt(k, when {
+                v <= 6 -> v
+                v == 7 || v == 11 -> 0
+                v in 8..10 -> v - 1
+                v == 12 -> 10
+                else -> 0
+            })
+        }
+        e.putBoolean("gmig2", true).apply()
+    }
 
     fun setGesture(c: Context, g: Int, v: Int) {
         sp(c).edit().putInt(gestureKeys[g], v).apply()

@@ -10,47 +10,29 @@ Alat yang mengambil soal dari layar (Tanya AI, Salin, Terjemah, Gambar) langsung
 
 | Menu | Fungsi |
 | --- | --- |
-| Tanya AI | Lingkari soal, gambar dibuka di browser mengambang pada website Gemini, ChatGPT, atau Claude (pilih di aplikasi), gambar otomatis terlampir |
+| Tanya AI | Lingkari soal, gambar dibuka di browser mengambang pada website Gemini, ChatGPT, atau Claude (pilih di aplikasi), gambar otomatis terlampir lalu perintah dikirim |
 | Salin | Lingkari area, baca teks (OCR di HP), otomatis tersalin |
-| Terjemah | Lingkari teks, dibuka di website AI pilihan dengan perintah terjemah |
-| Gambar | Lingkari area lalu cari dengan Google Lens |
+| Terjemah | Lingkari teks, terjemah di HP (Inggris atau Jepang ke Indonesia, bisa dibalik) |
+| Screenshot | Ambil layar penuh, simpan ke galeri (Pictures/flooww) |
 | Browser | Browser mini di jendela mengambang |
-| Chat | Tanya jawab dengan Gemini (memakai API key) |
 | Hitung | Kalkulator: + - × ÷ ^ % √ π |
 | Klik | Auto clicker: pasang target, atur jeda dan jumlah ketukan |
 | Apps | Tambah aplikasi dari HP, buka sebagai jendela mengambang |
-| Auto Jawab | Membaca layar, menandai jawaban benar. Lihat bagian di bawah |
+| Matikan | Hentikan bubble |
 
-Tombol ✕ di jendela hanya menyembunyikan. Riwayat browser, obrolan, dan isian tetap ada sampai bubble dihentikan. Jendela digeser lewat header dan diubah ukurannya lewat ◢ di pojok kanan bawah.
-
-### Auto Jawab
-
-Saat dinyalakan, aplikasi membaca seluruh layar lewat Gemini lalu menggambar tanda di atas layar:
-
-- Pilihan ganda dan pilihan ganda kompleks: kotak hijau dengan centang pada opsi yang benar.
-- Esai atau isian: kartu kecil berisi jawaban singkat di dekat soalnya.
-
-Bubble berubah menjadi ✕ merah. Ketuk untuk mematikan, bubble kembali normal. Saat layar berubah (geser atau pindah soal), tanda lama dihapus dan layar dibaca ulang setelah tenang. Jarak antar pembacaan minimal 8 detik, dan makin lama bila tidak ada soal, supaya kuota gratis awet. Auto Jawab memakai API key Gemini.
+Tombol ✕ di jendela hanya menyembunyikan. Riwayat browser dan isian tetap ada sampai bubble dihentikan. Jendela digeser lewat header dan diubah ukurannya lewat ◢ di pojok kanan bawah.
 
 ## Gestur bubble
 
-Di aplikasi, bagian **Gestur bubble**, atur aksi untuk ketuk sekali (bawaan: buka menu), ketuk dua kali (bawaan: Tanya AI), dan tekan lama (bawaan: Auto Jawab). Pilihannya: tidak ada, buka menu, atau salah satu alat. Lama tekan bisa diatur 0,4 sampai 3 detik. Saat Auto Jawab atau auto clicker menyala, semua gestur mematikannya. Bila ketuk dua kali dipakai, ketuk sekali tertunda sekitar 0,3 detik.
+Di aplikasi, bagian **Gestur bubble**, atur aksi untuk ketuk sekali (bawaan: buka menu), ketuk dua kali (bawaan: Tanya AI), tekan lama, dan sapu ke atas, bawah, atau ke arah tengah layar. Pilihannya: tidak ada, buka menu, atau salah satu alat. Saat auto clicker menyala, semua gestur mematikannya. Bila ketuk dua kali dipakai, ketuk sekali tertunda sekitar 0,3 detik.
 
 ## Pengaturan
 
-Semua pengaturan ada di aplikasi (bukan di menu bubble): AI tujuan Tanya AI, API key Gemini, ukuran, warna, dan opasitas bubble, menu, serta jendela. Perubahan langsung berlaku pada bubble yang sedang berjalan.
-
-## API key Gemini
-
-Dipakai hanya oleh **Chat** dan **Auto Jawab**. Tanya AI dan Terjemah tidak memakainya.
-
-Cara terbaik untuk APK yang disebar: tiap pengguna membuat key gratis sendiri di <https://aistudio.google.com/apikey> lalu menempelnya di aplikasi. Jatah gratis jadi per orang.
-
-Untuk APK pribadi, key bisa ditanam saat build lewat secret GitHub `GEMINI_API_KEY` (Settings > Secrets and variables > Actions). Build lokal: `GEMINI_API_KEY=... gradle assembleDebug`. Key di dalam APK bisa diekstrak siapa pun yang memegang APK, jadi jangan sebar APK yang berisi key Anda. Model bawaan: `gemini-2.5-flash`, bisa diganti di aplikasi.
+Semua pengaturan ada di aplikasi (bukan di menu bubble): tujuan Tanya AI, bentuk, ukuran, dan warna bubble, menu, serta jendela. Perubahan langsung berlaku pada bubble yang sedang berjalan. Aplikasi tidak memakai API key apa pun.
 
 ## Keyboard dan tombol tempel
 
-Di aplikasi, bagian **Keyboard di jendela mengambang**, pilih Diblokir (bawaan) atau Diizinkan. Diblokir berarti semua jendela mengambang memakai `FLAG_NOT_FOCUSABLE` dan `FLAG_NOT_TOUCH_MODAL`: tidak menerima fokus, keyboard tidak bisa muncul, dan sentuhan di luar jendela diteruskan ke aplikasi di bawahnya. Layar pengaturan aplikasi tidak terpengaruh. Untuk mengisi kolom di jendela (Browser, Chat), pakai tombol tempel di header jendela: menempel teks terakhir yang disalin dari gambar lewat menu Salin.
+Di aplikasi, bagian **Keyboard di jendela mengambang**, pilih Diblokir (bawaan) atau Diizinkan. Diblokir berarti semua jendela mengambang memakai `FLAG_NOT_FOCUSABLE` dan `FLAG_NOT_TOUCH_MODAL`: tidak menerima fokus, keyboard tidak bisa muncul, dan sentuhan di luar jendela diteruskan ke aplikasi di bawahnya. Layar pengaturan aplikasi tidak terpengaruh. Untuk mengisi kolom di jendela (Browser), pakai tombol tempel di header jendela: menempel teks terakhir yang disalin dari gambar lewat menu Salin.
 
 ## Aplikasi di menu Apps
 
@@ -72,7 +54,7 @@ Aplikasi terbuka sebagai jendela mengambang hanya bila HP mendukung mode jendela
 
 ## Catatan
 
-- Layar hanya diambil saat Anda melingkari area atau menyalakan Auto Jawab. Gambarnya dikirim ke AI yang Anda pilih.
+- Layar hanya diambil saat Anda melingkari area atau memakai Screenshot. Gambar Tanya AI dikirim ke website AI yang Anda pilih.
 - Android 14+ meminta izin tangkap layar setiap kali bubble dimulai.
 - Notifikasi foreground selalu tampil selama bubble aktif.
 - Layanan aksesibilitas hanya dipakai untuk mengetuk titik target auto clicker. Tidak membaca layar.
