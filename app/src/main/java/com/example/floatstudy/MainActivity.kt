@@ -87,7 +87,7 @@ class MainActivity : Activity() {
 
         col.addView(permCard())
 
-        val gAi = Group("AI dan terjemah", "Tujuan Tanya AI, API key, bahasa", true)
+        val gAi = Group("AI dan terjemah", "Tujuan Tanya AI, API key dan model", true)
         val gLook = Group("Tampilan", "Bubble, menu, jendela", false)
         val gCtl = Group("Kontrol", "Gestur bubble, keyboard", false)
         val gApps = Group("Aplikasi", "Menu Apps dan jendela bebas", false)
@@ -105,26 +105,9 @@ class MainActivity : Activity() {
                 }
             })
         }
-        // dropdown bahasa terjemah
-        val langBtn = Ui.button(this, "", false) {}
-        fun showLang() { langBtn.text = "${Prefs.LANGS[Prefs.lang(this)]}   ▾" }
-        langBtn.setOnClickListener {
-            val pm = android.widget.PopupMenu(this, langBtn)
-            Prefs.LANGS.forEachIndexed { i, n -> pm.menu.add(0, i, i, if (i == Prefs.lang(this)) "✓  $n" else n) }
-            pm.setOnMenuItemClickListener {
-                Prefs.setLang(this, it.itemId)
-                showLang()
-                true
-            }
-            pm.show()
-        }
-        showLang()
         gAi.add(sec("Tujuan Tanya AI",
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn)
-        ))
-        gAi.add(sec("Terjemahkan ke",
-            spaced(langBtn)
         ))
 
         // ---- API key ----

@@ -1376,32 +1376,21 @@ class FloatService : Service() {
         return col
     }
 
+    /** Terjemah di HP hanya dari Inggris ke Indonesia (model kecil, ringan). */
     private fun runTranslate(bmp: Bitmap) {
         val out = trOut ?: return
-        val tag = Prefs.LANG_CODES[Prefs.lang(c)]
         out.text = "Membaca teks…"
         Ocr.read(bmp) { r ->
             ui.post {
                 r.onFailure { out.text = "Error: ${it.message}" }
                 r.onSuccess { src ->
-                    if (src.isBlank()) {
-                        out.text = "Tidak ada teks terbaca."
-                        return@onSuccess
-                    }
-                    out.text = "Mengenali bahasa…"
-                    com.google.mlkit.nl.languageid.LanguageIdentification.getClient()
-                        .identifyLanguage(src)
-                        .addOnSuccessListener { code ->
-                            val from = com.google.mlkit.nl.translate.TranslateLanguage
-                                .fromLanguageTag(if (code == "und") "en" else code)
-                            val to = com.google.mlkit.nl.translate.TranslateLanguage.fromLanguageTag(tag)
-                            when {
-                                from == null || to == null -> out.text = "Bahasa teks ($code) belum didukung penerjemah di HP."
-                                from == to -> out.text = "Teks sudah dalam bahasa ${Prefs.LANGS[Prefs.lang(c)]}.\n\n$src"
-                                else -> translateText(src, from, to, out)
-                            }
-                        }
-                        .addOnFailureListener { out.text = "Gagal mengenali bahasa: ${it.message}" }
+                    if (src.isBlank()) out.text = "Tidak ada teks terbaca."
+                    else translateText(
+                        src,
+                        com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH,
+                        com.google.mlkit.nl.translate.TranslateLanguage.INDONESIAN,
+                        out
+                    )
                 }
             }
         }
