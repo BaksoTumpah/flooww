@@ -339,7 +339,7 @@ class MainActivity : Activity() {
     private inner class Group(title: String, summary: String, open: Boolean) {
         val root = LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
-            background = Ui.round(p.surface, dp(16), p.outline, dp(1))
+            background = Ui.clay(this@MainActivity, p.surface, dp(22), 5f)
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = dp(10) }
@@ -415,8 +415,8 @@ class MainActivity : Activity() {
     private fun card(title: String, vararg kids: View): LinearLayout {
         val c = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = Ui.round(p.surface, dp(16), p.outline, dp(1))
-            setPadding(dp(16), dp(14), dp(16), dp(16))
+            background = Ui.clay(this, p.surface, dp(22), 5f)
+            setPadding(dp(18), dp(16), dp(18), dp(22))
         }
         c.addView(TextView(this).apply {
             text = title
@@ -580,15 +580,15 @@ class MainActivity : Activity() {
         val accent = Prefs.bubbleColor(this)
         val line = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            background = Ui.round(p.field, dp(12))
-            setPadding(dp(3), dp(3), dp(3), dp(3))
+            background = Ui.dent(this, p.field, dp(16))
+            setPadding(dp(4), dp(4), dp(4), dp(5))
         }
         val cells = names.map { TextView(this) }
         fun paint() {
             cells.forEachIndexed { i, t ->
                 val on = i == get()
                 t.setTextColor(if (on) Color.WHITE else p.on)
-                t.background = if (on) Ui.round(accent, dp(10)) else null
+                t.background = if (on) Ui.clay(this, accent, dp(13), 3f) else null
             }
         }
         cells.forEachIndexed { i, t ->

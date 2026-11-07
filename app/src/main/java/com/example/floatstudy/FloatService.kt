@@ -340,7 +340,7 @@ class FloatService : Service() {
         setTextColor(P.on)
         setPadding(dp(12), dp(10), dp(12), dp(10))
         setTextIsSelectable(true)
-        background = Ui.round(P.field, dp(12))
+        background = Ui.dent(c, P.field, dp(14))
     }
 
     private fun note(t: String) = TextView(c).apply {
@@ -697,7 +697,7 @@ class FloatService : Service() {
         val d = GradientDrawable().apply {
             setColor(col)
             when (shape) {
-                0 -> { this.shape = GradientDrawable.OVAL; setStroke(dp(2), 0x80FFFFFF.toInt()) }
+                0 -> { this.shape = GradientDrawable.OVAL; setStroke(dp(2), 0x99FFFFFF.toInt()) }
                 1 -> {
                     val r = dpf(sizeDp * 0.3f).toFloat()
                     // sisi yang menghadap tengah layar membulat penuh, sisi tepi rata
@@ -707,7 +707,22 @@ class FloatService : Service() {
                 else -> cornerRadius = dp(3).toFloat()
             }
         }
-        b.background = if (shape == 2) {
+        val clayBg: android.graphics.drawable.Drawable? = if (shape == 0) {
+            val slab = GradientDrawable().apply {
+                this.shape = GradientDrawable.OVAL
+                setColor(Ui.mix(col, 0xFF000000.toInt(), 0.25f))
+            }
+            val face = GradientDrawable().apply {
+                this.shape = GradientDrawable.OVAL
+                gradientType = GradientDrawable.RADIAL_GRADIENT
+                gradientRadius = dpf(sizeDp * 0.75f).toFloat()
+                setGradientCenter(0.35f, 0.3f)
+                colors = intArrayOf(Ui.mix(col, 0xFFFFFFFF.toInt(), 0.45f), col)
+                setStroke(dp(1), 0x77FFFFFF)
+            }
+            android.graphics.drawable.LayerDrawable(arrayOf(slab, face)).apply { setLayerInset(1, 0, 0, 0, dp(3)) }
+        } else null
+        b.background = if (clayBg != null) clayBg else if (shape == 2) {
             // batang tipis di tepi, area sentuh tetap lebih lebar
             val gap = dp(12)
             android.graphics.drawable.InsetDrawable(
@@ -773,8 +788,8 @@ class FloatService : Service() {
 
         val card = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL
-            background = Ui.round(P.surface, dpf(20f * sc), P.outline, dp(1))
-            setPadding(pad, pad, pad, pad - gap / 2)
+            background = Ui.clay(c, P.surface, dpf(24f * sc), 5f)
+            setPadding(pad, pad, pad, pad - gap / 2 + dp(5))
             elevation = dp(12).toFloat()
         }
         NAMES.indices.chunked(cols).forEach { chunk ->
@@ -785,7 +800,7 @@ class FloatService : Service() {
                     setColorFilter(accent)
                     val padIc = (tile * 0.27f).toInt()
                     setPadding(padIc, padIc, padIc, padIc)
-                    background = Ui.ripple(Ui.round(Ui.withAlpha(accent, 0.14f), dpf(14f * sc)), P.night)
+                    background = Ui.ripple(Ui.clay(c, Ui.mix(P.surface, accent, 0.22f), dpf(16f * sc), 3f), P.night)
                 }
                 val name = TextView(c).apply {
                     text = NAMES[i]
@@ -1221,8 +1236,8 @@ class FloatService : Service() {
         val root = EdgeLayout(c).apply {
             orientation = LinearLayout.VERTICAL
             edge = dp(16)
-            background = Ui.round(P.surface, dp(20), P.outline, dp(1))
-            setPadding(dp(12), dp(6), dp(12), dp(4))
+            background = Ui.clay(c, P.surface, dp(24), 6f)
+            setPadding(dp(12), dp(6), dp(12), dp(10))
             elevation = dp(10).toFloat()
         }
 
@@ -1239,7 +1254,7 @@ class FloatService : Service() {
             setColorFilter(accent)
             val pd = dp(6)
             setPadding(pd, pd, pd, pd)
-            background = Ui.round(Ui.withAlpha(accent, 0.14f), dp(9))
+            background = Ui.clay(c, Ui.mix(P.surface, accent, 0.22f), dp(11), 2f)
         }
         val title = TextView(c).apply {
             textSize = 15f
@@ -1568,7 +1583,7 @@ class FloatService : Service() {
                 textSize = 14f
                 setTextColor(if (mine) Color.WHITE else P.on)
                 setTextIsSelectable(true)
-                background = Ui.round(if (mine) accent else P.field, dp(14))
+                background = Ui.clay(c, if (mine) accent else P.surface, dp(16), 3f)
                 setPadding(dp(12), dp(8), dp(12), dp(8))
                 maxWidth = (panelW() * 0.84f).toInt()
             }
@@ -1691,7 +1706,7 @@ class FloatService : Service() {
                         }
                     )
                     background = Ui.ripple(
-                        Ui.round(if (equals) accent else P.field, dp(12)), P.night
+                        Ui.clay(c, if (equals) accent else P.surface, dp(14), 3f), P.night
                     )
                     isClickable = true
                     setOnClickListener { press(k) }

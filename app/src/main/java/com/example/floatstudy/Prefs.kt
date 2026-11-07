@@ -20,11 +20,13 @@ enum class Setting(val key: String, val def: Int, val min: Int, val max: Int) {
 
 object Prefs {
     const val DEFAULT_MODEL = "gemini-3.8-flash"
-    const val DEFAULT_COLOR = 0xFF2563EB.toInt()
+    const val DEFAULT_COLOR = 0xFF7C6CF0.toInt()
     const val DEFAULT_PROMPT = "Jawab soal pada gambar ini. Jelaskan langkah singkat, lalu tulis jawaban akhir."
 
     val COLORS = intArrayOf(
-        0xFF2563EB.toInt(), 0xFF16A34A.toInt(), 0xFFDC2626.toInt(), 0xFF9333EA.toInt(),
+        0xFF7C6CF0.toInt(), 0xFF2EC4B6.toInt(), 0xFFFF6B81.toInt(), 0xFFFFA94D.toInt(),
+        0xFF4CC9F0.toInt(), 0xFF56C271.toInt(), 0xFFF368E0.toInt(), 0xFF2D2A4A.toInt()
+    ), 0xFF16A34A.toInt(), 0xFFDC2626.toInt(), 0xFF9333EA.toInt(),
         0xFFEA580C.toInt(), 0xFF0891B2.toInt(), 0xFFDB2777.toInt(), 0xFF111827.toInt()
     )
     /** Kode bahasa ML Kit untuk LANGS, urutannya sama. */
@@ -91,7 +93,8 @@ object Prefs {
         sp(c).edit().putInt(s.key, v.coerceIn(s.min, s.max)).apply()
     }
 
-    fun bubbleColor(c: Context): Int = sp(c).getInt("bubbleColor", DEFAULT_COLOR)
+    fun bubbleColor(c: Context): Int =
+        sp(c).getInt("bubbleColor", DEFAULT_COLOR).let { if (it == 0xFF2563EB.toInt()) DEFAULT_COLOR else it }
 
     fun setBubbleColor(c: Context, color: Int) {
         sp(c).edit().putInt("bubbleColor", color).apply()
