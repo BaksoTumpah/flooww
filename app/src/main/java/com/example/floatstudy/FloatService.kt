@@ -1361,8 +1361,8 @@ class FloatService : Service() {
     private var trRev = false  // false: Inggris ke Indonesia, true: Indonesia ke Inggris
 
     private fun trDirName() = if (trRev) "Indonesia → Inggris" else "Inggris → Indonesia"
-    private fun trFrom() = com.google.mlkit.nl.translate.TranslateLanguage.let { if (trRev) it.INDONESIAN else it.ENGLISH }
-    private fun trTo() = com.google.mlkit.nl.translate.TranslateLanguage.let { if (trRev) it.ENGLISH else it.INDONESIAN }
+    private fun trFrom(): String = if (trRev) com.google.mlkit.nl.translate.TranslateLanguage.INDONESIAN else com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH
+    private fun trTo(): String = if (trRev) com.google.mlkit.nl.translate.TranslateLanguage.ENGLISH else com.google.mlkit.nl.translate.TranslateLanguage.INDONESIAN
 
     private fun trView(): View {
         val col = vbox()
