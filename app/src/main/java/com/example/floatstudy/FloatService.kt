@@ -995,23 +995,44 @@ class FloatService : Service() {
     /** Coba beberapa kali setelah halaman dimuat, karena kolom pesan situs AI muncul belakangan. */
     private var attachRun: Runnable? = null
 
-    private fun autoAttach(tries: Int = 8) {
+    /**
+     * Kirim gambar otomatis hanya saat halaman sudah tenang: kolom pesan ada, halaman selesai dimuat,
+     * dan tidak ada perubahan tampilan selama 1,5 detik. Dikirim sekali saja (tanpa menggandakan).
+     */
+    private fun autoAttach(tries: Int = 40) {
         attachRun?.let { ui.removeCallbacks(it) }
+        val w = web ?: return
         if (pendingB64 == null || tries <= 0 || attachDone) return
-        // tunggu halaman benar-benar siap (kolom pesan sudah aktif), baru kirim gambar
+        if (tries == 40) {
+            w.evaluateJavascript(
+                "(function(){if(!window.__fq){window.__fq=Date.now();" +
+                    "try{new MutationObserver(function(){window.__fq=Date.now();}).observe(document,{subtree:true,childList:true,attributes:true});}catch(e){}}})()",
+                null
+            )
+        }
         val r = Runnable {
             if (pendingB64 == null || attachDone) return@Runnable
-            injectImage { code ->
-                if (code != 0) {
-                    attachDone = true
-                    toast("Gambar dikirim ke kolom. Bila belum muncul, tekan tombol gambar di atas")
+            w.evaluateJavascript(
+                "(function(){var e=document.querySelector('textarea,[contenteditable],[role=textbox],input[type=file]');" +
+                    "if(!e||document.readyState!='complete')return -1;return window.__fq?(Date.now()-window.__fq):9999;})()"
+            ) { v ->
+                val quiet = v?.trim()?.toIntOrNull() ?: -1
+                if (quiet >= 1500 || (tries <= 2 && quiet >= 0)) {
+                    injectImage { code ->
+                        if (code != 0) {
+                            attachDone = true
+                            toast("Gambar dikirim ke kolom")
+                        } else {
+                            autoAttach(tries - 1)
+                        }
+                    }
                 } else {
                     autoAttach(tries - 1)
                 }
             }
         }
         attachRun = r
-        ui.postDelayed(r, 3500)
+        ui.postDelayed(r, 700)
     }
 
     /** Jembatan agar skrip halaman bisa mengambil gambar soal. */

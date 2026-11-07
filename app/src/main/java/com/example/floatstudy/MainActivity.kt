@@ -148,23 +148,15 @@ class MainActivity : Activity() {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/apikey")))
         }))
         apiViews.add(spaced(Ui.button(this, "Tes koneksi AI", true) {
+            val log = StringBuilder()
             val dlg = android.app.AlertDialog.Builder(this)
                 .setTitle("Tes koneksi AI")
-                .setMessage("Menghubungi Gemini…")
+                .setMessage("Memeriksa…")
                 .setPositiveButton("Tutup", null)
                 .show()
-            AiClient.progress = { mm -> runOnUiThread { dlg.setMessage("Mencoba model $mm…") } }
-            AiClient.generate(
-                this, listOf("user" to "Balas satu kata saja: OK"), null,
-                "Jawab sangat singkat.", false
-            ) { r ->
-                AiClient.progress = null
-                runOnUiThread {
-                    val key = Prefs.key(this)
-                    val head = "Model: ${Prefs.model(this)}\nKey: " +
-                        (if (key.isBlank()) "belum diisi" else "terisi (…${key.takeLast(4)})") + "\n\n"
-                    dlg.setMessage(head + r.fold({ "Berhasil. Gemini menjawab: $it" }, { "Gagal: ${it.message}" }))
-                }
+            AiClient.diagnose(this) { line ->
+                log.append(line).append('\n')
+                runOnUiThread { dlg.setMessage(log.toString()) }
             }
         }))
         gAi.add(sec("API key dan model", *apiViews.toTypedArray()))

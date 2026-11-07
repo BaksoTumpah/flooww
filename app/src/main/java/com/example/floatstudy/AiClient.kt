@@ -195,4 +195,56 @@ object AiClient {
         msg.isNotBlank() -> msg
         else -> "HTTP $code"
     }
+
+    /**
+     * Pemeriksaan bertahap untuk layar "Tes koneksi": internet, server Gemini + key + daftar model, lalu satu jawaban.
+     * Berjalan di thread sendiri; onLine dipanggil dari thread itu.
+     */
+    fun diagnose(ctx: Context, onLine: (String) -> Unit) {
+        Thread {
+            val probe = OkHttpClient.Builder()
+                .connectTimeout(8, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).callTimeout(12, TimeUnit.SECONDS).build()
+            fun get(url: String, key: String? = null): Triple<Int, String, Long> {
+                val t0 = System.currentTimeMillis()
+                return try {
+                    val rb = Request.Builder().url(url)
+                    if (key != null) rb.header("x-goog-api-key", key)
+                    probe.newCall(rb.build()).execute().use { r ->
+                        Triple(r.code, r.body?.string().orEmpty(), System.currentTimeMillis() - t0)
+                    }
+                } catch (e: Exception) {
+                    Triple(-1, e.javaClass.simpleName + (e.message?.let { ": $it" } ?: ""), System.currentTimeMillis() - t0)
+                }
+            }
+            val key = Prefs.key(ctx)
+            val model = Prefs.model(ctx)
+            onLine("Model dipilih: $model")
+            onLine("Key: " + if (key.isBlank()) "BELUM DIISI" else "terisi (…${key.takeLast(4)})")
+            val net = get("https://www.google.com/generate_204")
+            onLine("1. Internet: " + if (net.first in 200..399) "OK (${net.third} ms)" else "GAGAL ${net.second.take(80)}")
+            val ls = get("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", key.ifBlank { null })
+            if (ls.first == 200) {
+                val names = try {
+                    val arr = JSONObject(ls.second).getJSONArray("models")
+                    (0 until arr.length()).map { arr.getJSONObject(it).getString("name").removePrefix("models/") }
+                } catch (e: Exception) { emptyList() }
+                val has = model in names
+                onLine("2. Server Gemini + key: OK (${ls.third} ms)")
+                onLine("   Model $model " + if (has) "tersedia" else "TIDAK ada untuk key ini")
+                val flash = names.filter { it.startsWith("gemini") && it.contains("flash") && !it.contains("image") && !it.contains("tts") && !it.contains("live") }
+                if (flash.isNotEmpty()) onLine("   Model flash yang ada: " + flash.take(6).joinToString(", "))
+            } else {
+                val msg = try { JSONObject(ls.second).optJSONObject("error")?.optString("message").orEmpty() } catch (e: Exception) { ls.second }
+                onLine("2. Server Gemini: GAGAL HTTP ${ls.first} ${msg.take(120)} (${ls.third} ms)")
+            }
+            val t0 = System.currentTimeMillis()
+            progress = { m -> onLine("3. Meminta jawaban dari $m…") }
+            generate(ctx, listOf("user" to "Balas satu kata saja: OK"), null, "Jawab sangat singkat.", false) { r ->
+                progress = null
+                val ms = System.currentTimeMillis() - t0
+                onLine("   " + r.fold({ "Berhasil ($ms ms): $it" }, { "GAGAL ($ms ms): ${it.message}" }))
+                onLine("Selesai.")
+            }
+        }.start()
+    }
 }
