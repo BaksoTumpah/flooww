@@ -196,9 +196,10 @@ object Store {
     }
 
     /** Pulihkan cadangan. Mengembalikan pesan galat, atau null bila berhasil. */
-    fun importBackup(c: Context, text: String, password: String): String? = try {
-        val o = JSONObject(text)
-        if (o.optString("app") != "flow-admin") "Berkas ini bukan cadangan flow admin." else {
+    fun importBackup(c: Context, text: String, password: String): String? {
+        try {
+            val o = JSONObject(text)
+            if (o.optString("app") != "flow-admin") return "Berkas ini bukan cadangan flow admin."
             val ci = Cipher.getInstance("AES/GCM/NoPadding")
             ci.init(Cipher.DECRYPT_MODE, aesKey(password, unb64(o.getString("salt"))), GCMParameterSpec(128, unb64(o.getString("iv"))))
             val d = JSONObject(String(ci.doFinal(unb64(o.getString("data"))), Charsets.UTF_8))
@@ -210,9 +211,9 @@ object Store {
             sp(c).edit().putString("licenses", d.getJSONArray("licenses").toString())
                 .putString("releases", d.getJSONArray("releases").toString())
                 .putInt("free", d.optInt("free", 2)).apply()
-            null
+            return null
+        } catch (e: Exception) {
+            return "Kata sandi salah atau berkas rusak."
         }
-    } catch (e: Exception) {
-        "Kata sandi salah atau berkas rusak."
     }
 }
