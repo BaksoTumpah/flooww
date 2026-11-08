@@ -43,6 +43,25 @@ object Ui {
         }
     }
 
+    private fun lum(c: Int): Double {
+        fun ch(s: Int): Double {
+            val v = ((c shr s) and 255) / 255.0
+            return if (v <= 0.03928) v / 12.92 else Math.pow((v + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0)
+    }
+
+    /** Warna teks aksen yang pasti terbaca di atas latar: dipakai warna pilihan pengguna bila kontrasnya cukup, selain itu warna cerah/gelap yang aman. */
+    fun accentText(p: Pal, preferred: Int): Int {
+        val bgL = lum(p.bg)
+        fun contrast(a: Int): Double {
+            val l = lum(a)
+            return (maxOf(l, bgL) + 0.05) / (minOf(l, bgL) + 0.05)
+        }
+        if (contrast(preferred) >= 4.5) return preferred
+        return if (p.night) 0xFFB7ADFF.toInt() else 0xFF5B3FD6.toInt()
+    }
+
     fun dp(c: Context, v: Float): Int = (v * c.resources.displayMetrics.density).toInt()
 
     fun withAlpha(color: Int, a: Float): Int =

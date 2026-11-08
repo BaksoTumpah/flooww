@@ -411,6 +411,19 @@ class FloatService : Service() {
         ui.postDelayed(licenseTick, 60_000L)
     }
 
+    /** Tutup popup trial habis. Semua fitur tetap terkunci; layanan dihentikan supaya tidak ada yang tersisa di layar. */
+    private fun dismissLock() {
+        lockView?.let {
+            try {
+                wm.removeView(it)
+            } catch (e: Exception) {
+            }
+        }
+        lockView = null
+        osk.hide()
+        stopSelf()
+    }
+
     private fun showLock() {
         if (lockView != null) return
         val p = Ui.pal(c)
@@ -433,12 +446,26 @@ class FloatService : Service() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(16))
             background = Ui.clay(c, p.surface, dp(22))
-            addView(TextView(c).apply {
-                text = if (License.state(c) == License.State.EXPIRED) "Lisensi habis" else "Trial habis"
-                textSize = 20f
-                typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
-                setTextColor(p.on)
-            })
+            // judul dengan tombol X: menutup popup saja, fitur tetap terkunci
+            addView(LinearLayout(c).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(c).apply {
+                    text = if (License.state(c) == License.State.EXPIRED) "Lisensi habis" else "Trial habis"
+                    textSize = 20f
+                    typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+                    setTextColor(p.on)
+                }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                addView(TextView(c).apply {
+                    text = "✕"
+                    textSize = 20f
+                    gravity = Gravity.CENTER
+                    setTextColor(p.on)
+                    contentDescription = "Tutup"
+                    background = Ui.round(p.field, dp(18))
+                    setOnClickListener { dismissLock() }
+                }, LinearLayout.LayoutParams(dp(36), dp(36)))
+            }, LinearLayout.LayoutParams(MATCH, WRAP))
             addView(msg, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) })
             addView(TextView(c).apply {
                 text = "ID HP"
@@ -1362,8 +1389,8 @@ class FloatService : Service() {
 
     // ---------- Tanya AI lewat browser mengambang ----------
 
-    private val AI_WEB = listOf("https://gemini.google.com/app", "https://chatgpt.com/", "https://claude.ai/new")
-    private val AI_WEB_Q = listOf(null, "https://chatgpt.com/?q=", "https://claude.ai/new?q=")
+    private val AI_WEB = listOf("https://chatgpt.com/", "https://claude.ai/new")
+    private val AI_WEB_Q = listOf("https://chatgpt.com/?q=", "https://claude.ai/new?q=")
 
     // gambar yang akan dilampirkan otomatis saat situs AI membuka pemilih file
     private var pendingUpload: Uri? = null
@@ -1375,7 +1402,7 @@ class FloatService : Service() {
     /**
      * Buka situs AI pilihan di browser mengambang (bukan aplikasi AI yang terpasang).
      * Gambar disiapkan: saat Anda menekan tombol lampirkan di situs, gambar langsung terpilih.
-     * Perintah: ChatGPT dan Claude menerimanya lewat alamat, Gemini lewat tombol tempel di header.
+     * Perintah: ChatGPT dan Claude menerimanya lewat alamat.
      */
     private fun askWeb(bmp: Bitmap?, prompt: String) {
         val target = Prefs.aiTarget(c)
@@ -1410,7 +1437,8 @@ class FloatService : Service() {
         refreshAttach()
         web?.loadUrl(url)
         toast(
-            if (bmp != null) "Membuka $name…"
+            if (target == 1) "Membuka $name. Lebih lambat dimuat. Login dulu di jendela ini bila diminta."
+            else if (bmp != null) "Membuka $name…"
             else "Membuka $name."
         )
     }

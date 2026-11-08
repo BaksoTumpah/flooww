@@ -277,6 +277,8 @@ class AdminActivity : Activity() {
         root.addView(tabBar, lp().apply { setMargins(dp(12), 0, dp(12), dp(12)) })
         setContentView(root)
         showTab(tab)
+        // sinkron rilis terbaru di latar supaya lisensi baru langsung memakai versi terbaru
+        Thread { try { Store.syncLatest(this) } catch (e: Exception) { } }.start()
     }
 
     private fun showTab(t: Int) {
@@ -424,42 +426,31 @@ class AdminActivity : Activity() {
     // ---------- tab Rilis ----------
 
     private fun releaseTab() {
-        val code = Ui.field(this, "Nomor versi (angka bulat, naik 1)", number = true)
-        val url = Ui.field(this, "Alamat unduhan APK (https://...)")
-        val notes = Ui.field(this, "Catatan rilis (opsional)", true)
-        val msg = label("", 13f, Ui.ACCENT)
+        val msg = label("Memeriksa rilis terbaru di GitHub...", 13f, Ui.ACCENT)
         val rels = Store.releases(this)
-        code.setText(((rels.maxOfOrNull { it.code } ?: Store.FIRST_RELEASE_CODE) + 1).toString())
         content.addView(card(
-            "Rilis baru",
-            label("Versi flooww hanya angka bulat: 1, 2, 3, dst. Lisensi baru mencakup rilis terbaru ditambah update gratis."),
-            spaced(code), spaced(url), spaced(notes),
-            spaced(btn("Tambah rilis", true) {
-                val c = code.text.toString().toIntOrNull()
-                if (c == null || c < 1) { msg.text = "Isi nomor versi berupa angka bulat."; return@btn }
-                val u = url.text.toString().trim()
-                if (u.isNotEmpty() && !u.startsWith("https://")) { msg.text = "Alamat unduhan harus diawali https://"; return@btn }
-                if (rels.any { it.code == c }) { msg.text = "Versi $c sudah ada."; return@btn }
-                Store.setReleases(this, rels + Rel(c, notes.text.toString().trim(), System.currentTimeMillis(), u))
-                showTab(2)
-            }),
+            "Rilis terbaru",
+            label("Tidak perlu mengisi alamat atau nomor versi. Rilis terbaru dibaca otomatis dari GitHub, dan lisensi baru mencakup rilis terbaru ditambah update gratis."),
+            spaced(btn("Periksa lagi", true) { showTab(2) }),
             msg
         ))
-        val top = rels.firstOrNull { it.url.isNotBlank() }
-        content.addView(card(
-            "Berkas update.json",
-            label(if (top == null) "Isi alamat unduhan pada rilis agar berkas ini bisa dibuat."
-            else "Untuk versi ${top.code}. Unggah berkas ini ke alamat pembaruan yang dipakai flooww, supaya tombol Cek pembaruan melihat versi baru."),
-            if (top == null) View(this) else spaced(label(Store.updateJson(top), 12f, p.on).apply { typeface = Typeface.MONOSPACE }),
-            if (top == null) View(this) else row(btn("Salin", true) { copy("update.json", Store.updateJson(top)) }, btn("Bagikan") { share(Store.updateJson(top)) })
-        ))
+        Thread {
+            val res = try { Store.syncLatest(this) to null } catch (e: Exception) { null to (e.message ?: e.javaClass.simpleName) }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || tab != 2) return@runOnUiThread
+                if (res.second != null) {
+                    msg.text = "Gagal membaca GitHub: ${res.second}. Daftar di bawah dari data tersimpan."
+                } else if (res.first != null) {
+                    showTab(2)
+                } else {
+                    msg.text = "Daftar rilis sudah yang terbaru."
+                }
+            }
+        }.start()
         rels.forEach { r ->
             content.addView(card(
                 "Versi ${r.code}",
-                label(fmt.format(Date(r.date)) + (if (r.url.isNotBlank()) "\n${r.url}" else "") + (if (r.notes.isNotBlank()) "\n${r.notes}" else "")),
-                if (rels.size > 1) spaced(btn("Hapus rilis") {
-                    Store.setReleases(this, rels.filter { it.code != r.code }); showTab(2)
-                }) else View(this)
+                label(fmt.format(Date(r.date)) + (if (r.notes.isNotBlank()) "\n${r.notes}" else ""))
             ))
         }
     }

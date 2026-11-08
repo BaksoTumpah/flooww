@@ -64,7 +64,7 @@ class MainActivity : Activity() {
             text = if (n.isBlank()) "Halo!" else "Halo, $n"
             textSize = 18f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Prefs.bubbleColor(this@MainActivity))
+            setTextColor(Ui.accentText(p, Prefs.bubbleColor(this@MainActivity)))
             setPadding(0, dp(2), 0, 0)
         })
         col.addView(TextView(this).apply {
@@ -112,7 +112,7 @@ class MainActivity : Activity() {
             })
         }
         gAi.add(sec("Tujuan Tanya AI",
-            note("Direkomendasikan: ChatGPT (bawaan). Gambar soal paling stabil terlampir dan pengirimannya cepat. Gemini kadang gagal melampirkan gambar otomatis. Claude lebih lama dimuat."),
+            note("Direkomendasikan: ChatGPT (bawaan). Gambar soal paling stabil terlampir dan pengirimannya cepat. Claude lebih lambat dimuat dan Anda harus login dulu di jendela mengambang (buka Tanya AI, login sekali, lalu ulangi)."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn)
         ))
@@ -195,6 +195,8 @@ class MainActivity : Activity() {
             upMsg,
             Ui.button(this, "Cek pembaruan", true) { checkUpdate(upMsg) }
         ))
+        // seperti Magisk: otomatis memeriksa rilis terbaru di GitHub setiap aplikasi dibuka
+        checkUpdate(upMsg, auto = true)
         if (License.info(this) == null) {
             col.addView(card("Lisensi",
                 TextView(this).apply {
@@ -231,29 +233,42 @@ class MainActivity : Activity() {
         )
     }
 
-    /** Cek, unduh, dan pasang pembaruan. Versi hanya angka bulat; lisensi membatasi versi tertinggi. */
-    private fun checkUpdate(msg: TextView) {
-        msg.text = "Memeriksa pembaruan..."
+    /**
+     * Cek pembaruan dari rilis terbaru GitHub (otomatis, tanpa alamat yang diisi manual).
+     * auto = true: dijalankan sendiri saat aplikasi dibuka; hasil diam bila tidak ada pembaruan atau gagal,
+     * dan dialog tidak muncul lagi untuk versi yang sudah dijawab "Nanti".
+     */
+    private fun checkUpdate(msg: TextView, auto: Boolean = false) {
+        if (!auto) msg.text = "Memeriksa pembaruan..."
         Thread {
             try {
                 val info = Updater.fetch()
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     val li = License.info(this)
+                    val skipped = Prefs.sp(this).getInt("upd_skip", 0)
                     when {
                         info.version <= BuildConfig.VERSION_CODE -> msg.text = "Versi ${BuildConfig.VERSION_NAME}. Sudah yang terbaru."
                         li == null -> msg.text = "Versi ${info.version} tersedia. Masukkan lisensi dulu untuk memperbarui."
                         li.maxVersion in 1 until info.version ->
                             msg.text = "Versi ${info.version} tersedia, tetapi di luar jatah update lisensi (sampai versi ${li.maxVersion}). Hubungi admin."
-                        else -> android.app.AlertDialog.Builder(this)
-                            .setTitle("Versi ${info.version} tersedia")
-                            .setMessage(info.notes.ifBlank { "Pembaruan baru." })
-                            .setNegativeButton("Nanti", null)
-                            .setPositiveButton("Unduh dan pasang") { _, _ -> downloadUpdate(info, msg) }
-                            .show()
+                        else -> {
+                            msg.text = "Versi ${info.version} tersedia (terpasang ${BuildConfig.VERSION_NAME})."
+                            if (!(auto && skipped == info.version)) {
+                                android.app.AlertDialog.Builder(this)
+                                    .setTitle("Pembaruan tersedia: versi ${info.version}")
+                                    .setMessage(info.notes.ifBlank { "Pembaruan baru." })
+                                    .setNegativeButton("Nanti") { _, _ ->
+                                        Prefs.sp(this).edit().putInt("upd_skip", info.version).apply()
+                                    }
+                                    .setPositiveButton("Unduh dan pasang") { _, _ -> downloadUpdate(info, msg) }
+                                    .show()
+                            }
+                        }
                     }
                 }
             } catch (e: Exception) {
-                runOnUiThread { msg.text = "Gagal memeriksa: ${e.message ?: e.javaClass.simpleName}" }
+                if (!auto) runOnUiThread { msg.text = "Gagal memeriksa: ${e.message ?: e.javaClass.simpleName}" }
             }
         }.start()
     }
@@ -399,7 +414,7 @@ class MainActivity : Activity() {
             text = "Aktivasi diperlukan"
             textSize = 18f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Prefs.bubbleColor(this@MainActivity))
+            setTextColor(Ui.accentText(p, Prefs.bubbleColor(this@MainActivity)))
             setPadding(0, dp(2), 0, dp(12))
         })
         val code = License.deviceCode(this)

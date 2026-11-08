@@ -110,6 +110,41 @@ object Store {
     /** Isi berkas update.json yang dibaca flooww untuk fitur "Cek pembaruan". */
     fun updateJson(r: Rel): String = JSONObject().put("version", r.code).put("url", r.url).put("notes", r.notes).toString(2)
 
+    /** Repo rilis publik (hanya berisi APK). Nomor versi diambil dari nama tag rilis terbaru, mis. v10. */
+    private const val API_LATEST = "https://api.github.com/repos/BaksoTumpah/flooww-rilis/releases/latest"
+
+    /** Baca rilis terbaru dari GitHub (thread latar). Melempar Exception bila gagal. */
+    fun fetchLatest(): Rel {
+        val h = java.net.URL(API_LATEST).openConnection() as java.net.HttpURLConnection
+        h.connectTimeout = 10000
+        h.readTimeout = 15000
+        h.useCaches = false
+        h.setRequestProperty("Accept", "application/json")
+        try {
+            if (h.responseCode != 200) error("GitHub menjawab ${h.responseCode}.")
+            val o = JSONObject(h.inputStream.bufferedReader().use { it.readText() })
+            val v = Regex("\\d+").find(o.optString("tag_name"))?.value?.toIntOrNull() ?: error("Nama rilis tidak berisi nomor versi.")
+            var url = ""
+            val assets = o.optJSONArray("assets")
+            if (assets != null) for (i in 0 until assets.length()) {
+                val a = assets.getJSONObject(i)
+                if (a.optString("name").endsWith(".apk", true)) { url = a.optString("browser_download_url"); break }
+            }
+            return Rel(v, o.optString("body").trim().ifEmpty { o.optString("name") }, System.currentTimeMillis(), url)
+        } finally {
+            h.disconnect()
+        }
+    }
+
+    /** Sinkron daftar rilis lokal dengan rilis terbaru di GitHub. Mengembalikan rilis terbaru, atau null bila sudah ada. */
+    fun syncLatest(c: Context): Rel? {
+        val r = fetchLatest()
+        val cur = releases(c)
+        if (cur.any { it.code == r.code }) return null
+        setReleases(c, cur + r)
+        return r
+    }
+
     fun releases(c: Context): List<Rel> {
         val raw = sp(c).getString("releases", null)
         if (raw == null) {

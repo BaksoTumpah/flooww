@@ -12,12 +12,20 @@ import java.net.URL
 import java.security.MessageDigest
 
 /**
- * Pembaruan di dalam aplikasi. Alamat berkas info (BuildConfig.UPDATE_URL) berisi JSON:
- * {"version":10,"url":"https://.../flooww-10.apk","notes":"...","sha256":"(opsional)"}.
- * Versi hanya angka bulat. Lisensi membatasi versi tertinggi yang boleh dipasang.
+ * Pembaruan di dalam aplikasi, seperti Magisk: aplikasi membaca rilis terbaru langsung dari GitHub Releases,
+ * tanpa admin mengisi alamat atau nomor versi lagi.
+ *
+ * Urutan: (1) update.json di rilis terbaru (berisi sha256 untuk verifikasi), (2) bila tidak ada, API rilis GitHub
+ * (nomor versi dari nama tag, mis. v10, dan berkas flooww.apk). Versi hanya angka bulat.
+ * Lisensi membatasi versi tertinggi yang boleh dipasang.
  */
 object Updater {
     class Info(val version: Int, val url: String, val notes: String, val sha256: String)
+
+    /** Repo rilis publik (hanya berisi APK). */
+    private const val RELEASE_REPO = "BaksoTumpah/flooww-rilis"
+    private const val DEFAULT_INFO_URL = "https://github.com/$RELEASE_REPO/releases/latest/download/update.json"
+    private const val API_LATEST = "https://api.github.com/repos/$RELEASE_REPO/releases/latest"
 
     private fun open(u: String): HttpURLConnection {
         val h = URL(u).openConnection() as HttpURLConnection
@@ -25,22 +33,47 @@ object Updater {
         h.readTimeout = 20000
         h.useCaches = false
         h.instanceFollowRedirects = true
+        h.setRequestProperty("Accept", "application/json")
+        h.setRequestProperty("Cache-Control", "no-cache")
         return h
+    }
+
+    private fun get(u: String): String {
+        val h = open(u)
+        try {
+            if (h.responseCode != 200) error("Server pembaruan menjawab ${h.responseCode}.")
+            return h.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            h.disconnect()
+        }
     }
 
     /** Ambil info pembaruan (thread latar). Melempar Exception bila gagal. */
     fun fetch(): Info {
-        val u = BuildConfig.UPDATE_URL.trim()
-        require(u.startsWith("https://")) { "Alamat pembaruan belum diatur." }
-        val h = open(u)
-        val body = try {
-            if (h.responseCode != 200) error("Server pembaruan menjawab ${h.responseCode}.")
-            h.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            h.disconnect()
+        val custom = BuildConfig.UPDATE_URL.trim()
+        val first = if (custom.startsWith("https://")) custom else DEFAULT_INFO_URL
+        try {
+            val o = JSONObject(get(first))
+            return Info(o.getInt("version"), o.getString("url"), o.optString("notes"), o.optString("sha256").lowercase())
+        } catch (e: Exception) {
+            // update.json belum ada di rilis: baca langsung dari API rilis GitHub
         }
-        val o = JSONObject(body)
-        return Info(o.getInt("version"), o.getString("url"), o.optString("notes"), o.optString("sha256").lowercase())
+        val o = JSONObject(get(API_LATEST))
+        val tag = o.optString("tag_name")
+        val ver = Regex("\\d+").find(tag)?.value?.toIntOrNull() ?: error("Nama rilis terbaru tidak berisi nomor versi.")
+        val assets = o.optJSONArray("assets")
+        var url = ""
+        if (assets != null) {
+            for (i in 0 until assets.length()) {
+                val a = assets.getJSONObject(i)
+                if (a.optString("name").endsWith(".apk", true)) {
+                    url = a.optString("browser_download_url")
+                    break
+                }
+            }
+        }
+        if (url.isEmpty()) error("Rilis terbaru belum berisi berkas APK.")
+        return Info(ver, url, o.optString("body").trim(), "")
     }
 
     /** Unduh APK ke cache (thread latar). onProgress menerima persen 0..100. */
