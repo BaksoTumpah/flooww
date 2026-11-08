@@ -217,22 +217,22 @@
       "right": "Contoh",
       "groups": [
         {
-          "v": "5821"
+          "v": "eyJ2IjoxLCJ"
         },
         {
-          "v": "0937"
+          "v": "pZCI6IjJHU1"
         },
         {
-          "v": "4410"
+          "v": "pZUiIsIm4iO"
         },
         {
-          "v": "6285"
+          "v": "iJGYWRpbCIs"
         },
         {
-          "v": "1173"
+          "v": "InAiOiIwOD"
         }
       ],
-      "cut": "Contoh tampilan saja. Kode asli dikirim lewat WhatsApp setelah pembayaran.",
+      "cut": "Contoh tampilan saja. Kode asli lebih panjang dikirim lewat WhatsApp setelah pembayaran.",
       "aria": "Contoh tampilan kode token lisensi: {kode}"
     }
   },
