@@ -231,7 +231,7 @@ class AdminActivity : Activity() {
             "flow admin", "Kunci penandatangan",
             card(
                 "Impor kunci admin",
-                label("Tempel teks dari berkas flooww-admin-key.txt. Kunci ini yang membuat lisensi sah, jadi simpan baik-baik dan jangan dibagikan."),
+                label("Tempel kunci pendek (43 karakter) atau teks dari berkas flooww-admin-key.txt. Kunci ini yang membuat lisensi sah, jadi simpan baik-baik dan jangan dibagikan."),
                 spaced(input),
                 row(
                     btn("Tempel dari salinan") {
@@ -464,6 +464,14 @@ class AdminActivity : Activity() {
             label("Jumlah rilis setelah pembelian yang masih dicakup lisensi."),
             spaced(free),
             spaced(btn("Simpan") { Store.setFreeUpdates(this, free.text.toString().toIntOrNull() ?: 2); toast("Tersimpan") })
+        ))
+        content.addView(card(
+            "Kunci penandatangan",
+            label("Kunci pendek (43 karakter) sama kuatnya dengan kunci panjang dan bisa ditempel di layar Impor kunci. Siapa pun yang memegang kunci ini bisa membuat lisensi sah, jadi jangan dibagikan dan jangan disimpan di tempat umum."),
+            spaced(btn("Salin kunci pendek") {
+                val k = try { Store.shortKey(this) } catch (e: Exception) { null }
+                if (k == null) toast("Kunci belum ada") else copy("kunci admin", k)
+            })
         ))
         content.addView(card(
             "Cadangan",

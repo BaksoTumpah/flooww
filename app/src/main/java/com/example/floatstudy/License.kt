@@ -46,18 +46,37 @@ object License {
 
     private fun b64d(s: String): ByteArray = Base64.decode(s, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
 
-    /** Periksa tanda tangan dan baca isinya. null bila bentuk atau tanda tangan salah. */
+    private const val ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+    /** Tanda tangan r||s 64 byte menjadi DER yang dipahami Signature. */
+    private fun rawToDer(raw: ByteArray): ByteArray {
+        fun enc(o: Int): ByteArray {
+            var i = o
+            while (i < o + 31 && raw[i].toInt() == 0) i++
+            var v = raw.copyOfRange(i, o + 32)
+            if (v[0].toInt() < 0) v = byteArrayOf(0) + v
+            return byteArrayOf(2, v.size.toByte()) + v
+        }
+        val body = enc(0) + enc(32)
+        return byteArrayOf(0x30, body.size.toByte()) + body
+    }
+
+    private fun verify(payload: ByteArray, derSig: ByteArray): Boolean {
+        val pk = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(Base64.decode(PUB, Base64.DEFAULT)))
+        val v = Signature.getInstance("SHA256withECDSA")
+        v.initVerify(pk)
+        v.update(payload)
+        return v.verify(derSig)
+    }
+
+    /** Periksa tanda tangan dan baca isinya. null bila bentuk atau tanda tangan salah. Menerima format ringkas dan format lama (berisi titik). */
     fun parse(token: String): Info? = try {
         val t = token.trim().filter { !it.isWhitespace() }
         val i = t.indexOf('.')
-        if (i <= 0) null else {
+        if (i < 0) parseCompact(t) else if (i == 0) null else {
             val payload = b64d(t.substring(0, i))
             val sig = b64d(t.substring(i + 1))
-            val pk = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(Base64.decode(PUB, Base64.DEFAULT)))
-            val v = Signature.getInstance("SHA256withECDSA")
-            v.initVerify(pk)
-            v.update(payload)
-            if (!v.verify(sig)) null else {
+            if (!verify(payload, sig)) null else {
                 val o = JSONObject(String(payload, Charsets.UTF_8))
                 Info(
                     o.optString("id"), o.optString("n"), o.optString("p"), o.optString("s"), o.optString("c"),
@@ -67,6 +86,27 @@ object License {
         }
     } catch (e: Exception) {
         null
+    }
+
+    /** Format ringkas: [2][id 4][perangkat 6][terbit 4 dtk][batas versi 2][kedaluwarsa 4 dtk][panjang nama 1][nama] + tanda tangan 64. */
+    private fun parseCompact(t: String): Info? {
+        val b = b64d(t)
+        if (b.size < 22 + 64 || b[0].toInt() != 2) return null
+        val payload = b.copyOfRange(0, b.size - 64)
+        if (!verify(payload, rawToDer(b.copyOfRange(b.size - 64, b.size)))) return null
+        val bb = java.nio.ByteBuffer.wrap(payload)
+        bb.get()
+        val idBits = bb.getInt()
+        val id = (0 until 6).map { ID_CHARS[(idBits shr (5 * (5 - it))) and 31] }.joinToString("")
+        val dev = (0 until 6).joinToString("") { "%02X".format(bb.get()) }
+        val issued = (bb.getInt().toLong() and 0xFFFFFFFFL) * 1000
+        val maxV = bb.getShort().toInt() and 0xFFFF
+        val exp = (bb.getInt().toLong() and 0xFFFFFFFFL) * 1000
+        val n = bb.get().toInt() and 0xFF
+        if (bb.remaining() != n) return null
+        val nb = ByteArray(n)
+        bb.get(nb)
+        return Info(id, String(nb, Charsets.UTF_8), "", "", "", dev, issued, maxV, exp)
     }
 
     @Volatile private var srvOffset = Long.MIN_VALUE

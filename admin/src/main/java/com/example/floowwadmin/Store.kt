@@ -76,12 +76,39 @@ object Store {
 
     fun hasKey(c: Context) = sp(c).contains("priv")
 
-    /** Impor kunci rahasia (PKCS8 base64). Ditolak bila tidak berpasangan dengan kunci publik di flooww. */
+    private fun p256(): java.security.spec.ECParameterSpec {
+        val ap = java.security.AlgorithmParameters.getInstance("EC")
+        ap.init(java.security.spec.ECGenParameterSpec("secp256r1"))
+        return ap.getParameterSpec(java.security.spec.ECParameterSpec::class.java)
+    }
+
+    /** Baca kunci rahasia: format pendek (43 karakter, 32 byte) atau format panjang lama (PKCS8 base64). */
+    private fun parsePriv(t: String): java.security.PrivateKey {
+        val kf = KeyFactory.getInstance("EC")
+        if (t.length in 40..48) {
+            val raw = Base64.decode(t, Base64.URL_SAFE)
+            require(raw.size == 32) { "panjang kunci salah" }
+            return kf.generatePrivate(java.security.spec.ECPrivateKeySpec(java.math.BigInteger(1, raw), p256()))
+        }
+        return kf.generatePrivate(PKCS8EncodedKeySpec(Base64.decode(t, Base64.DEFAULT)))
+    }
+
+    /** Kunci rahasia dalam format pendek (43 karakter) untuk disalin. null bila belum ada kunci. */
+    fun shortKey(c: Context): String? {
+        val t = sp(c).getString("priv", null) ?: return null
+        val s = (parsePriv(t) as java.security.interfaces.ECPrivateKey).s.toByteArray()
+        val raw = ByteArray(32)
+        val n = minOf(32, s.size)
+        System.arraycopy(s, s.size - n, raw, 32 - n, n)
+        return b64u(raw)
+    }
+
+    /** Impor kunci rahasia (pendek atau PKCS8 base64). Ditolak bila tidak berpasangan dengan kunci publik di flooww. */
     fun importKey(c: Context, text: String): String? {
         val t = text.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("KUNCI") && !it.startsWith("(") }
             .joinToString("").filter { !it.isWhitespace() }
         return try {
-            val priv = KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(Base64.decode(t, Base64.DEFAULT)))
+            val priv = parsePriv(t)
             val s = Signature.getInstance("SHA256withECDSA")
             s.initSign(priv)
             val msg = "tes".toByteArray()
@@ -92,7 +119,8 @@ object Store {
             v.initVerify(pub)
             v.update(msg)
             if (!v.verify(sig)) "Kunci ini tidak berpasangan dengan kunci publik di flooww." else {
-                sp(c).edit().putString("priv", t).apply()
+                // disimpan dalam bentuk PKCS8 agar data dan cadangan lama tetap cocok
+                sp(c).edit().putString("priv", b64(priv.encoded)).apply()
                 null
             }
         } catch (e: Exception) {
@@ -197,26 +225,63 @@ object Store {
         return t.chunked(4).joinToString("-")
     }
 
+    private const val ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
     private fun newId(): String {
-        val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         val r = SecureRandom()
-        return (1..6).map { chars[r.nextInt(chars.length)] }.joinToString("")
+        return (1..6).map { ID_CHARS[r.nextInt(ID_CHARS.length)] }.joinToString("")
     }
 
-    /** Buat dan tanda tangani lisensi. Berlaku sampai versi = rilis terbaru + jumlah update gratis. */
+    /** Tanda tangan DER (hasil Signature) menjadi r||s 64 byte. */
+    private fun derToRaw(der: ByteArray): ByteArray {
+        var i = 2
+        fun int(): ByteArray {
+            require(der[i].toInt() == 2)
+            val len = der[i + 1].toInt() and 0xFF
+            val v = der.copyOfRange(i + 2, i + 2 + len)
+            i += 2 + len
+            val out = ByteArray(32)
+            val src = if (v.size > 32) v.copyOfRange(v.size - 32, v.size) else v
+            System.arraycopy(src, 0, out, 32 - src.size, src.size)
+            return out
+        }
+        val r = int()
+        val s = int()
+        return r + s
+    }
+
+    /**
+     * Buat dan tanda tangani lisensi ringkas (sekitar 120 karakter). Isi: versi format, ID, kode perangkat, waktu terbit,
+     * batas versi, kedaluwarsa, dan nama. Data lain (HP, sekolah, kelas) hanya disimpan di aplikasi admin ini.
+     * Berlaku sampai versi = rilis terbaru + jumlah update gratis.
+     */
     fun issue(c: Context, name: String, phone: String, school: String, cls: String, device: String, free: Int, expires: Long = 0L): Lic {
-        val priv = KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(Base64.decode(sp(c).getString("priv", "")!!, Base64.DEFAULT)))
+        val priv = parsePriv(sp(c).getString("priv", "")!!)
         val latest = releases(c).maxOfOrNull { it.code } ?: FIRST_RELEASE_CODE
-        val maxV = latest + free
+        val maxV = (latest + free).coerceAtMost(65535)
         val id = newId()
         val now = System.currentTimeMillis()
-        val payload = JSONObject().put("v", 1).put("id", id).put("n", name).put("p", phone).put("s", school).put("c", cls)
-            .put("d", device).put("t", now).put("m", maxV).put("e", expires).toString().toByteArray(Charsets.UTF_8)
+        var nm = name.trim()
+        while (nm.toByteArray(Charsets.UTF_8).size > 40) nm = nm.dropLast(1)
+        val nb = nm.toByteArray(Charsets.UTF_8)
+        val hex = device.filter { it != '-' }
+        var idBits = 0
+        id.forEach { idBits = (idBits shl 5) or ID_CHARS.indexOf(it) }
+        val bb = java.nio.ByteBuffer.allocate(22 + nb.size)
+        bb.put(2)
+        bb.putInt(idBits)
+        for (k in 0 until 6) bb.put(hex.substring(k * 2, k * 2 + 2).toInt(16).toByte())
+        bb.putInt((now / 1000).toInt())
+        bb.putShort(maxV.toShort())
+        bb.putInt((expires / 1000).toInt())
+        bb.put(nb.size.toByte())
+        bb.put(nb)
+        val payload = bb.array()
         val s = Signature.getInstance("SHA256withECDSA")
         s.initSign(priv)
         s.update(payload)
-        val token = b64u(payload) + "." + b64u(s.sign())
-        return Lic(id, name, phone, school, cls, device, now, maxV, token, expires)
+        val token = b64u(payload + derToRaw(s.sign()))
+        return Lic(id, nm, phone, school, cls, device, now, maxV, token, expires)
     }
 
     // ---------- cadangan terenkripsi ----------
