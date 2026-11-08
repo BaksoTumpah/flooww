@@ -1,0 +1,35 @@
+name: Notifikasi Telegram
+on:
+  workflow_run:
+    workflows: ["Deploy Website ke Firebase Hosting"]
+    types: [completed]
+
+# workflow ini tidak butuh izin apa pun ke repo
+permissions: {}
+
+jobs:
+  notify:
+    # hanya untuk run dari repo ini sendiri (bukan fork)
+    if: github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Kirim ke Telegram
+        # nilai dilewatkan lewat env, bukan ditempel ke skrip shell, agar aman dari injeksi
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          REPO: ${{ github.repository }}
+          WF_NAME: ${{ github.event.workflow_run.name }}
+          WF_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then
+            echo "::notice::TELEGRAM_BOT_TOKEN atau TELEGRAM_CHAT_ID belum diisi, notifikasi dilewati."
+            exit 0
+          fi
+          if [ "$CONCLUSION" = "success" ]; then ICON="✅"; else ICON="❌"; fi
+          TEXT=$(printf '%s %s\nWorkflow: %s\n%s' "$ICON" "$REPO" "$WF_NAME" "$WF_URL")
+          curl -sS --max-time 20 -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TG_CHAT}" \
+            --data-urlencode "text=${TEXT}" > /dev/null

@@ -1,0 +1,63 @@
+name: Deploy Website ke Firebase Hosting
+on:
+  push:
+    branches: [main]
+    # hanya jalan bila situs atau konfigurasi hosting berubah
+    paths:
+      - "website/**"
+      - "firebase.json"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+# izin minimal untuk GITHUB_TOKEN
+permissions:
+  contents: read
+  checks: write
+
+# satu deploy pada satu waktu supaya tidak saling menimpa
+concurrency:
+  group: deploy-web-live
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Cek pengaturan Firebase
+        env:
+          PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$PROJECT_ID" ]; then
+            echo "::error::Variable FIREBASE_PROJECT_ID belum diisi (Settings > Secrets and variables > Actions > Variables)."
+            exit 1
+          fi
+          if [ -z "$SERVICE_ACCOUNT" ]; then
+            echo "::error::Secret FIREBASE_SERVICE_ACCOUNT belum diisi (Settings > Secrets and variables > Actions > Secrets)."
+            exit 1
+          fi
+
+      # bila variable FIREBASE_SITE diisi, deploy ke site itu (alamat NAMA-SITE.web.app)
+      # bila kosong, deploy ke site bawaan project (ID-PROJECT.web.app)
+      - name: Pilih site Hosting
+        env:
+          SITE: ${{ vars.FIREBASE_SITE }}
+        run: |
+          if [ -n "$SITE" ]; then
+            node -e 'const fs=require("fs");const c=JSON.parse(fs.readFileSync("firebase.json","utf8"));c.hosting.site=process.env.SITE;fs.writeFileSync("firebase.json",JSON.stringify(c,null,2))'
+            echo "Deploy ke site: $SITE"
+          else
+            echo "Deploy ke site bawaan project."
+          fi
+
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ vars.FIREBASE_PROJECT_ID }}
+          channelId: live
