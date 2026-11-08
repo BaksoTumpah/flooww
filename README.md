@@ -75,3 +75,12 @@ Aplikasi terbuka sebagai jendela mengambang hanya bila HP mendukung mode jendela
    - `FLOOWW_DB_URL` = alamat database, contoh `https://nama-proyek-default-rtdb.firebaseio.com`
    - `FLOOWW_UPDATE_URL` = alamat https berkas `update.json`
    - `FLOOWW_ADMIN_GOOGLE_CLIENT_ID` = ID klien OAuth jenis Web (opsional; kosong = admin hanya pakai PIN)
+
+### Unduhan publik otomatis (Cloudflare R2)
+Setiap build di `main`, workflow mengunggah `flooww-<versi>.apk`, `flooww-latest.apk`, dan `update.json` ke bucket R2. Langkah sekali saja:
+1. Cloudflare > R2 > Create bucket. Di Settings bucket aktifkan Public access (domain `r2.dev` atau domain sendiri).
+2. R2 > Manage API tokens > buat token Object Read & Write untuk bucket itu.
+3. GitHub > Settings > Secrets and variables > Actions:
+   - Secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+   - Variables: `R2_BUCKET` (nama bucket), `R2_PUBLIC_URL` (contoh `https://pub-xxxx.r2.dev`), dan `FLOOWW_UPDATE_URL` = `<R2_PUBLIC_URL>/update.json`
+Tombol download di web mengarah ke `<R2_PUBLIC_URL>/flooww-latest.apk`.

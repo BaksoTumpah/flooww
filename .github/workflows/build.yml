@@ -8,6 +8,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,3 +63,29 @@ jobs:
         with:
           name: flow-admin-release
           path: admin/build/outputs/apk/release/*.apk
+
+      # Unggah APK rilis ke Cloudflare R2 (link unduhan publik mandiri) setiap build di main.
+      # Jalan hanya bila secret/variable R2 sudah diisi.
+      - name: Publish ke Cloudflare R2
+        if: github.ref == 'refs/heads/main' && env.R2_BUCKET != '' && env.R2_ACCOUNT_ID != '' && env.R2_PUBLIC_URL != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          VER=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts | head -1)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          BASE="${R2_PUBLIC_URL%/}"
+          NOTES=$(git log -1 --pretty=%s | tr -d '"\\')
+          mkdir -p r2
+          cp "$APK" "r2/flooww-$VER.apk"
+          cp "$APK" "r2/flooww-latest.apk"
+          printf '{"version":%s,"url":"%s/flooww-%s.apk","notes":"%s","sha256":"%s"}\n' "$VER" "$BASE" "$VER" "$NOTES" "$SHA" > r2/update.json
+          cat r2/update.json
+          EP="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          APKT="application/vnd.android.package-archive"
+          aws s3 cp "r2/flooww-$VER.apk" "s3://$R2_BUCKET/flooww-$VER.apk" --endpoint-url "$EP" --content-type "$APKT" --cache-control "public, max-age=31536000, immutable"
+          aws s3 cp "r2/flooww-latest.apk" "s3://$R2_BUCKET/flooww-latest.apk" --endpoint-url "$EP" --content-type "$APKT" --cache-control "no-cache"
+          aws s3 cp r2/update.json "s3://$R2_BUCKET/update.json" --endpoint-url "$EP" --content-type "application/json" --cache-control "no-cache"
