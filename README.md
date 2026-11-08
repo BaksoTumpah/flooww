@@ -76,11 +76,9 @@ Aplikasi terbuka sebagai jendela mengambang hanya bila HP mendukung mode jendela
    - `FLOOWW_UPDATE_URL` = alamat https berkas `update.json`
    - `FLOOWW_ADMIN_GOOGLE_CLIENT_ID` = ID klien OAuth jenis Web (opsional; kosong = admin hanya pakai PIN)
 
-### Unduhan publik otomatis (Cloudflare R2)
-Setiap build di `main`, workflow mengunggah `flooww-<versi>.apk`, `flooww-latest.apk`, dan `update.json` ke bucket R2. Langkah sekali saja:
-1. Cloudflare > R2 > Create bucket. Di Settings bucket aktifkan Public access (domain `r2.dev` atau domain sendiri).
-2. R2 > Manage API tokens > buat token Object Read & Write untuk bucket itu.
-3. GitHub > Settings > Secrets and variables > Actions:
-   - Secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
-   - Variables: `R2_BUCKET` (nama bucket), `R2_PUBLIC_URL` (contoh `https://pub-xxxx.r2.dev`), dan `FLOOWW_UPDATE_URL` = `<R2_PUBLIC_URL>/update.json`
-Tombol download di web mengarah ke `<R2_PUBLIC_URL>/flooww-latest.apk`.
+### Unduhan publik otomatis (repo rilis terpisah)
+Setiap build di `main`, workflow mengunggah `flooww.apk` dan `update.json` sebagai GitHub Release di repo publik terpisah (hanya berisi APK, tanpa kode). Langkah sekali saja:
+1. Buat repo publik baru, mis. `flooww-rilis`, centang "Add a README file".
+2. GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens: akses hanya ke repo `flooww-rilis`, izin Contents: Read and write.
+3. Di repo flooww > Settings > Secrets and variables > Actions: secret `RELEASE_TOKEN` (token tadi); variables `RELEASE_REPO` (`NAMA/flooww-rilis`) dan `FLOOWW_UPDATE_URL` = `https://github.com/NAMA/flooww-rilis/releases/latest/download/update.json`.
+Tombol download di web: `https://github.com/NAMA/flooww-rilis/releases/latest/download/flooww.apk`.
