@@ -222,7 +222,6 @@ class MainActivity : Activity() {
                 }
             ))
         }
-        if (canBack) col.addView(Ui.button(this, "Kembali", false) { recreate() })
         window.decorView.setBackgroundColor(p.bg)
         setContentView(
             ScrollView(this).apply {
@@ -454,6 +453,7 @@ class MainActivity : Activity() {
             ),
             msg
         ))
+        if (canBack) col.addView(Ui.button(this, "Kembali", false) { recreate() })
         window.decorView.setBackgroundColor(p.bg)
         setContentView(
             ScrollView(this).apply {
