@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "flooww",
+    "title": "flooww: Bubble Mengambang untuk Belajar | Unduh APK Android",
     "version": "9",
     "waNumber": "6285137756077",
     "waText": "Info harga lisensi kak",
@@ -38,7 +38,7 @@
         "label": "Tanpa iklan dan pelacak"
       },
       {
-        "label": "Tanpa server pengembang"
+        "label": "Isi layar tidak dikirim ke pengembang"
       },
       {
         "label": "Izin dijelaskan satu per satu"
@@ -89,11 +89,11 @@
   ],
   "aman": {
     "title": "Aman, dan tidak mengambil data Anda",
-    "lead": "flooww tidak punya server dan tidak mengirim apa pun ke pengembang. Setiap izin yang diminta dijelaskan satu per satu di bawah.",
+    "lead": "flooww tidak mengirim isi layar, foto, atau tulisan Anda ke pengembang. Satu-satunya data di server pengembang adalah kode perangkat acak dan waktu mulai trial. Setiap izin yang diminta dijelaskan satu per satu di bawah.",
     "claims": [
       {
-        "title": "Tanpa server pengembang",
-        "body": "Kode flooww tidak mengirim data ke server milik pengembang. Internet hanya dipakai browser mengambang, situs AI pilihan Anda, dan unduhan model terjemah sekali dari Google."
+        "title": "Isi layar tidak dikirim ke pengembang",
+        "body": "Yang tersimpan di server pengembang hanya kode perangkat (hasil hash ID Android, bukan nomor HP atau akun) dan waktu mulai trial, supaya trial 10 menit tidak bisa diulang. Internet juga dipakai browser mengambang, situs AI pilihan Anda, cek pembaruan, dan unduhan model terjemah sekali dari Google."
       },
       {
         "title": "Tanpa iklan dan pelacak",
@@ -215,7 +215,7 @@
   },
   "lisensi": {
     "title": "Lisensi",
-    "lead": "Beli kodenya lewat WhatsApp, lalu masukkan di aplikasi. Unduhan tetap bebas, kodenya yang membuka lisensi.",
+    "lead": "Coba gratis 10 menit sejak bubble dinyalakan. Setelah itu beli kodenya lewat WhatsApp dan masukkan di aplikasi. Unduhan bebas, kodenya yang membuka lisensi.",
     "btnWa": "Beli lisensi lewat WhatsApp",
     "steps": [
       {

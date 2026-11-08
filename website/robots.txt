@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /developer
+Disallow: /content.json
+
+Sitemap: https://flooww.web.app/sitemap.xml
