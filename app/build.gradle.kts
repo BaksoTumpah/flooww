@@ -14,8 +14,8 @@ android {
         setProperty("archivesBaseName", "flooww")
         minSdk = 26
         targetSdk = 34
-        versionCode = 7
-        versionName = "0.6.0"
+        versionCode = 8
+        versionName = "0.7.0"
         // hanya arm64 (hampir semua HP sejak 2017): library ML Kit native tidak digandakan 4 arsitektur
         ndk { abiFilters += listOf("arm64-v8a") }
     }

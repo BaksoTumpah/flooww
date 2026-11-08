@@ -193,6 +193,11 @@ class FloatService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (!License.ok(this)) {
+            Toast.makeText(this, "flooww belum diaktifkan. Buka aplikasi untuk memasukkan lisensi.", Toast.LENGTH_LONG).show()
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // wm harus siap sebelum dipakai (realSize, bubble)
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0

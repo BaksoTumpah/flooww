@@ -56,7 +56,7 @@ object Prefs {
 
     // ---------- AI tujuan untuk Tanya AI dan Terjemah ----------
 
-    fun aiTarget(c: Context): Int = sp(c).getInt("aiTarget", 0).coerceIn(0, AI_NAMES.size - 1)
+    fun aiTarget(c: Context): Int = sp(c).getInt("aiTarget", 1).coerceIn(0, AI_NAMES.size - 1)
 
     fun setAiTarget(c: Context, i: Int) {
         sp(c).edit().putInt("aiTarget", i).apply()

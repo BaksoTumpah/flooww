@@ -29,7 +29,7 @@ jobs:
           FLOOWW_STORE_PASSWORD: ${{ secrets.FLOOWW_STORE_PASSWORD }}
           FLOOWW_KEY_ALIAS: ${{ secrets.FLOOWW_KEY_ALIAS }}
           FLOOWW_KEY_PASSWORD: ${{ secrets.FLOOWW_KEY_PASSWORD }}
-        run: gradle assembleDebug assembleRelease --no-daemon
+        run: gradle :app:assembleDebug :app:assembleRelease :admin:assembleDebug :admin:assembleRelease --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -42,3 +42,15 @@ jobs:
         with:
           name: flooww-release
           path: app/build/outputs/apk/release/*.apk
+
+      - name: Upload flow admin APK debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-admin-debug
+          path: admin/build/outputs/apk/debug/*.apk
+
+      - name: Upload flow admin APK release
+        uses: actions/upload-artifact@v4
+        with:
+          name: flow-admin-release
+          path: admin/build/outputs/apk/release/*.apk

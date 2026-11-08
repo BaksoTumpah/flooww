@@ -41,6 +41,10 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         p = Ui.pal(this)
+        if (!License.ok(this)) {
+            showLicense()
+            return
+        }
 
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -107,6 +111,7 @@ class MainActivity : Activity() {
             })
         }
         gAi.add(sec("Tujuan Tanya AI",
+            note("Direkomendasikan: ChatGPT (bawaan). Gambar soal paling stabil terlampir dan pengirimannya cepat. Gemini kadang gagal melampirkan gambar otomatis. Claude lebih lama dimuat."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn)
         ))
@@ -149,7 +154,7 @@ class MainActivity : Activity() {
             slider("Lama tekan", Setting.LONG_MS, " ms"),
         ))
         gCtl.add(sec("Keyboard di jendela mengambang",
-            note("Keyboard flooww: muncul di dasar layar, tidak mengambil fokus aplikasi di bawahnya. Keyboard HP: memakai keyboard bawaan, tapi fokus berpindah ke jendela."),
+            note("Direkomendasikan: Keyboard flooww (bawaan). Muncul di dasar layar dan tidak mengambil fokus aplikasi di bawahnya, jadi aman dipakai saat ujian. Keyboard HP memakai keyboard bawaan, tapi fokus berpindah ke jendela."),
             segmented(listOf("Keyboard flooww", "Keyboard HP"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) },
             slider("Tinggi tombol keyboard flooww", Setting.OSK_H, "%"),
             slider("Opasitas keyboard flooww", Setting.OSK_ALPHA, "%")
@@ -180,6 +185,22 @@ class MainActivity : Activity() {
 
         showAppsInfo()
         showFreeInfo()
+        License.info(this)?.let { li ->
+            col.addView(card("Lisensi",
+                TextView(this).apply {
+                    text = "Aktif untuk ${li.name.ifBlank { "pengguna" }}" +
+                        (if (li.school.isNotBlank()) "\n${li.school}" + (if (li.cls.isNotBlank()) ", ${li.cls}" else "") else "") +
+                        "\nID lisensi ${li.id}\nKode perangkat ${License.deviceCode(this@MainActivity)}"
+                    textSize = 13f
+                    setTextColor(p.muted)
+                },
+                Ui.button(this, "Ganti lisensi", false) {
+                    Prefs.sp(this).edit().remove("license").apply()
+                    startService(Intent(this, FloatService::class.java).setAction(FloatService.ACTION_STOP))
+                    recreate()
+                }
+            ))
+        }
         window.decorView.setBackgroundColor(p.bg)
         setContentView(
             ScrollView(this).apply {
@@ -298,6 +319,85 @@ class MainActivity : Activity() {
             s.ask()
         } catch (e: Exception) {
         }
+    }
+
+    /** Layar aktivasi: semua fitur terkunci sampai lisensi dari admin ditempel. */
+    private fun showLicense(msgOverride: String? = null) {
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(28), dp(16), dp(24))
+        }
+        col.addView(TextView(this).apply {
+            text = "flooww"
+            textSize = 28f
+            typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+            setTextColor(p.on)
+        })
+        col.addView(TextView(this).apply {
+            text = "Aktivasi diperlukan"
+            textSize = 18f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(Prefs.bubbleColor(this@MainActivity))
+            setPadding(0, dp(2), 0, dp(12))
+        })
+        val code = License.deviceCode(this)
+        val msg = TextView(this).apply {
+            text = msgOverride ?: License.message(License.state(this@MainActivity))
+            textSize = 13f
+            setTextColor(p.muted)
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        val input = Ui.field(this, "Tempel lisensi dari admin", true)
+        fun tryActivate(tok: String) {
+            val err = License.activate(this, tok)
+            if (err == null) recreate() else msg.text = err
+        }
+        col.addView(card("1. Kode perangkat",
+            TextView(this).apply {
+                text = code
+                textSize = 24f
+                typeface = Typeface.MONOSPACE
+                setTextColor(p.on)
+                setPadding(0, dp(4), 0, dp(8))
+            },
+            TextView(this).apply {
+                text = "Kirim kode ini ke admin untuk mendapat lisensi."
+                textSize = 13f
+                setTextColor(p.muted)
+                setPadding(0, 0, 0, dp(8))
+            },
+            row(
+                Ui.button(this, "Salin kode", true) {
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("kode perangkat", code))
+                    msg.text = "Kode perangkat disalin."
+                },
+                Ui.button(this, "Bagikan", false) {
+                    startActivity(Intent.createChooser(
+                        Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "Kode perangkat flooww: $code"), "Kirim kode"
+                    ))
+                }
+            )
+        ))
+        col.addView(card("2. Lisensi",
+            input,
+            row(
+                Ui.button(this, "Tempel dari salinan", false) {
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val t = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
+                    if (t.isBlank()) msg.text = "Belum ada teks yang disalin." else input.setText(t)
+                },
+                Ui.button(this, "Aktifkan", true) { tryActivate(input.text.toString()) }
+            ),
+            msg
+        ))
+        window.decorView.setBackgroundColor(p.bg)
+        setContentView(
+            ScrollView(this).apply {
+                setBackgroundColor(p.bg)
+                addView(col, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+        )
     }
 
     override fun onResume() {

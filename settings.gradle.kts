@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "flooww"
 include(":app")
+include(":admin")

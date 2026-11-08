@@ -1,0 +1,60 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    namespace = "com.example.floowwadmin"
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = "com.example.floowwadmin"
+        setProperty("archivesBaseName", "flow-admin")
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0.0"
+    }
+
+    // Tanda tangan sama dengan flooww (lihat app/build.gradle.kts).
+    signingConfigs {
+        create("flooww") {
+            val b64 = System.getenv("FLOOWW_KEYSTORE_B64")?.trim().orEmpty()
+            if (b64.isNotEmpty()) {
+                val f = layout.buildDirectory.file("flooww-ci.keystore").get().asFile
+                f.parentFile.mkdirs()
+                f.writeBytes(java.util.Base64.getMimeDecoder().decode(b64))
+                storeFile = f
+                storePassword = System.getenv("FLOOWW_STORE_PASSWORD")
+                keyAlias = System.getenv("FLOOWW_KEY_ALIAS") ?: "flooww"
+                keyPassword = System.getenv("FLOOWW_KEY_PASSWORD") ?: System.getenv("FLOOWW_STORE_PASSWORD")
+            } else {
+                storeFile = file("../app/flooww.keystore")
+                storePassword = "flooww-sign"
+                keyAlias = "flooww"
+                keyPassword = "flooww-sign"
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("flooww")
+        }
+        release {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("flooww")
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")
+}
