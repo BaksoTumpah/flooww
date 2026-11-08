@@ -1,0 +1,254 @@
+{
+  "meta": {
+    "title": "flooww",
+    "version": "0.6.0",
+    "waNumber": "62XXXXXXXXXX",
+    "waText": "Halo, saya mau beli lisensi flooww. Mohon info paket dan harganya.",
+    "apkUrl": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk"
+  },
+  "brand": {
+    "name": "flooww",
+    "aria": "flooww, ke atas"
+  },
+  "nav": {
+    "aria": "Menu halaman",
+    "items": [
+      {
+        "label": "Aman"
+      },
+      {
+        "label": "Unduh"
+      },
+      {
+        "label": "Lisensi"
+      },
+      {
+        "label": "Kontak"
+      }
+    ]
+  },
+  "hero": {
+    "title": "flooww",
+    "tagline": "Bubble mengambang untuk belajar.",
+    "sub": "Lingkari soal di layar, lalu tanya AI, salin teksnya, atau terjemahkan. Semua dari satu bubble di atas aplikasi apa pun.",
+    "btnApk": "Unduh APK {versi}",
+    "btnWa": "Beli lisensi lewat WhatsApp",
+    "pills": [
+      {
+        "label": "Tanpa iklan dan pelacak"
+      },
+      {
+        "label": "Tanpa server pengembang"
+      },
+      {
+        "label": "Izin dijelaskan satu per satu"
+      }
+    ],
+    "fine": "Untuk Android 8.0 ke atas dengan prosesor arm64.",
+    "caption": "Ilustrasi. Ketuk bubble untuk membuka menu, lalu pilih alat.",
+    "bubbleAria": "Bubble flooww. Ketuk untuk membuka atau menutup menu",
+    "menuAria": "Alat flooww"
+  },
+  "tools": [
+    {
+      "name": "Tanya AI",
+      "desc": "Lingkari soal di layar. Gambarnya dikirim ke Gemini, ChatGPT, atau Claude di browser mengambang."
+    },
+    {
+      "name": "Salin",
+      "desc": "Lingkari area. Teks dibaca di HP lalu otomatis tersalin."
+    },
+    {
+      "name": "Terjemah",
+      "desc": "Lingkari teks. Diterjemahkan di HP, Inggris atau Jepang ke Indonesia, bisa dibalik."
+    },
+    {
+      "name": "Screenshot",
+      "desc": "Ambil layar penuh dan simpan ke galeri, folder Pictures/flooww."
+    },
+    {
+      "name": "Browser",
+      "desc": "Browser mini di jendela mengambang."
+    },
+    {
+      "name": "Hitung",
+      "desc": "Kalkulator dengan + - × ÷ ^ % √ π."
+    },
+    {
+      "name": "Klik",
+      "desc": "Auto clicker. Pasang target, atur jeda dan jumlah ketukan."
+    },
+    {
+      "name": "Apps",
+      "desc": "Buka aplikasi pilihan Anda sebagai jendela mengambang."
+    },
+    {
+      "name": "Matikan",
+      "desc": "Hentikan bubble."
+    }
+  ],
+  "aman": {
+    "title": "Aman, dan tidak mengambil data Anda",
+    "lead": "flooww tidak punya server dan tidak mengirim apa pun ke pengembang. Setiap izin yang diminta dijelaskan satu per satu di bawah.",
+    "claims": [
+      {
+        "title": "Tanpa server pengembang",
+        "body": "Kode flooww tidak mengirim data ke server milik pengembang. Internet hanya dipakai browser mengambang, situs AI pilihan Anda, dan unduhan model terjemah sekali dari Google."
+      },
+      {
+        "title": "Tanpa iklan dan pelacak",
+        "body": "Tidak ada SDK iklan, analitik, atau laporan crash di dalamnya. Tidak ada izin kamera, mikrofon, lokasi, kontak, atau SMS."
+      },
+      {
+        "title": "Layar diambil atas perintah Anda",
+        "body": "Hanya saat Anda melingkari area atau memakai Screenshot. OCR dan terjemah berjalan di HP."
+      }
+    ],
+    "permsTitle": "Izin yang diminta, dan alasannya",
+    "perms": [
+      {
+        "name": "Tampil di atas aplikasi lain",
+        "reason": "Menampilkan bubble dan jendela mengambang."
+      },
+      {
+        "name": "Tangkap layar",
+        "reason": "Diminta Android setiap bubble dimulai (Android 14 ke atas). Dipakai hanya saat Anda melingkari area atau menekan Screenshot."
+      },
+      {
+        "name": "Aksesibilitas (opsional)",
+        "reason": "Hanya untuk auto clicker mengetuk titik yang Anda tentukan. Layanan ini tidak membaca isi layar."
+      },
+      {
+        "name": "Foto dan media",
+        "reason": "Menu Gambar untuk memilih foto dari galeri, dan menyimpan screenshot ke Pictures/flooww."
+      },
+      {
+        "name": "Internet",
+        "reason": "Browser mengambang dan situs AI pilihan Anda."
+      },
+      {
+        "name": "Notifikasi",
+        "reason": "Penanda wajib Android selama bubble aktif."
+      },
+      {
+        "name": "Abaikan optimasi baterai",
+        "reason": "Agar bubble tidak dihentikan sistem saat dipakai."
+      },
+      {
+        "name": "Pengaturan aman (ADB, opsional)",
+        "reason": "Tidak diberikan otomatis. Aktif hanya bila Anda memberikannya sendiri lewat ADB, untuk menyalakan jendela bebas."
+      }
+    ],
+    "honest": {
+      "title": "Satu hal yang perlu diketahui",
+      "p1": "Saat memakai Tanya AI, gambar soal Anda dikirim ke website AI yang Anda pilih (Gemini, ChatGPT, atau Claude) dan tunduk pada kebijakan situs itu.",
+      "p2": "flooww tidak menyembunyikan dirinya. Hormati aturan sekolah, kampus, dan ujian saat memakainya."
+    }
+  },
+  "unduh": {
+    "title": "Unduh flooww",
+    "lead": "Paket APK untuk dipasang langsung di HP Android.",
+    "btn": "Unduh APK {versi}",
+    "spec": [
+      {
+        "label": "Versi",
+        "value": "{versi} (kode 7)"
+      },
+      {
+        "label": "Android",
+        "value": "8.0 (API 26) ke atas"
+      },
+      {
+        "label": "Prosesor",
+        "value": "arm64-v8a"
+      },
+      {
+        "label": "Pembaruan",
+        "value": "Pasang di atas versi lama"
+      },
+      {
+        "label": "Nama paket",
+        "value": "com.example.floatstudy"
+      }
+    ],
+    "steps": [
+      {
+        "title": "Unduh dan buka APK",
+        "desc": "Buka dari notifikasi unduhan atau folder Download."
+      },
+      {
+        "title": "Izinkan pemasangan",
+        "desc": "Android memperingatkan setiap APK dari luar Play Store. Itu normal. Izinkan untuk browser Anda."
+      },
+      {
+        "title": "Beri izin di aplikasi",
+        "desc": "Izinkan tampil di atas aplikasi lain dan notifikasi."
+      },
+      {
+        "title": "Nyalakan bubble",
+        "desc": "Di Android 14 ke atas, izin tangkap layar diminta setiap bubble dimulai."
+      }
+    ]
+  },
+  "lisensi": {
+    "title": "Lisensi",
+    "lead": "Beli kodenya lewat WhatsApp, lalu masukkan di aplikasi. Unduhan tetap bebas, kodenya yang membuka lisensi.",
+    "btnWa": "Beli lisensi lewat WhatsApp",
+    "steps": [
+      {
+        "title": "Hubungi lewat WhatsApp",
+        "desc": "Tanyakan paket dan harga yang tersedia."
+      },
+      {
+        "title": "Bayar",
+        "desc": "Ikuti petunjuk pembayaran yang dikirim di chat."
+      },
+      {
+        "title": "Terima kode token",
+        "desc": "Kode dikirim lewat WhatsApp setelah pembayaran diterima."
+      },
+      {
+        "title": "Masukkan di aplikasi",
+        "desc": "Tempel kode di flooww untuk mengaktifkan lisensi."
+      }
+    ],
+    "receipt": {
+      "left": "Token lisensi flooww",
+      "right": "Contoh",
+      "groups": [
+        {
+          "v": "5821"
+        },
+        {
+          "v": "0937"
+        },
+        {
+          "v": "4410"
+        },
+        {
+          "v": "6285"
+        },
+        {
+          "v": "1173"
+        }
+      ],
+      "cut": "Contoh tampilan saja. Kode asli dikirim lewat WhatsApp setelah pembayaran.",
+      "aria": "Contoh tampilan kode token lisensi: {kode}"
+    }
+  },
+  "kontak": {
+    "title": "Hubungi lewat WhatsApp",
+    "lead": "Beli lisensi, tanya paket, atau lapor kendala pemasangan.",
+    "btnOpen": "Buka WhatsApp",
+    "copy": {
+      "idle": "Salin nomor",
+      "done": "Tersalin",
+      "manual": "Nomor terpilih, salin manual"
+    }
+  },
+  "foot": {
+    "text": "flooww {versi}. Aplikasi untuk belajar.",
+    "fab": "WhatsApp",
+    "fabAria": "Chat WhatsApp"
+  }
+}
