@@ -214,7 +214,10 @@ class FloatService : Service() {
         }
         if (bubble == null && !locked) {
             Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefListener)
-            if (License.ok(this)) showBubble() else startTrial()
+            if (License.ok(this)) {
+                showBubble()
+                ui.postDelayed(licenseTick, 1000)
+            } else startTrial()
         }
         // dimulai ulang sistem bila prosesnya dimatikan; bubble tetap muncul
         return START_STICKY
@@ -311,6 +314,10 @@ class FloatService : Service() {
 
     private fun onTrialResult(r: Trial.Result) {
         if (License.ok(c)) return
+        if (License.state(c) == License.State.EXPIRED) {
+            lockAll()
+            return
+        }
         when (r.kind) {
             Trial.Kind.ERROR -> if (bubble == null && !locked) {
                 toast(r.message)
@@ -326,6 +333,23 @@ class FloatService : Service() {
                 ui.removeCallbacks(trialTick)
                 ui.postDelayed(trialTick, 1000)
             }
+        }
+    }
+
+    /** Lisensi berkedaluwarsa: sinkron waktu server tiap menit, lalu kunci bila sudah lewat. */
+    private val licenseTick = object : Runnable {
+        override fun run() {
+            if (locked) return
+            Thread {
+                Trial.syncTime()
+                ui.post {
+                    if (!locked && !License.ok(c)) {
+                        warned = false
+                        startTrial()
+                    }
+                }
+            }.start()
+            ui.postDelayed(this, 60_000L)
         }
     }
 
@@ -383,6 +407,8 @@ class FloatService : Service() {
         ui.removeCallbacks(trialTick)
         toast("Lisensi aktif. Terima kasih!")
         if (bubble == null) showBubble()
+        ui.removeCallbacks(licenseTick)
+        ui.postDelayed(licenseTick, 60_000L)
     }
 
     private fun showLock() {
@@ -390,7 +416,8 @@ class FloatService : Service() {
         val p = Ui.pal(c)
         val code = License.deviceCode(c)
         val msg = TextView(c).apply {
-            text = "Masa trial 10 menit habis. Kirim ID HP ke admin, lalu masukkan lisensi untuk membuka semua fitur."
+            text = if (License.state(c) == License.State.EXPIRED) "Lisensi kedaluwarsa. Kirim ID HP ke admin untuk lisensi baru, lalu masukkan di sini."
+            else "Masa trial 10 menit habis. Kirim ID HP ke admin, lalu masukkan lisensi untuk membuka semua fitur."
             textSize = 13f
             setTextColor(p.muted)
         }
@@ -407,7 +434,7 @@ class FloatService : Service() {
             setPadding(dp(16), dp(16), dp(16), dp(16))
             background = Ui.clay(c, p.surface, dp(22))
             addView(TextView(c).apply {
-                text = "Trial habis"
+                text = if (License.state(c) == License.State.EXPIRED) "Lisensi habis" else "Trial habis"
                 textSize = 20f
                 typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
                 setTextColor(p.on)

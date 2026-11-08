@@ -99,6 +99,7 @@ object Trial {
             val start = JSONObject(r.body).optLong("start", 0L)
             if (start <= 0L) return Result(Kind.ERROR, "Data trial rusak.")
             if (r.serverNow <= 0L) return Result(Kind.ERROR, "Waktu server tidak terbaca.")
+            License.noteServerTime(r.serverNow)
             startMs = start
             offset = r.serverNow - SystemClock.elapsedRealtime()
             val rem = remaining() ?: 0L
@@ -108,6 +109,16 @@ object Trial {
             }
         } catch (e: Exception) {
             Result(Kind.ERROR, "Trial butuh internet untuk diverifikasi.")
+        }
+    }
+
+    /** Ambil waktu server saja (untuk lisensi berkedaluwarsa). Thread latar. */
+    fun syncTime() {
+        val base = BuildConfig.TRIAL_DB_URL.trim().trimEnd('/')
+        if (!base.startsWith("https://")) return
+        try {
+            License.noteServerTime(call("GET", "$base/trial/ping.json").serverNow)
+        } catch (e: Exception) {
         }
     }
 

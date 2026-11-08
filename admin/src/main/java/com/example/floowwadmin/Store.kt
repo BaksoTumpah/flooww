@@ -25,7 +25,9 @@ class Lic(
     val device: String,
     val issued: Long,
     val maxV: Int,
-    val token: String
+    val token: String,
+    /** Kedaluwarsa (ms sejak epoch). 0 = jangan pernah. */
+    val expires: Long = 0L
 )
 
 /** Satu rilis flooww. Versi hanya angka bulat (1, 2, 3, ...), naik satu per rilis. */
@@ -139,7 +141,7 @@ object Store {
             val o = a.getJSONObject(it)
             Lic(
                 o.getString("id"), o.optString("n"), o.optString("p"), o.optString("s"), o.optString("c"),
-                o.getString("d"), o.getLong("t"), o.optInt("m"), o.getString("k")
+                o.getString("d"), o.getLong("t"), o.optInt("m"), o.getString("k"), o.optLong("e", 0L)
             )
         }.sortedByDescending { it.issued }
     }
@@ -148,7 +150,7 @@ object Store {
         val a = JSONArray()
         l.forEach {
             a.put(JSONObject().put("id", it.id).put("n", it.name).put("p", it.phone).put("s", it.school).put("c", it.cls)
-                .put("d", it.device).put("t", it.issued).put("m", it.maxV).put("k", it.token))
+                .put("d", it.device).put("t", it.issued).put("m", it.maxV).put("k", it.token).put("e", it.expires))
         }
         sp(c).edit().putString("licenses", a.toString()).apply()
     }
@@ -167,19 +169,19 @@ object Store {
     }
 
     /** Buat dan tanda tangani lisensi. Berlaku sampai versi = rilis terbaru + jumlah update gratis. */
-    fun issue(c: Context, name: String, phone: String, school: String, cls: String, device: String, free: Int): Lic {
+    fun issue(c: Context, name: String, phone: String, school: String, cls: String, device: String, free: Int, expires: Long = 0L): Lic {
         val priv = KeyFactory.getInstance("EC").generatePrivate(PKCS8EncodedKeySpec(Base64.decode(sp(c).getString("priv", "")!!, Base64.DEFAULT)))
         val latest = releases(c).maxOfOrNull { it.code } ?: FIRST_RELEASE_CODE
         val maxV = latest + free
         val id = newId()
         val now = System.currentTimeMillis()
         val payload = JSONObject().put("v", 1).put("id", id).put("n", name).put("p", phone).put("s", school).put("c", cls)
-            .put("d", device).put("t", now).put("m", maxV).toString().toByteArray(Charsets.UTF_8)
+            .put("d", device).put("t", now).put("m", maxV).put("e", expires).toString().toByteArray(Charsets.UTF_8)
         val s = Signature.getInstance("SHA256withECDSA")
         s.initSign(priv)
         s.update(payload)
         val token = b64u(payload) + "." + b64u(s.sign())
-        return Lic(id, name, phone, school, cls, device, now, maxV, token)
+        return Lic(id, name, phone, school, cls, device, now, maxV, token, expires)
     }
 
     // ---------- cadangan terenkripsi ----------

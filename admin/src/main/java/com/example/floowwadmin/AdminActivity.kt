@@ -316,6 +316,12 @@ class AdminActivity : Activity() {
         val free = Ui.field(this, "Update gratis", number = true).apply { setText(Store.freeUpdates(this@AdminActivity).toString()) }
         val msg = label("", 13f, Ui.ACCENT)
         val result = vbox()
+        // kedaluwarsa: 0 = jangan pernah; selain itu akhir hari (23:59:59) tanggal yang dipilih
+        var expires = prefill?.expires ?: 0L
+        val dateFmt = SimpleDateFormat("d MMM yyyy", Locale("id"))
+        val expLabel = label("", 13f, p.on, true)
+        fun showExp() { expLabel.text = if (expires == 0L) "Kedaluwarsa: jangan pernah" else "Kedaluwarsa: ${dateFmt.format(Date(expires))}" }
+        showExp()
         val latest = Store.releases(this).maxOfOrNull { it.code } ?: Store.FIRST_RELEASE_CODE
 
         fun create() {
@@ -323,7 +329,7 @@ class AdminActivity : Activity() {
             if (d == null) { msg.text = "Kode perangkat harus 12 karakter (angka 0-9 dan huruf A-F)."; return }
             val n = free.text.toString().toIntOrNull() ?: Store.freeUpdates(this)
             val lic = Store.issue(this, name.text.toString().trim(), phone.text.toString().trim(), school.text.toString().trim(),
-                cls.text.toString().trim(), d, n.coerceIn(0, 50))
+                cls.text.toString().trim(), d, n.coerceIn(0, 50), expires)
             val old = editing
             val all = Store.licenses(this).filter { it.id != old?.id && it.device != d }
             Store.setLicenses(this, all + lic)
@@ -332,7 +338,8 @@ class AdminActivity : Activity() {
             result.removeAllViews()
             result.addView(card(
                 "Lisensi siap",
-                label("Untuk ${lic.name.ifBlank { "pembeli" }} · ID ${lic.id} · berlaku sampai versi ${lic.maxV}", 13f),
+                label("Untuk ${lic.name.ifBlank { "pembeli" }} · ID ${lic.id} · berlaku sampai versi ${lic.maxV} · " +
+                    if (lic.expires == 0L) "tanpa kedaluwarsa" else "habis ${dateFmt.format(Date(lic.expires))}", 13f),
                 spaced(TextView(this).apply {
                     text = lic.token
                     textSize = 11f
@@ -352,6 +359,20 @@ class AdminActivity : Activity() {
             spaced(device), spaced(name), spaced(phone), spaced(school), spaced(cls),
             label("Update gratis (sesudah rilis saat ini, kode $latest)").apply { setPadding(0, dp(6), 0, 0) },
             spaced(free),
+            expLabel.apply { setPadding(0, dp(10), 0, 0) },
+            row(
+                btn("Pilih tanggal") {
+                    val cal = java.util.Calendar.getInstance().apply { if (expires > 0) timeInMillis = expires else add(java.util.Calendar.MONTH, 1) }
+                    android.app.DatePickerDialog(this, { _, y, m, d ->
+                        val c = java.util.Calendar.getInstance()
+                        c.set(y, m, d, 23, 59, 59)
+                        c.set(java.util.Calendar.MILLISECOND, 0)
+                        expires = c.timeInMillis
+                        showExp()
+                    }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH)).show()
+                },
+                btn("Jangan pernah") { expires = 0L; showExp() }
+            ),
             spaced(btn(if (prefill != null) "Terbitkan ulang" else "Buat lisensi", true) { create() }),
             msg
         ))
