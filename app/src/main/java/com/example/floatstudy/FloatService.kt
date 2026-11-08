@@ -374,6 +374,8 @@ class FloatService : Service() {
     private fun lockAll() {
         ui.removeCallbacks(trialTick)
         locked = true
+        // ingat di perangkat: layar aplikasi terkunci di halaman lisensi sampai lisensi sah
+        if (License.state(c) == License.State.NONE) Trial.markExpired(c)
         stopClicking()
         hideMenu()
         hidePanel()
@@ -430,7 +432,7 @@ class FloatService : Service() {
         val code = License.deviceCode(c)
         val msg = TextView(c).apply {
             text = if (License.state(c) == License.State.EXPIRED) "Lisensi kedaluwarsa. Kirim ID HP ke admin untuk lisensi baru, lalu masukkan di sini."
-            else "Masa trial 10 menit habis. Kirim ID HP ke admin, lalu masukkan lisensi untuk membuka semua fitur."
+            else "Masa trial 10 menit habis. Bubble dimatikan dan aplikasi terkunci. Kirim ID HP ke admin, lalu masukkan lisensi untuk membuka semua fitur."
             textSize = 13f
             setTextColor(p.muted)
         }

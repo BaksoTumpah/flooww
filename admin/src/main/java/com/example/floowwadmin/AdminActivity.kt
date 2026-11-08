@@ -335,6 +335,11 @@ class AdminActivity : Activity() {
             val old = editing
             val all = Store.licenses(this).filter { it.id != old?.id && it.device != d }
             Store.setLicenses(this, all + lic)
+            // pembeli sudah punya lisensi: hapus catatan trialnya di awan supaya data tidak menumpuk
+            if (Store.cleanupReady(this)) Thread {
+                val e = Store.deleteTrial(this, d)
+                runOnUiThread { if (!isFinishing && !isDestroyed) toast(if (e == null) "Data trial di awan dihapus" else "Gagal hapus data trial: $e") }
+            }.start()
             editing = null
             msg.text = ""
             result.removeAllViews()
@@ -464,6 +469,25 @@ class AdminActivity : Activity() {
             label("Jumlah rilis setelah pembelian yang masih dicakup lisensi."),
             spaced(free),
             spaced(btn("Simpan") { Store.setFreeUpdates(this, free.text.toString().toIntOrNull() ?: 2); toast("Tersimpan") })
+        ))
+        val dbUrl = Ui.field(this, "Alamat Realtime Database (https://...)").apply { setText(Store.dbUrl(this@AdminActivity)) }
+        val dbSecret = Ui.field(this, "Rahasia database").apply { setText(Store.dbSecret(this@AdminActivity)) }
+        content.addView(card(
+            "Bersihkan data trial (opsional)",
+            label("Bila diisi, saat lisensi diterbitkan catatan trial pembeli itu di Firebase ikut dihapus. Aplikasi pembeli tidak pernah bisa menghapusnya sendiri, supaya trial tidak bisa diulang. Rahasia database memberi akses penuh ke database, jadi hanya disimpan di HP admin ini dan tidak ikut cadangan."),
+            spaced(dbUrl), spaced(dbSecret),
+            row(
+                btn("Simpan", true) { Store.setCleanup(this, dbUrl.text.toString(), dbSecret.text.toString()); toast("Tersimpan") },
+                btn("Hapus trial semua pembeli") {
+                    Store.setCleanup(this, dbUrl.text.toString(), dbSecret.text.toString())
+                    if (!Store.cleanupReady(this)) { toast("Isi alamat dan rahasia dulu"); return@btn }
+                    val all = Store.licenses(this)
+                    Thread {
+                        val fail = all.count { Store.deleteTrial(this, it.device) != null }
+                        runOnUiThread { toast(if (fail == 0) "Selesai: ${all.size} catatan dihapus" else "$fail dari ${all.size} gagal") }
+                    }.start()
+                }
+            )
         ))
         content.addView(card(
             "Kunci penandatangan",

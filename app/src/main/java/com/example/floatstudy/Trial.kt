@@ -79,6 +79,8 @@ object Trial {
      * Selanjutnya: membaca waktu mulai yang tersimpan.
      */
     fun sync(c: Context): Result {
+        // pernah berlisensi di perangkat ini: tidak ada trial baru walau catatan trial di awan sudah dihapus
+        if (License.hadLicense(c)) return Result(Kind.EXPIRED)
         val base = BuildConfig.TRIAL_DB_URL.trim().trimEnd('/')
         if (base.isEmpty() || !base.startsWith("https://")) {
             return Result(Kind.ERROR, "Server trial belum diatur. Hubungi admin.")
@@ -104,13 +106,45 @@ object Trial {
             offset = r.serverNow - SystemClock.elapsedRealtime()
             val rem = remaining() ?: 0L
             if (rem > 0) Result(Kind.ACTIVE) else {
-                Prefs.sp(c).edit().putBoolean("trial_expired", true).apply()
+                markExpired(c)
                 Result(Kind.EXPIRED)
             }
         } catch (e: Exception) {
             Result(Kind.ERROR, "Trial butuh internet untuk diverifikasi.")
         }
     }
+
+    /**
+     * Baca status trial tanpa memulai trial baru (hanya GET). Thread latar. Untuk menampilkan hitung mundur setelah
+     * aplikasi dibuka ulang. Mengembalikan ACTIVE atau EXPIRED bila catatan trial ada, null bila belum mulai atau gagal.
+     */
+    fun peek(c: Context): Kind? {
+        val base = BuildConfig.TRIAL_DB_URL.trim().trimEnd('/')
+        if (!base.startsWith("https://")) return null
+        return try {
+            val r = call("GET", "$base/trial/${key(c)}.json")
+            if (r.code != 200 || r.body.trim() == "null") return null
+            val start = JSONObject(r.body).optLong("start", 0L)
+            if (start <= 0L || r.serverNow <= 0L) return null
+            License.noteServerTime(r.serverNow)
+            startMs = start
+            offset = r.serverNow - SystemClock.elapsedRealtime()
+            if ((remaining() ?: 0L) > 0) Kind.ACTIVE else {
+                markExpired(c)
+                Kind.EXPIRED
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun markExpired(c: Context) {
+        Prefs.sp(c).edit().putBoolean("trial_expired", true).apply()
+    }
+
+    /** Aplikasi harus terkunci di halaman lisensi: trial habis, atau ada lisensi tersimpan yang tidak sah (habis, salah perangkat, dll). */
+    fun mustLock(c: Context): Boolean =
+        !License.ok(c) && (expiredHint(c) || License.state(c) != License.State.NONE || License.hadLicense(c))
 
     /** Ambil waktu server saja (untuk lisensi berkedaluwarsa). Thread latar. */
     fun syncTime() {

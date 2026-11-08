@@ -128,6 +128,42 @@ object Store {
         }
     }
 
+    // ---------- pembersihan data trial di awan ----------
+
+    // Hanya admin yang boleh menghapus data trial (aplikasi pembeli tidak bisa, supaya trial tidak bisa diulang).
+    // Dua pengaturan opsional: alamat Realtime Database dan rahasia database (Firebase Console > Project settings >
+    // Service accounts > Database secrets). Disimpan hanya di HP admin ini dan tidak ikut cadangan.
+
+    fun dbUrl(c: Context) = sp(c).getString("dbUrl", "") ?: ""
+    fun dbSecret(c: Context) = sp(c).getString("dbSecret", "") ?: ""
+    fun setCleanup(c: Context, url: String, secret: String) =
+        sp(c).edit().putString("dbUrl", url.trim().trimEnd('/')).putString("dbSecret", secret.trim()).apply()
+    fun cleanupReady(c: Context) = dbUrl(c).startsWith("https://") && dbSecret(c).isNotEmpty()
+
+    /** Hapus catatan trial satu perangkat (thread latar). Mengembalikan null bila berhasil, atau pesan galat. */
+    fun deleteTrial(c: Context, device: String): String? {
+        if (!cleanupReady(c)) return "Pengaturan database belum diisi."
+        val key = device.uppercase().filter { it.isLetterOrDigit() }
+        if (key.length != 12) return "Kode perangkat tidak valid."
+        return try {
+            val u = dbUrl(c) + "/trial/" + key + ".json?auth=" + java.net.URLEncoder.encode(dbSecret(c), "UTF-8")
+            val h = java.net.URL(u).openConnection() as java.net.HttpURLConnection
+            h.requestMethod = "DELETE"
+            h.connectTimeout = 10000
+            h.readTimeout = 15000
+            try {
+                val code = h.responseCode
+                if (code in 200..299) null
+                else if (code == 401 || code == 403) "Ditolak ($code). Periksa rahasia database."
+                else "Server menjawab $code."
+            } finally {
+                h.disconnect()
+            }
+        } catch (e: Exception) {
+            e.message ?: e.javaClass.simpleName
+        }
+    }
+
     // ---------- akun Google pemilik ----------
 
     fun owner(c: Context): String? = sp(c).getString("owner", null)

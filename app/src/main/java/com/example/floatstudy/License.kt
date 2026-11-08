@@ -138,6 +138,9 @@ object License {
 
     fun ok(c: Context): Boolean = state(c) == State.OK
 
+    /** Pernah ada lisensi sah di perangkat ini (juga setelah "Ganti lisensi" atau lisensi habis). Mencegah trial baru. */
+    fun hadLicense(c: Context): Boolean = Prefs.sp(c).getBoolean("had_license", false) || info(c) != null
+
     fun info(c: Context): Info? = parse(Prefs.sp(c).getString("license", "") ?: "")
 
     /** Simpan lisensi bila sah. Mengembalikan pesan galat, atau null bila berhasil. */
@@ -146,7 +149,7 @@ object License {
         if (norm(info.device) != norm(deviceCode(c))) return "Lisensi ini untuk perangkat lain. Kirim kode perangkat ini ke admin."
         if (info.maxVersion in 1 until BuildConfig.VERSION_CODE) return "Lisensi tidak mencakup versi aplikasi ini. Hubungi admin."
         if (info.expires > 0 && trustedNow(c) > info.expires) return "Lisensi ini sudah kedaluwarsa. Hubungi admin untuk lisensi baru."
-        Prefs.sp(c).edit().putString("license", token.trim().filter { !it.isWhitespace() }).apply()
+        Prefs.sp(c).edit().putString("license", token.trim().filter { !it.isWhitespace() }).putBoolean("had_license", true).apply()
         Prefs.setUserName(c, info.name)
         return null
     }

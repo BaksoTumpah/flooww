@@ -335,7 +335,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   var DEFAULTS = {
     meta: {
       title: 'flooww',
-      version: '0.6.0',
+      version: '9',
       waNumber: '62XXXXXXXXXX',
       waText: 'Halo, saya mau beli lisensi flooww. Mohon info paket dan harganya.',
       apkUrl: 'https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk'
@@ -395,7 +395,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       lead: 'Paket APK untuk dipasang langsung di HP Android.',
       btn: 'Unduh APK {versi}',
       spec: [
-        { label: 'Versi', value: '{versi} (kode 7)' },
+        { label: 'Versi', value: '{versi}' },
+        { label: 'Ukuran', value: '{ukuran}' },
+        { label: 'Dirilis', value: '{tanggal}' },
         { label: 'Android', value: '8.0 (API 26) ke atas' },
         { label: 'Prosesor', value: 'arm64-v8a' },
         { label: 'Pembaruan', value: 'Pasang di atas versi lama' },
@@ -438,9 +440,21 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   /* ---------- alat bantu ---------- */
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]; }); }
+  /* rilis terbaru dibaca otomatis dari GitHub Releases: versi, ukuran APK, dan tanggal rilis */
+  var RELEASE = null;
+  function releaseVersion(c) { return RELEASE && RELEASE.version ? RELEASE.version : c.meta.version; }
+  function releaseSize() { return RELEASE && RELEASE.size ? (RELEASE.size / 1048576).toFixed(1).replace('.', ',') + ' MB' : '-'; }
+  function releaseDate() {
+    if (!RELEASE || !RELEASE.date) return '-';
+    var d = new Date(RELEASE.date);
+    if (isNaN(d.getTime())) return '-';
+    try { return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }); } catch (e) { return d.toISOString().slice(0, 10); }
+  }
   function fill(s, c) {
     return String(s == null ? '' : s)
-      .replace(/\{versi\}/g, c.meta.version)
+      .replace(/\{versi\}/g, releaseVersion(c))
+      .replace(/\{ukuran\}/g, releaseSize())
+      .replace(/\{tanggal\}/g, releaseDate())
       .replace(/\{kode\}/g, c.lisensi.receipt.groups.map(function (g) { return g.v; }).join(' '));
   }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -642,12 +656,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   function F(path, label, kind, hint) { return { t: 'f', path: path, label: label, kind: kind || 'text', hint: hint || '' }; }
   function G(title, fields, hint) { return { t: 'g', title: title, fields: fields, hint: hint || '' }; }
   function L(title, path, o) { return { t: 'l', title: title, path: path, fixed: !!o.fixed, fields: o.fields, name: o.name, titleKey: o.titleKey, blank: o.blank, hint: o.hint || '' }; }
-  var VERSI_HINT = 'Tulis {versi} untuk memasukkan nomor versi otomatis.';
+  var VERSI_HINT = 'Tulis {versi}, {ukuran}, atau {tanggal} untuk memasukkan data rilis terbaru otomatis dari GitHub.';
   var SECTIONS = [
     { id: 'tayang', label: 'Tayangkan', desc: 'Simpan, ekspor, dan impor seluruh teks situs.' },
     { id: 'umum', label: 'Umum', desc: 'Judul tab, merek, versi, nomor WhatsApp, dan tautan.', blocks: [
       G('Situs', [F('meta.title', 'Judul tab browser'), F('brand.name', 'Nama merek di pojok kiri atas'), F('brand.aria', 'Label pembaca layar untuk merek')]),
-      G('Aplikasi', [F('meta.version', 'Nomor versi', 'text', 'Dipakai di semua teks lewat {versi}.'), F('meta.apkUrl', 'Tautan unduh APK', 'url', 'Dipakai oleh semua tombol Unduh APK.')]),
+      G('Aplikasi', [F('meta.version', 'Nomor versi cadangan', 'text', 'Terisi otomatis dari rilis terbaru di GitHub. Angka ini hanya dipakai bila GitHub tidak terjangkau.'), F('meta.apkUrl', 'Tautan unduh APK', 'url', 'Dipakai oleh semua tombol Unduh APK.')]),
       G('WhatsApp', [F('meta.waNumber', 'Nomor WhatsApp', 'tel', 'Format internasional tanpa tanda plus. Contoh: 6281234567890.'), F('meta.waText', 'Pesan awal saat chat dibuka', 'area')])
     ] },
     { id: 'menu', label: 'Menu atas', desc: 'Teks tautan di bagian atas halaman. Tujuan tautan tetap.', blocks: [
@@ -872,6 +886,33 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
   compute();
   route();
+
+  /* baca rilis terbaru (hasil disimpan 10 menit di peramban agar tidak kena batas permintaan GitHub) */
+  function applyRelease(r) {
+    RELEASE = r;
+    if (view === 'site') renderSite();
+  }
+  try {
+    var cached = null;
+    try { cached = JSON.parse(sessionStorage.getItem('flooww.release.v1') || 'null'); } catch (e) { }
+    if (cached && cached.at && Date.now() - cached.at < 600000) {
+      RELEASE = cached.r;
+      renderSiteIfReady();
+    } else {
+      fetch('https://api.github.com/repos/BaksoTumpah/flooww-rilis/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!isObj(j)) return;
+          var m = /\d+/.exec(String(j.tag_name || ''));
+          var a = (j.assets || []).filter(function (x) { return /\.apk$/i.test(x.name || ''); })[0];
+          var r = { version: m ? m[0] : '', size: a ? a.size : 0, date: j.published_at || '' };
+          try { sessionStorage.setItem('flooww.release.v1', JSON.stringify({ at: Date.now(), r: r })); } catch (e) { }
+          applyRelease(r);
+        }, function () { });
+    }
+  } catch (e) { }
+  function renderSiteIfReady() { if (view === 'site') renderSite(); }
+
   try {
     fetch(baseUrl() + 'content.json', { cache: 'no-cache' })
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -883,6 +924,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   } catch (e) { }
 })();
 </script>
+
 
 </body>
 </html>

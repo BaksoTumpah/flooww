@@ -11,6 +11,8 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
@@ -41,9 +43,14 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         p = Ui.pal(this)
-        // trial habis (menurut server) dan belum berlisensi: semua fitur terkunci sampai lisensi dimasukkan
-        if (!License.ok(this) && Trial.expiredHint(this)) {
-            showLicense("Masa trial 10 menit habis. Kirim kode perangkat ke admin, lalu tempel lisensi.")
+        // trial habis, atau lisensi tersimpan tidak sah: bubble dimatikan dan semua fitur terkunci sampai lisensi sah
+        if (Trial.mustLock(this)) {
+            // layanan bubble mengunci dirinya sendiri (bubble mati, popup tampil); popup tidak boleh ikut dimatikan di sini
+            lockedScreen = true
+            showLicense(
+                if (License.state(this) == License.State.NONE) "Masa trial 10 menit habis. Bubble dimatikan dan semua fitur nonaktif. Kirim kode perangkat ke admin, lalu tempel lisensi."
+                else null
+            )
             return
         }
 
@@ -58,15 +65,26 @@ class MainActivity : Activity() {
             typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
             setTextColor(p.on)
         })
-        // sapaan: nama diisi dari data pembeli (aplikasi admin); kosong = sapaan umum
-        col.addView(TextView(this).apply {
-            val n = Prefs.userName(this@MainActivity)
-            text = if (n.isBlank()) "Halo!" else "Halo, $n"
-            textSize = 18f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Ui.accentText(p, Prefs.bubbleColor(this@MainActivity)))
-            setPadding(0, dp(2), 0, 0)
+        // sapaan: nama diisi dari data pembeli (aplikasi admin); kosong = sapaan umum. Di sampingnya status trial/lisensi.
+        chip = statusChip()
+        col.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(this@MainActivity).apply {
+                val n = Prefs.userName(this@MainActivity)
+                text = if (n.isBlank()) "Halo!" else "Halo, $n"
+                textSize = 18f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setTextColor(Ui.accentText(p, Prefs.bubbleColor(this@MainActivity)))
+                setPadding(0, dp(2), 0, 0)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(chip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         })
+        refreshChip()
+        // setelah aplikasi dibuka ulang, baca sisa trial dari server (tanpa memulai trial baru)
+        if (License.state(this) == License.State.NONE && Trial.remaining() == null) {
+            Thread { if (Trial.peek(this) != null) runOnUiThread { if (!isFinishing && !isDestroyed) refreshChip() } }.start()
+        }
         col.addView(TextView(this).apply {
             text = "Bubble mengambang untuk belajar. Ketuk bubble, pilih alat, lalu pakai."
             textSize = 14f
@@ -231,6 +249,64 @@ class MainActivity : Activity() {
                 addView(col, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
         )
+    }
+
+    // ---------- status trial dan lisensi ----------
+
+    private var chip: TextView? = null
+    private var lockedScreen = false
+    private val tickH = Handler(Looper.getMainLooper())
+    private val tick = object : Runnable {
+        override fun run() {
+            if (isFinishing || isDestroyed) return
+            // trial habis saat layar ini terbuka: langsung ke halaman terkunci
+            if (!lockedScreen && Trial.mustLock(this@MainActivity)) {
+                recreate()
+                return
+            }
+            val rem = Trial.remaining()
+            if (!lockedScreen && License.state(this@MainActivity) == License.State.NONE && rem != null && rem <= 0L) {
+                Trial.markExpired(this@MainActivity)
+                recreate()
+                return
+            }
+            refreshChip()
+            tickH.postDelayed(this, 1000)
+        }
+    }
+
+    private fun statusChip() = TextView(this).apply {
+        textSize = 12f
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        setPadding(dp(10), dp(4), dp(10), dp(4))
+        setTextColor(Color.WHITE)
+    }
+
+    /** Teks dan warna status: Trial mm:ss, Trial habis, Verified, Expired. */
+    private fun refreshChip() {
+        val c = chip ?: return
+        val green = 0xFF2EB67D.toInt()
+        val red = 0xFFE5484D.toInt()
+        val amber = 0xFFF5A524.toInt()
+        val (t, bg) = when (License.state(this)) {
+            License.State.OK -> "Verified" to green
+            License.State.EXPIRED -> "Expired" to red
+            License.State.NONE -> {
+                val rem = Trial.remaining()
+                when {
+                    rem != null && rem > 0L -> {
+                        val sec = (rem + 999L) / 1000L
+                        "Trial %02d:%02d".format(sec / 60, sec % 60) to (if (sec <= 60) red else amber)
+                    }
+                    (rem != null) || Trial.expiredHint(this) -> "Trial habis" to red
+                    else -> "Trial 10:00" to amber
+                }
+            }
+            else -> "Tidak valid" to red
+        }
+        c.text = t
+        c.setTextColor(if (bg == amber) 0xFF2A1A00.toInt() else Color.WHITE)
+        c.background = Ui.round(bg, dp(14))
     }
 
     /**
@@ -410,13 +486,21 @@ class MainActivity : Activity() {
             typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
             setTextColor(p.on)
         })
-        col.addView(TextView(this).apply {
-            text = "Aktivasi diperlukan"
-            textSize = 18f
-            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Ui.accentText(p, Prefs.bubbleColor(this@MainActivity)))
-            setPadding(0, dp(2), 0, dp(12))
+        chip = statusChip()
+        col.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(12))
+            addView(TextView(this@MainActivity).apply {
+                text = "Aktivasi diperlukan"
+                textSize = 18f
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setTextColor(Ui.accentText(p, Prefs.bubbleColor(this@MainActivity)))
+                setPadding(0, dp(2), 0, 0)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(chip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         })
+        refreshChip()
         val code = License.deviceCode(this)
         val msg = TextView(this).apply {
             text = msgOverride ?: License.message(License.state(this@MainActivity))
@@ -478,8 +562,15 @@ class MainActivity : Activity() {
         )
     }
 
+    override fun onPause() {
+        tickH.removeCallbacks(tick)
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        tickH.removeCallbacks(tick)
+        if (!lockedScreen) tickH.post(tick)
         if (permSteps.isNotEmpty()) window.decorView.postDelayed({ nextPermission() }, 350)
     }
 
