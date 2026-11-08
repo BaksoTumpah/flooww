@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -23,7 +25,7 @@ android {
             if (b64.isNotEmpty()) {
                 val f = layout.buildDirectory.file("flooww-ci.keystore").get().asFile
                 f.parentFile.mkdirs()
-                f.writeBytes(java.util.Base64.getMimeDecoder().decode(b64))
+                f.writeBytes(Base64.getMimeDecoder().decode(b64))
                 storeFile = f
                 storePassword = System.getenv("FLOOWW_STORE_PASSWORD")
                 keyAlias = System.getenv("FLOOWW_KEY_ALIAS") ?: "flooww"
