@@ -2,8 +2,8 @@
   "meta": {
     "title": "flooww",
     "version": "9",
-    "waNumber": "62XXXXXXXXXX",
-    "waText": "Halo, saya mau beli lisensi flooww. Mohon info paket dan harganya.",
+    "waNumber": "6285137756077",
+    "waText": "Info harga lisensi kak",
     "apkUrl": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk"
   },
   "brand": {
@@ -31,7 +31,7 @@
     "title": "flooww",
     "tagline": "Bubble mengambang untuk belajar.",
     "sub": "Lingkari soal di layar, lalu tanya AI, salin teksnya, atau terjemahkan. Semua dari satu bubble di atas aplikasi apa pun.",
-    "btnApk": "Unduh APK {versi}",
+    "btnApk": "Unduh APK V{versi}",
     "btnWa": "Beli lisensi lewat WhatsApp",
     "pills": [
       {
@@ -148,7 +148,7 @@
   "unduh": {
     "title": "Unduh flooww",
     "lead": "Paket APK untuk dipasang langsung di HP Android.",
-    "btn": "Unduh APK {versi}",
+    "btn": "Unduh APK V{versi}",
     "spec": [
       {
         "label": "Versi",
@@ -197,7 +197,7 @@
     "steps": [
       {
         "title": "Hubungi lewat WhatsApp",
-        "desc": "Tanyakan paket dan harga yang tersedia."
+        "desc": "Tanyakan harga yang berlaku."
       },
       {
         "title": "Bayar",
