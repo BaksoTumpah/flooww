@@ -29,6 +29,9 @@ jobs:
           FLOOWW_STORE_PASSWORD: ${{ secrets.FLOOWW_STORE_PASSWORD }}
           FLOOWW_KEY_ALIAS: ${{ secrets.FLOOWW_KEY_ALIAS }}
           FLOOWW_KEY_PASSWORD: ${{ secrets.FLOOWW_KEY_PASSWORD }}
+          FLOOWW_DB_URL: ${{ vars.FLOOWW_DB_URL }}
+          FLOOWW_UPDATE_URL: ${{ vars.FLOOWW_UPDATE_URL }}
+          FLOOWW_ADMIN_GOOGLE_CLIENT_ID: ${{ vars.FLOOWW_ADMIN_GOOGLE_CLIENT_ID }}
         run: gradle :app:assembleDebug :app:assembleRelease :admin:assembleDebug :admin:assembleRelease --no-daemon
 
       - name: Upload APK

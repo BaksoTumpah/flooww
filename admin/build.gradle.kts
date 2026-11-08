@@ -14,8 +14,10 @@ android {
         setProperty("archivesBaseName", "flow-admin")
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2"
+        // ID klien web OAuth (Google Cloud). Kosong = login Google dilewati dan hanya PIN yang dipakai.
+        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"" + (System.getenv("FLOOWW_ADMIN_GOOGLE_CLIENT_ID") ?: "") + "\"")
     }
 
     // Tanda tangan sama dengan flooww (lihat app/build.gradle.kts).
@@ -39,6 +41,10 @@ android {
         }
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("flooww")
@@ -59,4 +65,7 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 }

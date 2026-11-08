@@ -60,3 +60,18 @@ Aplikasi terbuka sebagai jendela mengambang hanya bila HP mendukung mode jendela
 - Layanan aksesibilitas hanya dipakai untuk mengetuk titik target auto clicker. Tidak membaca layar.
 - OCR di HP hanya huruf Latin.
 - Aplikasi ini tidak menyembunyikan dirinya. Hormati aturan sekolah, kampus, dan ujian saat memakainya.
+
+## Lisensi, trial, dan aplikasi admin
+
+- **Lisensi**: flooww terikat kode perangkat. Admin (aplikasi `flow admin`, merah) menandatangani lisensi dengan kunci rahasia ECDSA; flooww hanya menyimpan kunci publik.
+- **Versi**: hanya angka bulat (1, 2, 3, ...). `versionCode` = `versionName`. Lisensi mencakup rilis terbaru + update gratis (bawaan 2).
+- **Trial**: 10 menit sejak bubble pertama kali dihidupkan, disimpan di Firebase Realtime Database per kode perangkat (`/trial/<kode>`), tidak bisa diulang walau data dihapus atau aplikasi dicopot. Waktu dihitung dari waktu server + jam monotonik, bukan jam HP. Setelah habis semua fitur mati dan muncul popup yang hanya bisa ditutup dengan lisensi sah.
+- **Pembaruan**: menu "Cek pembaruan" membaca `update.json` (`{"version":10,"url":"https://...apk","notes":"..."}`), mengunduh, dan memasang. Lisensi membatasi versi tertinggi.
+
+### Pengaturan Firebase (sekali saja)
+1. Firebase Console > Build > Realtime Database > Create database.
+2. Tab Rules: tempel isi `firebase/database.rules.json`, Publish.
+3. Di GitHub repo > Settings > Secrets and variables > Actions > Variables, tambah:
+   - `FLOOWW_DB_URL` = alamat database, contoh `https://nama-proyek-default-rtdb.firebaseio.com`
+   - `FLOOWW_UPDATE_URL` = alamat https berkas `update.json`
+   - `FLOOWW_ADMIN_GOOGLE_CLIENT_ID` = ID klien OAuth jenis Web (opsional; kosong = admin hanya pakai PIN)

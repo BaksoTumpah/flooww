@@ -41,8 +41,9 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         p = Ui.pal(this)
-        if (!License.ok(this)) {
-            showLicense()
+        // trial habis (menurut server) dan belum berlisensi: semua fitur terkunci sampai lisensi dimasukkan
+        if (!License.ok(this) && Trial.expiredHint(this)) {
+            showLicense("Masa trial 10 menit habis. Kirim kode perangkat ke admin, lalu tempel lisensi.")
             return
         }
 
@@ -185,6 +186,26 @@ class MainActivity : Activity() {
 
         showAppsInfo()
         showFreeInfo()
+        val upMsg = TextView(this).apply {
+            text = "Versi ${BuildConfig.VERSION_NAME}"
+            textSize = 13f
+            setTextColor(p.muted)
+        }
+        col.addView(card("Pembaruan",
+            upMsg,
+            Ui.button(this, "Cek pembaruan", true) { checkUpdate(upMsg) }
+        ))
+        if (License.info(this) == null) {
+            col.addView(card("Lisensi",
+                TextView(this).apply {
+                    text = "Mode trial: 10 menit sejak bubble dihidupkan (butuh internet, tidak bisa diulang). " +
+                        "Setelah itu fitur terkunci sampai lisensi dimasukkan.\nKode perangkat ${License.deviceCode(this@MainActivity)}"
+                    textSize = 13f
+                    setTextColor(p.muted)
+                },
+                Ui.button(this, "Masukkan lisensi", true) { showLicense("Kirim kode perangkat ke admin, lalu tempel lisensi.", true) }
+            ))
+        }
         License.info(this)?.let { li ->
             col.addView(card("Lisensi",
                 TextView(this).apply {
@@ -201,6 +222,7 @@ class MainActivity : Activity() {
                 }
             ))
         }
+        if (canBack) col.addView(Ui.button(this, "Kembali", false) { recreate() })
         window.decorView.setBackgroundColor(p.bg)
         setContentView(
             ScrollView(this).apply {
@@ -208,6 +230,47 @@ class MainActivity : Activity() {
                 addView(col, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             }
         )
+    }
+
+    /** Cek, unduh, dan pasang pembaruan. Versi hanya angka bulat; lisensi membatasi versi tertinggi. */
+    private fun checkUpdate(msg: TextView) {
+        msg.text = "Memeriksa pembaruan..."
+        Thread {
+            try {
+                val info = Updater.fetch()
+                runOnUiThread {
+                    val li = License.info(this)
+                    when {
+                        info.version <= BuildConfig.VERSION_CODE -> msg.text = "Versi ${BuildConfig.VERSION_NAME}. Sudah yang terbaru."
+                        li == null -> msg.text = "Versi ${info.version} tersedia. Masukkan lisensi dulu untuk memperbarui."
+                        li.maxVersion in 1 until info.version ->
+                            msg.text = "Versi ${info.version} tersedia, tetapi di luar jatah update lisensi (sampai versi ${li.maxVersion}). Hubungi admin."
+                        else -> android.app.AlertDialog.Builder(this)
+                            .setTitle("Versi ${info.version} tersedia")
+                            .setMessage(info.notes.ifBlank { "Pembaruan baru." })
+                            .setNegativeButton("Nanti", null)
+                            .setPositiveButton("Unduh dan pasang") { _, _ -> downloadUpdate(info, msg) }
+                            .show()
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { msg.text = "Gagal memeriksa: ${e.message ?: e.javaClass.simpleName}" }
+            }
+        }.start()
+    }
+
+    private fun downloadUpdate(info: Updater.Info, msg: TextView) {
+        msg.text = "Mengunduh versi ${info.version}... 0%"
+        Thread {
+            try {
+                val f = Updater.download(this, info) { pct -> runOnUiThread { msg.text = "Mengunduh versi ${info.version}... $pct%" } }
+                runOnUiThread {
+                    msg.text = if (Updater.install(this, f)) "Unduhan selesai. Ikuti pemasangan." else "Izinkan flooww memasang aplikasi, lalu tekan Cek pembaruan lagi."
+                }
+            } catch (e: Exception) {
+                runOnUiThread { msg.text = "Gagal mengunduh: ${e.message ?: e.javaClass.simpleName}" }
+            }
+        }.start()
     }
 
     // ---------- izin (diminta berurutan saat aplikasi dibuka) ----------
@@ -322,7 +385,7 @@ class MainActivity : Activity() {
     }
 
     /** Layar aktivasi: semua fitur terkunci sampai lisensi dari admin ditempel. */
-    private fun showLicense(msgOverride: String? = null) {
+    private fun showLicense(msgOverride: String? = null, canBack: Boolean = false) {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(28), dp(16), dp(24))

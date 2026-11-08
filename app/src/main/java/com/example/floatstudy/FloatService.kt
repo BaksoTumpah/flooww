@@ -141,6 +141,10 @@ class FloatService : Service() {
     // pengaturan di aplikasi langsung berlaku pada bubble dan jendela
     private val prefListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         ui.post {
+            if (locked) {
+                if (License.ok(c)) unlock()
+                return@post
+            }
             applyBubble()
             applyPanel()
             applyKeyboard()
@@ -193,11 +197,6 @@ class FloatService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (!License.ok(this)) {
-            Toast.makeText(this, "flooww belum diaktifkan. Buka aplikasi untuk memasukkan lisensi.", Toast.LENGTH_LONG).show()
-            stopSelf()
-            return START_NOT_STICKY
-        }
         // wm harus siap sebelum dipakai (realSize, bubble)
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
@@ -213,9 +212,9 @@ class FloatService : Service() {
             g.start(code, data, w, h, resources.displayMetrics.densityDpi) { grab = null }
             grab = g
         }
-        if (bubble == null) {
+        if (bubble == null && !locked) {
             Prefs.sp(this).registerOnSharedPreferenceChangeListener(prefListener)
-            showBubble()
+            if (License.ok(this)) showBubble() else startTrial()
         }
         // dimulai ulang sistem bila prosesnya dimatikan; bubble tetap muncul
         return START_STICKY
@@ -287,6 +286,180 @@ class FloatService : Service() {
         }
     }
 
+    // ---------- trial dan kunci ----------
+
+    private var locked = false
+    private var trialBusy = false
+    private var lockView: View? = null
+    private var lastSync = 0L
+    private var warned = false
+
+    /** Sinkron dengan server di thread latar, lalu putuskan: jalan, kunci, atau berhenti. */
+    private fun startTrial() {
+        if (trialBusy) return
+        trialBusy = true
+        lastSync = android.os.SystemClock.elapsedRealtime()
+        if (bubble == null) toast("Memeriksa trial...")
+        Thread {
+            val r = Trial.sync(c)
+            ui.post {
+                trialBusy = false
+                onTrialResult(r)
+            }
+        }.start()
+    }
+
+    private fun onTrialResult(r: Trial.Result) {
+        if (License.ok(c)) return
+        when (r.kind) {
+            Trial.Kind.ERROR -> if (bubble == null && !locked) {
+                toast(r.message)
+                stopSelf()
+            }
+            Trial.Kind.EXPIRED -> lockAll()
+            Trial.Kind.ACTIVE -> {
+                if (bubble == null && !locked) {
+                    showBubble()
+                    val m = ((Trial.remaining() ?: 0L) + 59_999L) / 60_000L
+                    toast("Trial: sisa $m menit. Aktifkan lisensi agar tidak terkunci.")
+                }
+                ui.removeCallbacks(trialTick)
+                ui.postDelayed(trialTick, 1000)
+            }
+        }
+    }
+
+    private val trialTick = object : Runnable {
+        override fun run() {
+            if (License.ok(c) || locked) return
+            val rem = Trial.remaining()
+            if (rem == null || rem <= 0L) {
+                lockAll()
+                return
+            }
+            if (rem <= 60_000L && !warned) {
+                warned = true
+                toast("Trial tinggal 1 menit")
+            }
+            if (android.os.SystemClock.elapsedRealtime() - lastSync > 60_000L) startTrial()
+            ui.postDelayed(this, 1000)
+        }
+    }
+
+    /** Trial habis: matikan semua fitur dan tampilkan popup yang hanya bisa ditutup dengan lisensi sah. */
+    private fun lockAll() {
+        ui.removeCallbacks(trialTick)
+        locked = true
+        stopClicking()
+        hideMenu()
+        hidePanel()
+        osk.hide()
+        listOf<View?>(selector, target, bubble).forEach { v ->
+            v?.let {
+                try {
+                    wm.removeView(it)
+                } catch (e: Exception) {
+                }
+            }
+        }
+        selector = null
+        target = null
+        bubble = null
+        grab?.release()
+        grab = null
+        showLock()
+    }
+
+    private fun unlock() {
+        lockView?.let {
+            try {
+                wm.removeView(it)
+            } catch (e: Exception) {
+            }
+        }
+        lockView = null
+        osk.hide()
+        locked = false
+        ui.removeCallbacks(trialTick)
+        toast("Lisensi aktif. Terima kasih!")
+        if (bubble == null) showBubble()
+    }
+
+    private fun showLock() {
+        if (lockView != null) return
+        val p = Ui.pal(c)
+        val code = License.deviceCode(c)
+        val msg = TextView(c).apply {
+            text = "Masa trial 10 menit habis. Kirim ID HP ke admin, lalu masukkan lisensi untuk membuka semua fitur."
+            textSize = 13f
+            setTextColor(p.muted)
+        }
+        val input = Ui.field(c, "Lisensi dari admin", true).apply {
+            showSoftInputOnFocus = false
+            maxLines = 3
+            setOnTouchListener { _, ev ->
+                if (ev.action == MotionEvent.ACTION_UP) osk.show(TvTarget(this))
+                false
+            }
+        }
+        val box = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            background = Ui.clay(c, p.surface, dp(22))
+            addView(TextView(c).apply {
+                text = "Trial habis"
+                textSize = 20f
+                typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+                setTextColor(p.on)
+            })
+            addView(msg, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) })
+            addView(TextView(c).apply {
+                text = "ID HP"
+                textSize = 12f
+                setTextColor(p.muted)
+            }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(10) })
+            addView(TextView(c).apply {
+                text = code
+                textSize = 22f
+                typeface = Typeface.MONOSPACE
+                setTextColor(p.on)
+            })
+            addView(Ui.button(c, "Salin ID HP", false) {
+                val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("ID HP", code))
+                msg.text = "ID HP disalin. Kirim ke admin."
+            }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) })
+            addView(input, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(10) })
+            addView(LinearLayout(c).apply {
+                orientation = LinearLayout.HORIZONTAL
+                addView(Ui.button(c, "Tempel", false) {
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                    val t = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(c)?.toString().orEmpty()
+                    if (t.isBlank()) msg.text = "Belum ada teks yang disalin." else input.setText(t)
+                }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { rightMargin = dp(6) })
+                addView(Ui.button(c, "Aktifkan", true) {
+                    val err = License.activate(c, input.text.toString())
+                    if (err == null) unlock() else msg.text = err
+                }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { leftMargin = dp(6) })
+            }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8) })
+        }
+        val lp = WindowManager.LayoutParams(
+            resources.displayMetrics.widthPixels - dp(24), WRAP,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            OVERLAY_FLAGS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = dp(48)
+        }
+        try {
+            wm.addView(box, lp)
+            lockView = box
+        } catch (e: Exception) {
+            toast("Gagal menampilkan popup")
+        }
+    }
+
     override fun onDestroy() {
         Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefListener)
         ui.removeCallbacksAndMessages(null)
@@ -295,7 +468,7 @@ class FloatService : Service() {
             hideMenu()
             hidePanel()
             osk.hide()
-            listOf<View?>(selector, target, bubble).forEach { v ->
+            listOf<View?>(selector, target, bubble, lockView).forEach { v ->
                 v?.let {
                     try {
                         wm.removeView(it)

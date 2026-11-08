@@ -25,6 +25,7 @@ class AdminActivity : Activity() {
 
     private lateinit var p: Pal
     private var unlocked = false
+    private var googleOk = false
     private var picking = false
     private var tab = 0
     private lateinit var content: LinearLayout
@@ -56,11 +57,34 @@ class AdminActivity : Activity() {
 
     private fun route() {
         when {
+            BuildConfig.GOOGLE_CLIENT_ID.isNotEmpty() && !googleOk -> googleScreen()
             !Store.hasPin(this) -> pinScreen(setup = true)
             !unlocked -> pinScreen(setup = false)
             !Store.hasKey(this) -> keyScreen()
             else -> mainScreen()
         }
+    }
+
+    // ---------- login Google ----------
+
+    private fun googleScreen() {
+        val msg = label(Store.owner(this)?.let { "Masuk dengan akun pemilik: $it" } ?: "Akun Google pertama yang masuk menjadi pemilik aplikasi ini.", 13f)
+        scaffold("flow admin", "Masuk dengan Google",
+            card(null,
+                msg,
+                spaced(btn("Masuk dengan Google", true) {
+                    msg.text = "Membuka pilihan akun..."
+                    Google.signIn(this, BuildConfig.GOOGLE_CLIENT_ID) { email, err ->
+                        if (email == null) { msg.text = err ?: "Gagal masuk."; return@signIn }
+                        val owner = Store.owner(this)
+                        if (owner == null) Store.setOwner(this, email)
+                        if (owner != null && owner != email.lowercase()) { msg.text = "Akun ini bukan pemilik. Pakai $owner."; return@signIn }
+                        googleOk = true
+                        route()
+                    }
+                })
+            )
+        )
     }
 
     // ---------- komponen ----------
@@ -308,7 +332,7 @@ class AdminActivity : Activity() {
             result.removeAllViews()
             result.addView(card(
                 "Lisensi siap",
-                label("Untuk ${lic.name.ifBlank { "pembeli" }} · ID ${lic.id} · berlaku sampai versi kode ${lic.maxV}", 13f),
+                label("Untuk ${lic.name.ifBlank { "pembeli" }} · ID ${lic.id} · berlaku sampai versi ${lic.maxV}", 13f),
                 spaced(TextView(this).apply {
                     text = lic.token
                     textSize = 11f
@@ -379,29 +403,39 @@ class AdminActivity : Activity() {
     // ---------- tab Rilis ----------
 
     private fun releaseTab() {
-        val code = Ui.field(this, "Kode versi (angka, naik 1)", number = true)
-        val name = Ui.field(this, "Nama versi (contoh 0.8.0)")
+        val code = Ui.field(this, "Nomor versi (angka bulat, naik 1)", number = true)
+        val url = Ui.field(this, "Alamat unduhan APK (https://...)")
         val notes = Ui.field(this, "Catatan rilis (opsional)", true)
         val msg = label("", 13f, Ui.ACCENT)
         val rels = Store.releases(this)
         code.setText(((rels.maxOfOrNull { it.code } ?: Store.FIRST_RELEASE_CODE) + 1).toString())
         content.addView(card(
             "Rilis baru",
-            label("Tiap rilis flooww menaikkan kode versi satu angka. Lisensi baru mencakup rilis terbaru ditambah update gratis."),
-            spaced(code), spaced(name), spaced(notes),
+            label("Versi flooww hanya angka bulat: 1, 2, 3, dst. Lisensi baru mencakup rilis terbaru ditambah update gratis."),
+            spaced(code), spaced(url), spaced(notes),
             spaced(btn("Tambah rilis", true) {
                 val c = code.text.toString().toIntOrNull()
-                if (c == null || name.text.isBlank()) { msg.text = "Isi kode dan nama versi."; return@btn }
-                if (rels.any { it.code == c }) { msg.text = "Kode versi $c sudah ada."; return@btn }
-                Store.setReleases(this, rels + Rel(c, name.text.toString().trim(), notes.text.toString().trim(), System.currentTimeMillis()))
+                if (c == null || c < 1) { msg.text = "Isi nomor versi berupa angka bulat."; return@btn }
+                val u = url.text.toString().trim()
+                if (u.isNotEmpty() && !u.startsWith("https://")) { msg.text = "Alamat unduhan harus diawali https://"; return@btn }
+                if (rels.any { it.code == c }) { msg.text = "Versi $c sudah ada."; return@btn }
+                Store.setReleases(this, rels + Rel(c, notes.text.toString().trim(), System.currentTimeMillis(), u))
                 showTab(2)
             }),
             msg
         ))
+        val top = rels.firstOrNull { it.url.isNotBlank() }
+        content.addView(card(
+            "Berkas update.json",
+            label(if (top == null) "Isi alamat unduhan pada rilis agar berkas ini bisa dibuat."
+            else "Untuk versi ${top.code}. Unggah berkas ini ke alamat pembaruan yang dipakai flooww, supaya tombol Cek pembaruan melihat versi baru."),
+            if (top == null) View(this) else spaced(label(Store.updateJson(top), 12f, p.on).apply { typeface = Typeface.MONOSPACE }),
+            if (top == null) View(this) else row(btn("Salin", true) { copy("update.json", Store.updateJson(top)) }, btn("Bagikan") { share(Store.updateJson(top)) })
+        ))
         rels.forEach { r ->
             content.addView(card(
-                "${r.name}  ·  kode ${r.code}",
-                label(fmt.format(Date(r.date)) + if (r.notes.isNotBlank()) "\n${r.notes}" else ""),
+                "Versi ${r.code}",
+                label(fmt.format(Date(r.date)) + (if (r.url.isNotBlank()) "\n${r.url}" else "") + (if (r.notes.isNotBlank()) "\n${r.notes}" else "")),
                 if (rels.size > 1) spaced(btn("Hapus rilis") {
                     Store.setReleases(this, rels.filter { it.code != r.code }); showTab(2)
                 }) else View(this)
@@ -434,7 +468,7 @@ class AdminActivity : Activity() {
         ))
         content.addView(card(
             "Tentang",
-            label("flow admin 1.0. Lisensi memakai tanda tangan ECDSA P-256 dan terikat pada kode perangkat pembeli. Kunci rahasia tidak pernah keluar dari aplikasi ini kecuali lewat cadangan terenkripsi.")
+            label("flow admin versi 2. Lisensi memakai tanda tangan ECDSA P-256 dan terikat pada kode perangkat pembeli. Kunci rahasia tidak pernah keluar dari aplikasi ini kecuali lewat cadangan terenkripsi.")
         ))
     }
 

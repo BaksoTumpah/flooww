@@ -28,15 +28,14 @@ class Lic(
     val token: String
 )
 
-/** Satu rilis flooww. versionCode naik satu per rilis. */
-class Rel(val code: Int, val name: String, val notes: String, val date: Long)
+/** Satu rilis flooww. Versi hanya angka bulat (1, 2, 3, ...), naik satu per rilis. */
+class Rel(val code: Int, val notes: String, val date: Long, val url: String = "")
 
 /** Penyimpanan data admin di HP ini, plus tanda tangan lisensi dan PIN. */
 object Store {
     /** Kunci publik yang tertanam di flooww. Kunci rahasia yang diimpor harus berpasangan dengannya. */
     private const val PUB = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEl91fZh7A+IfYZ90DjP5+v23wtuVJx7xfpCQWBclEFNxYCH+0V35rAr7Kwtb/6wI9xRcdG+WLFPs19PhIFmWc0Q=="
-    const val FIRST_RELEASE_CODE = 8
-    const val FIRST_RELEASE_NAME = "0.7.0"
+    const val FIRST_RELEASE_CODE = 9
 
     private fun sp(c: Context) = c.getSharedPreferences("admin", Context.MODE_PRIVATE)
     private fun b64(b: ByteArray) = Base64.encodeToString(b, Base64.NO_WRAP)
@@ -99,25 +98,33 @@ object Store {
         }
     }
 
+    // ---------- akun Google pemilik ----------
+
+    fun owner(c: Context): String? = sp(c).getString("owner", null)
+    fun setOwner(c: Context, email: String) = sp(c).edit().putString("owner", email.lowercase()).apply()
+
     // ---------- rilis ----------
+
+    /** Isi berkas update.json yang dibaca flooww untuk fitur "Cek pembaruan". */
+    fun updateJson(r: Rel): String = JSONObject().put("version", r.code).put("url", r.url).put("notes", r.notes).toString(2)
 
     fun releases(c: Context): List<Rel> {
         val raw = sp(c).getString("releases", null)
         if (raw == null) {
-            val l = listOf(Rel(FIRST_RELEASE_CODE, FIRST_RELEASE_NAME, "Lisensi, Catatan cepat, Galeri, keyboard flooww", System.currentTimeMillis()))
+            val l = listOf(Rel(FIRST_RELEASE_CODE, "Trial 10 menit, lisensi, update dalam aplikasi", System.currentTimeMillis()))
             setReleases(c, l)
             return l
         }
         val a = JSONArray(raw)
         return (0 until a.length()).map {
             val o = a.getJSONObject(it)
-            Rel(o.getInt("c"), o.getString("n"), o.optString("x"), o.optLong("d"))
+            Rel(o.getInt("c"), o.optString("x"), o.optLong("d"), o.optString("u"))
         }.sortedByDescending { it.code }
     }
 
     fun setReleases(c: Context, l: List<Rel>) {
         val a = JSONArray()
-        l.forEach { a.put(JSONObject().put("c", it.code).put("n", it.name).put("x", it.notes).put("d", it.date)) }
+        l.forEach { a.put(JSONObject().put("c", it.code).put("x", it.notes).put("d", it.date).put("u", it.url)) }
         sp(c).edit().putString("releases", a.toString()).apply()
     }
 

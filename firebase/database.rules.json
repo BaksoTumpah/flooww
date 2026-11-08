@@ -1,0 +1,15 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "trial": {
+      "$id": {
+        ".read": "$id.matches(/^[0-9A-F]{12}$/)",
+        ".write": "!data.exists() && newData.exists() && $id.matches(/^[0-9A-F]{12}$/)",
+        ".validate": "newData.hasChildren(['start']) && newData.child('start').val() === now",
+        "start": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}
