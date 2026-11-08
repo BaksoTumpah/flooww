@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "flooww",
-    "version": "0.6.0",
+    "version": "9",
     "waNumber": "62XXXXXXXXXX",
     "waText": "Halo, saya mau beli lisensi flooww. Mohon info paket dan harganya.",
     "apkUrl": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk"
@@ -152,7 +152,7 @@
     "spec": [
       {
         "label": "Versi",
-        "value": "{versi} (kode 7)"
+        "value": "{versi}"
       },
       {
         "label": "Android",

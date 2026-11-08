@@ -335,7 +335,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   var DEFAULTS = {
     meta: {
       title: 'flooww',
-      version: '0.6.0',
+      version: '9',
       waNumber: '62XXXXXXXXXX',
       waText: 'Halo, saya mau beli lisensi flooww. Mohon info paket dan harganya.',
       apkUrl: 'https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk'
@@ -395,7 +395,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       lead: 'Paket APK untuk dipasang langsung di HP Android.',
       btn: 'Unduh APK {versi}',
       spec: [
-        { label: 'Versi', value: '{versi} (kode 7)' },
+        { label: 'Versi', value: '{versi}' },
         { label: 'Android', value: '8.0 (API 26) ke atas' },
         { label: 'Prosesor', value: 'arm64-v8a' },
         { label: 'Pembaruan', value: 'Pasang di atas versi lama' },
@@ -438,9 +438,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   /* ---------- alat bantu ---------- */
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]; }); }
+  /* nomor versi terbaru dibaca dari rilis GitHub (diisi otomatis); kosong = pakai meta.version */
+  var liveVersion = '';
   function fill(s, c) {
     return String(s == null ? '' : s)
-      .replace(/\{versi\}/g, c.meta.version)
+      .replace(/\{versi\}/g, liveVersion || c.meta.version)
       .replace(/\{kode\}/g, c.lisensi.receipt.groups.map(function (g) { return g.v; }).join(' '));
   }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
@@ -881,6 +883,24 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         if (!draft) { compute(); if (view === 'site') renderSite(); else if (view === 'dev' && isLogged()) renderPanel(); }
       }, function () { });
   } catch (e) { }
+
+  /* versi terbaru: dari rilis terbaru di repo yang sama dengan tautan unduh (tag v9 menjadi 9) */
+  function loadLatestVersion() {
+    try {
+      var m = /github\.com\/([^\/]+)\/([^\/]+)\/releases/.exec(compute_apk());
+      if (!m) return;
+      fetch('https://api.github.com/repos/' + m[1] + '/' + m[2] + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var v = j && typeof j.tag_name === 'string' ? j.tag_name.replace(/^v/i, '').trim() : '';
+          if (!/^[0-9]+$/.test(v) || v === liveVersion) return;
+          liveVersion = v;
+          if (view === 'site') renderSite(); else if (view === 'dev' && isLogged()) renderPanel();
+        }, function () { });
+    } catch (e) { }
+  }
+  function compute_apk() { try { return String((content && content.meta && content.meta.apkUrl) || ''); } catch (e) { return ''; } }
+  loadLatestVersion();
 })();
 </script>
 
