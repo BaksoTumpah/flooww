@@ -438,6 +438,13 @@ class MainActivity : Activity() {
                     reqMedia
                 )
             }, true, "Beri izin")
+        l += Step("Pasang aplikasi dari sumber ini",
+            "Agar pembaruan flooww bisa diunduh lalu dipasang dari dalam aplikasi. Hanya perlu bila Anda memperbarui lewat flooww.",
+            { packageManager.canRequestPackageInstalls() }, {
+                startActivity(
+                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+                )
+            }, true)
         l += Step("Tanpa batasan baterai",
             "Agar sistem tidak mematikan bubble saat dipakai lama atau layar dikunci.",
             { batteryOk() }, {
@@ -507,21 +514,27 @@ class MainActivity : Activity() {
         return box
     }
 
+    private var permSummary: TextView? = null
+
+    /** Izin di layar utama: terlipat supaya tidak memakan tempat; ringkasannya menunjukkan jumlah izin aktif. */
     private fun permCard(): View {
-        val list = permList()
+        val g = Group("Izin", "", false)
+        permSummary = g.sub
+        g.body.addView(permList())
+        g.body.addView(TextView(this).apply {
+            text = "Izin tangkap layar diminta Android setiap bubble dimulai. Itu normal dan tidak bisa dimatikan."
+            textSize = 12f
+            setTextColor(p.muted)
+            setPadding(0, dp(6), 0, dp(6))
+        })
+        g.body.addView(spaced(Ui.button(this, "Beri semua izin satu per satu", true) {
+            asked.clear()
+            chaining = true
+            nextPermission()
+        }))
         refreshers.add { refreshPerm() }
-        return card("Izin", list,
-            TextView(this).apply {
-                text = "Izin tangkap layar diminta Android setiap bubble dimulai. Itu normal dan tidak bisa dimatikan."
-                textSize = 12f
-                setTextColor(p.muted)
-                setPadding(0, dp(6), 0, dp(6))
-            },
-            spaced(Ui.button(this, "Beri semua izin satu per satu", true) {
-                asked.clear()
-                chaining = true
-                nextPermission()
-            }))
+        refreshPerm()
+        return g.root
     }
 
     private fun refreshPerm() {
@@ -531,6 +544,9 @@ class MainActivity : Activity() {
             permMarks[i].setTextColor(if (ok) 0xFF16A34A.toInt() else p.on)
             permBtns[i].visibility = if (ok) View.GONE else View.VISIBLE
         }
+        val on = permSteps.count { it.ok() }
+        val needed = permSteps.count { !it.optional && !it.ok() }
+        permSummary?.text = "$on dari ${permSteps.size} aktif" + if (needed > 0) " · $needed wajib belum diberikan" else ""
     }
 
     /** Dipakai tombol "Beri semua izin satu per satu": minta izin yang belum ada, satu per satu, tiap izin sekali. */
@@ -714,6 +730,12 @@ class MainActivity : Activity() {
             visibility = if (open) View.VISIBLE else View.GONE
         }
 
+        val sub = TextView(this@MainActivity).apply {
+            text = summary
+            textSize = 12.5f
+            setTextColor(p.muted)
+        }
+
         init {
             val chevron = TextView(this@MainActivity).apply {
                 text = if (open) "▾" else "▸"
@@ -732,11 +754,7 @@ class MainActivity : Activity() {
                         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                         setTextColor(p.on)
                     })
-                    addView(TextView(this@MainActivity).apply {
-                        text = summary
-                        textSize = 12.5f
-                        setTextColor(p.muted)
-                    })
+                    addView(sub)
                 }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 addView(chevron)
                 setOnClickListener {
