@@ -93,17 +93,7 @@ object Store {
         return kf.generatePrivate(PKCS8EncodedKeySpec(Base64.decode(t, Base64.DEFAULT)))
     }
 
-    /** Kunci rahasia dalam format pendek (43 karakter) untuk disalin. null bila belum ada kunci. */
-    fun shortKey(c: Context): String? {
-        val t = sp(c).getString("priv", null) ?: return null
-        val s = (parsePriv(t) as java.security.interfaces.ECPrivateKey).s.toByteArray()
-        val raw = ByteArray(32)
-        val n = minOf(32, s.size)
-        System.arraycopy(s, s.size - n, raw, 32 - n, n)
-        return b64u(raw)
-    }
-
-    /** Impor kunci rahasia (pendek atau PKCS8 base64). Ditolak bila tidak berpasangan dengan kunci publik di flooww. */
+    /** Impor kunci rahasia (PKCS8 base64; format pendek 43 karakter juga dikenali). Tidak ada fungsi untuk mengeluarkan kunci kembali. Ditolak bila tidak berpasangan dengan kunci publik di flooww. */
     fun importKey(c: Context, text: String): String? {
         val t = text.lines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("KUNCI") && !it.startsWith("(") }
             .joinToString("").filter { !it.isWhitespace() }

@@ -63,7 +63,7 @@ Aplikasi terbuka sebagai jendela mengambang hanya bila HP mendukung mode jendela
 
 ## Lisensi, trial, dan aplikasi admin
 
-- **Lisensi**: flooww terikat kode perangkat. Admin (aplikasi `flow admin`, merah) menandatangani lisensi dengan kunci rahasia ECDSA; flooww hanya menyimpan kunci publik. Lisensi baru berformat ringkas (sekitar 120 karakter); lisensi lama tetap diterima. Kunci admin punya bentuk pendek 43 karakter (tombol "Salin kunci pendek" di tab Lainnya).
+- **Lisensi**: flooww terikat kode perangkat. Admin (aplikasi `flow admin`, merah) menandatangani lisensi dengan kunci rahasia ECDSA; flooww hanya menyimpan kunci publik. Lisensi baru berformat ringkas (sekitar 120 karakter); lisensi lama tetap diterima. Aplikasi admin hanya menerima kunci rahasia lewat impor dan tidak punya cara menyalinnya keluar.
 - **Versi**: hanya angka bulat (1, 2, 3, ...). `versionCode` = `versionName`. Lisensi mencakup rilis terbaru + update gratis (bawaan 2).
 - **Trial**: 10 menit sejak bubble pertama kali dihidupkan, disimpan di Firebase Realtime Database per kode perangkat (`/trial/<kode>`), tidak bisa diulang walau data dihapus atau aplikasi dicopot. Waktu dihitung dari waktu server + jam monotonik, bukan jam HP. Setelah habis semua fitur mati dan muncul popup yang hanya bisa ditutup dengan lisensi sah.
 - **Pembaruan**: seperti Magisk. Saat aplikasi dibuka, flooww otomatis membaca rilis terbaru di repo rilis (lewat `update.json`, atau bila tidak ada lewat API rilis GitHub: nomor versi dari nama tag, mis. `v10`), lalu menawarkan unduh dan pasang. Aplikasi admin juga membaca rilis terbaru otomatis, tidak ada yang diisi manual. Lisensi membatasi versi tertinggi.

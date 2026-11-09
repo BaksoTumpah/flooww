@@ -231,7 +231,7 @@ class AdminActivity : Activity() {
             "flow admin", "Kunci penandatangan",
             card(
                 "Impor kunci admin",
-                label("Tempel kunci pendek (43 karakter) atau teks dari berkas flooww-admin-key.txt. Kunci ini yang membuat lisensi sah, jadi simpan baik-baik dan jangan dibagikan."),
+                label("Tempel teks kunci dari berkas flooww-admin-key.txt. Kunci ini yang membuat lisensi sah, jadi simpan baik-baik dan jangan dibagikan. Aplikasi ini tidak menyediakan cara menyalin kunci keluar."),
                 spaced(input),
                 row(
                     btn("Tempel dari salinan") {
@@ -240,7 +240,16 @@ class AdminActivity : Activity() {
                     },
                     btn("Simpan kunci", true) {
                         val e = Store.importKey(this, input.text.toString())
-                        if (e == null) route() else msg.text = e
+                        if (e == null) {
+                            // kunci tidak boleh tertinggal di papan klip yang bisa dibaca aplikasi lain
+                            try {
+                                val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                                if (android.os.Build.VERSION.SDK_INT >= 28) cm.clearPrimaryClip()
+                                else cm.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
+                            } catch (x: Exception) {
+                            }
+                            route()
+                        } else msg.text = e
                     }
                 ),
                 msg
@@ -528,14 +537,6 @@ class AdminActivity : Activity() {
                     }.start()
                 }
             )
-        ))
-        content.addView(card(
-            "Kunci penandatangan",
-            label("Kunci pendek (43 karakter) sama kuatnya dengan kunci panjang dan bisa ditempel di layar Impor kunci. Siapa pun yang memegang kunci ini bisa membuat lisensi sah, jadi jangan dibagikan dan jangan disimpan di tempat umum."),
-            spaced(btn("Salin kunci pendek") {
-                val k = try { Store.shortKey(this) } catch (e: Exception) { null }
-                if (k == null) toast("Kunci belum ada") else copy("kunci admin", k)
-            })
         ))
         content.addView(card(
             "Cadangan",
