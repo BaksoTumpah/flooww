@@ -16,7 +16,11 @@ import java.security.spec.X509EncodedKeySpec
  */
 object License {
     /** Kunci publik admin (X.509, base64). Pasangannya hanya ada di aplikasi flow admin. */
-    private const val PUB = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEl91fZh7A+IfYZ90DjP5+v23wtuVJx7xfpCQWBclEFNxYCH+0V35rAr7Kwtb/6wI9xRcdG+WLFPs19PhIFmWc0Q=="
+    /** Kunci publik yang diterima: kunci pertama (lama) dan kunci kedua (baru, kunci pendek). Lisensi dari salah satunya sah. */
+    private val PUBS = listOf(
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEl91fZh7A+IfYZ90DjP5+v23wtuVJx7xfpCQWBclEFNxYCH+0V35rAr7Kwtb/6wI9xRcdG+WLFPs19PhIFmWc0Q==",
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEc3xf19fOnlALSrn67OwpMgr7R9fs2MN6lO1h5UN629iHWGOmrinIgB4glBiLXH+DXYc7X1VsEI0I8lCdDgN4/g=="
+    )
 
     class Info(
         val id: String,
@@ -62,11 +66,19 @@ object License {
     }
 
     private fun verify(payload: ByteArray, derSig: ByteArray): Boolean {
-        val pk = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(Base64.decode(PUB, Base64.DEFAULT)))
-        val v = Signature.getInstance("SHA256withECDSA")
-        v.initVerify(pk)
-        v.update(payload)
-        return v.verify(derSig)
+        val kf = KeyFactory.getInstance("EC")
+        for (pub in PUBS) {
+            val ok = try {
+                val v = Signature.getInstance("SHA256withECDSA")
+                v.initVerify(kf.generatePublic(X509EncodedKeySpec(Base64.decode(pub, Base64.DEFAULT))))
+                v.update(payload)
+                v.verify(derSig)
+            } catch (e: Exception) {
+                false
+            }
+            if (ok) return true
+        }
+        return false
     }
 
     /** Periksa tanda tangan dan baca isinya. null bila bentuk atau tanda tangan salah. Menerima format ringkas dan format lama (berisi titik). */

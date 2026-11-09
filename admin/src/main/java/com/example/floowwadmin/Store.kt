@@ -36,7 +36,11 @@ class Rel(val code: Int, val notes: String, val date: Long, val url: String = ""
 /** Penyimpanan data admin di HP ini, plus tanda tangan lisensi dan PIN. */
 object Store {
     /** Kunci publik yang tertanam di flooww. Kunci rahasia yang diimpor harus berpasangan dengannya. */
-    private const val PUB = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEl91fZh7A+IfYZ90DjP5+v23wtuVJx7xfpCQWBclEFNxYCH+0V35rAr7Kwtb/6wI9xRcdG+WLFPs19PhIFmWc0Q=="
+    /** Kunci publik yang diterima: kunci pertama (lama) dan kunci kedua (baru, kunci pendek). Lisensi dari salah satunya sah. */
+    private val PUBS = listOf(
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEl91fZh7A+IfYZ90DjP5+v23wtuVJx7xfpCQWBclEFNxYCH+0V35rAr7Kwtb/6wI9xRcdG+WLFPs19PhIFmWc0Q==",
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEc3xf19fOnlALSrn67OwpMgr7R9fs2MN6lO1h5UN629iHWGOmrinIgB4glBiLXH+DXYc7X1VsEI0I8lCdDgN4/g=="
+    )
     const val FIRST_RELEASE_CODE = 9
 
     private fun sp(c: Context) = c.getSharedPreferences("admin", Context.MODE_PRIVATE)
@@ -104,11 +108,18 @@ object Store {
             val msg = "tes".toByteArray()
             s.update(msg)
             val sig = s.sign()
-            val pub = KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(Base64.decode(PUB, Base64.DEFAULT)))
-            val v = Signature.getInstance("SHA256withECDSA")
-            v.initVerify(pub)
-            v.update(msg)
-            if (!v.verify(sig)) "Kunci ini tidak berpasangan dengan kunci publik di flooww." else {
+            val kf = KeyFactory.getInstance("EC")
+            val paired = PUBS.any { pub ->
+                try {
+                    val v = Signature.getInstance("SHA256withECDSA")
+                    v.initVerify(kf.generatePublic(X509EncodedKeySpec(Base64.decode(pub, Base64.DEFAULT))))
+                    v.update(msg)
+                    v.verify(sig)
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            if (!paired) "Kunci ini tidak berpasangan dengan kunci publik di flooww." else {
                 // disimpan dalam bentuk PKCS8 agar data dan cadangan lama tetap cocok
                 sp(c).edit().putString("priv", b64(priv.encoded)).apply()
                 null
