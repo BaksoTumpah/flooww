@@ -196,6 +196,21 @@
         "title": "Nyalakan bubble",
         "desc": "Di Android 14 ke atas, izin tangkap layar diminta setiap bubble dimulai."
       }
+    ],
+    "upTitle": "Cara memperbarui",
+    "upSteps": [
+      {
+        "title": "Buka flooww",
+        "desc": "Aplikasi otomatis memeriksa rilis terbaru. Bila ada, muncul dialog Pembaruan tersedia."
+      },
+      {
+        "title": "Ketuk Unduh dan pasang",
+        "desc": "Tunggu unduhan selesai. Bila diminta, izinkan flooww memasang aplikasi dari sumber ini (sekali saja)."
+      },
+      {
+        "title": "Ketuk Pasang",
+        "desc": "Pasang di atas versi lama, lalu buka flooww lagi. Bila gagal, unduh APK dari tombol di atas dan pasang manual."
+      }
     ]
   },
   "lisensi": {

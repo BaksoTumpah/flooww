@@ -222,6 +222,15 @@ class MainActivity : Activity() {
         }
         col.addView(card("Pembaruan",
             upMsg,
+            TextView(this).apply {
+                text = "Cara memperbarui:\n" +
+                    "1. Ketuk Cek pembaruan, atau tunggu dialog Pembaruan tersedia saat aplikasi dibuka.\n" +
+                    "2. Ketuk Unduh dan pasang, tunggu unduhan selesai. Bila diminta, izinkan pasang dari sumber ini (sekali saja).\n" +
+                    "3. Ketuk Pasang di layar Android, lalu buka flooww lagi."
+                textSize = 12.5f
+                setTextColor(p.muted)
+                setPadding(0, dp(8), 0, dp(8))
+            },
             Ui.button(this, "Cek pembaruan", true) { checkUpdate(upMsg) }
         ))
         // seperti Magisk: otomatis memeriksa rilis terbaru di GitHub setiap aplikasi dibuka

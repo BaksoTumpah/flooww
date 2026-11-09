@@ -171,6 +171,7 @@ button { font: inherit; color: inherit; }
 .steps li:nth-child(6n+5) { --c: var(--coral); } .steps li:nth-child(6n+6) { --c: var(--cyan); }
 .steps li::before { content: counter(s); width: 2.25rem; height: 2.25rem; border-radius: 0.75rem; display: grid; place-items: center; font: 500 1rem var(--font-mono); color: var(--tile-ink); background: var(--c); }
 .steps strong { display: block; }
+.up-h { margin: 2.25rem 0 1.1rem; font-size: 1.2rem; }
 .steps span { color: var(--muted); }
 
 /* lisensi */
@@ -408,6 +409,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         { title: 'Izinkan pemasangan', desc: 'Android memperingatkan setiap APK dari luar Play Store. Itu normal. Izinkan untuk browser Anda.' },
         { title: 'Beri izin di aplikasi', desc: 'Izinkan tampil di atas aplikasi lain dan notifikasi.' },
         { title: 'Nyalakan bubble', desc: 'Di Android 14 ke atas, izin tangkap layar diminta setiap bubble dimulai.' }
+      ],
+      upTitle: 'Cara memperbarui',
+      upSteps: [
+        { title: 'Buka flooww', desc: 'Aplikasi otomatis memeriksa rilis terbaru. Bila ada, muncul dialog Pembaruan tersedia.' },
+        { title: 'Ketuk Unduh dan pasang', desc: 'Tunggu unduhan selesai. Bila diminta, izinkan flooww memasang aplikasi dari sumber ini (sekali saja).' },
+        { title: 'Ketuk Pasang', desc: 'Pasang di atas versi lama, lalu buka flooww lagi. Bila gagal, unduh APK dari tombol di atas dan pasang manual.' }
       ]
     },
     lisensi: {
@@ -592,7 +599,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       var mono = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/i.test(fill(s.value, c));
       return '<div><dt>' + F(s.label) + '</dt><dd' + (mono ? ' class="mono"' : '') + '>' + F(s.value) + '</dd></div>';
     }).join('') + '</dl>');
-    h.push('<div class="cta dl-cta"><a class="btn btn-primary" href="' + apk + '" target="_blank" rel="noopener">' + icon('i-dl') + F(c.unduh.btn) + '</a></div></div>' + stepsHTML(c.unduh.steps, F) + '</div></div></section>');
+    h.push('<div class="cta dl-cta"><a class="btn btn-primary" href="' + apk + '" target="_blank" rel="noopener">' + icon('i-dl') + F(c.unduh.btn) + '</a></div></div>' + '<div>' + stepsHTML(c.unduh.steps, F) + '<h3 class="up-h">' + F(c.unduh.upTitle) + '</h3>' + stepsHTML(c.unduh.upSteps, F) + '</div></div></div></section>');
 
     var r = c.lisensi.receipt;
     h.push('<section class="sec" id="lisensi" style="--c: var(--amber)"><div class="in">' + shHTML('i-ticket', c.lisensi.title, F) + '<p class="lead-in">' + F(c.lisensi.lead) + '</p><div class="lic-grid">' + stepsHTML(c.lisensi.steps, F));
@@ -687,7 +694,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     { id: 'unduh', label: 'Unduh', desc: 'Spesifikasi dan langkah pemasangan.', blocks: [
       G('Judul bagian', [F('unduh.title', 'Judul'), F('unduh.lead', 'Pengantar', 'area'), F('unduh.btn', 'Tombol unduh', 'text', VERSI_HINT)]),
       L('Spesifikasi', 'unduh.spec', { name: 'Baris', titleKey: 'label', blank: { label: '', value: '' }, fields: [{ key: 'label', label: 'Nama' }, { key: 'value', label: 'Nilai', hint: VERSI_HINT }] }),
-      L('Langkah pemasangan', 'unduh.steps', { name: 'Langkah', titleKey: 'title', blank: { title: '', desc: '' }, fields: [{ key: 'title', label: 'Judul langkah' }, { key: 'desc', label: 'Penjelasan', kind: 'area' }] })
+      L('Langkah pemasangan', 'unduh.steps', { name: 'Langkah', titleKey: 'title', blank: { title: '', desc: '' }, fields: [{ key: 'title', label: 'Judul langkah' }, { key: 'desc', label: 'Penjelasan', kind: 'area' }] }),
+      G('Cara memperbarui', [F('unduh.upTitle', 'Judul')]),
+      L('Langkah memperbarui', 'unduh.upSteps', { name: 'Langkah', titleKey: 'title', blank: { title: '', desc: '' }, fields: [{ key: 'title', label: 'Judul langkah' }, { key: 'desc', label: 'Penjelasan', kind: 'area' }] })
     ] },
     { id: 'lisensi', label: 'Lisensi', desc: 'Alur pembelian dan contoh struk token.', blocks: [
       G('Judul bagian', [F('lisensi.title', 'Judul'), F('lisensi.lead', 'Pengantar', 'area'), F('lisensi.btnWa', 'Tombol WhatsApp')]),
@@ -924,6 +933,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   } catch (e) { }
 })();
 </script>
+
 
 
 </body>
