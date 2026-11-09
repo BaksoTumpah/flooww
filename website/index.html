@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="Unduh flooww, bubble mengambang untuk belajar di Android. Lingkari soal untuk tanya AI, salin teks, terjemah Inggris dan Jepang. Trial 10 menit, lisensi lewat WhatsApp.">
-<title>flooww: Bubble Mengambang untuk Belajar | Unduh APK Android</title>
+<meta name="description" content="flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit.">
+<title>flooww asisten belajar</title>
+<meta name="google-site-verification" content="8M6YltjKzEczX10tX67xuyL6wXrI5hpE_1Z7yEZh6e8" />
 <link rel="canonical" href="https://flooww.web.app/">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta name="robots" content="index,follow,max-image-preview:large">
@@ -12,17 +13,17 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="flooww">
 <meta property="og:locale" content="id_ID">
-<meta property="og:title" content="flooww: Bubble Mengambang untuk Belajar | Unduh APK Android">
-<meta property="og:description" content="Unduh flooww, bubble mengambang untuk belajar di Android. Lingkari soal untuk tanya AI, salin teks, terjemah Inggris dan Jepang. Trial 10 menit, lisensi lewat WhatsApp.">
+<meta property="og:title" content="flooww asisten belajar">
+<meta property="og:description" content="flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit.">
 <meta property="og:url" content="https://flooww.web.app/">
 <meta property="og:image" content="https://flooww.web.app/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="flooww: Bubble Mengambang untuk Belajar | Unduh APK Android">
-<meta name="twitter:description" content="Unduh flooww, bubble mengambang untuk belajar di Android. Lingkari soal untuk tanya AI, salin teks, terjemah Inggris dan Jepang. Trial 10 menit, lisensi lewat WhatsApp.">
+<meta name="twitter:title" content="flooww asisten belajar">
+<meta name="twitter:description" content="flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit.">
 <meta name="twitter:image" content="https://flooww.web.app/og-image.png">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"flooww","applicationCategory":"EducationalApplication","operatingSystem":"Android 8.0+","description":"Unduh flooww, bubble mengambang untuk belajar di Android. Lingkari soal untuk tanya AI, salin teks, terjemah Inggris dan Jepang. Trial 10 menit, lisensi lewat WhatsApp.","url":"https://flooww.web.app/","image":"https://flooww.web.app/og-image.png","inLanguage":"id"}</script>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"flooww","applicationCategory":"EducationalApplication","operatingSystem":"Android 8.0+","description":"flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit.","url":"https://flooww.web.app/","image":"https://flooww.web.app/og-image.png","inLanguage":"id"}</script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebSite","name":"flooww","url":"https://flooww.web.app/","inLanguage":"id"}</script>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -362,6 +363,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   var DEFAULTS = {
     meta: {
       title: 'flooww: Bubble Mengambang untuk Belajar | Unduh APK Android',
+      siteTitle: 'flooww asisten belajar',
+      description: 'flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit.',
       version: '9',
       waNumber: '62XXXXXXXXXX',
       waText: 'Halo, saya mau beli lisensi flooww. Mohon info paket dan harganya.',
@@ -648,8 +651,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     tip.style.setProperty('--c', 'var(' + m[0] + ')');
     tip.innerHTML = '<strong>' + esc(fill(c.tools[i].name, c)) + '</strong>' + esc(fill(c.tools[i].desc, c));
   }
+  /* judul dan deskripsi untuk Google dan pratinjau tautan; diambil dari menu developer */
+  function syncSeo(c) {
+    var t = fill(c.meta.siteTitle || c.meta.title, c), d = fill(c.meta.description || '', c);
+    document.title = t;
+    [['meta[name="description"]', d], ['meta[property="og:title"]', t], ['meta[property="og:description"]', d], ['meta[name="twitter:title"]', t], ['meta[name="twitter:description"]', d]].forEach(function (x) {
+      var el = document.querySelector(x[0]);
+      if (el && x[1]) el.setAttribute('content', x[1]);
+    });
+  }
   function renderSite() {
-    document.title = fill(content.meta.title, content);
+    syncSeo(content);
     app.innerHTML = siteHTML(content);
     var menu = $('menu'), bubble = $('bubble');
     if (menu) menu.hidden = !st.open;
@@ -694,6 +706,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     { id: 'tayang', label: 'Tayangkan', desc: 'Simpan, ekspor, dan impor seluruh teks situs.' },
     { id: 'umum', label: 'Umum', desc: 'Judul tab, merek, versi, nomor WhatsApp, dan tautan.', blocks: [
       G('Situs', [F('meta.title', 'Judul tab browser'), F('brand.name', 'Nama merek di pojok kiri atas'), F('brand.aria', 'Label pembaca layar untuk merek')]),
+      G('Mesin pencari (Google)', [F('meta.siteTitle', 'Judul yang tampil di Google dan tab', 'text', 'Mis. "flooww asisten belajar". Google membaca judul setelah situs dirender; judul di HTML statis tidak ikut berubah.'), F('meta.description', 'Deskripsi di Google', 'area', 'Sekitar 120 sampai 160 karakter.')]),
       G('Aplikasi', [F('meta.version', 'Nomor versi cadangan', 'text', 'Terisi otomatis dari rilis terbaru di GitHub. Angka ini hanya dipakai bila GitHub tidak terjangkau.'), F('meta.apkUrl', 'Tautan unduh APK', 'url', 'Dipakai oleh semua tombol Unduh APK.')]),
       G('WhatsApp', [F('meta.waNumber', 'Nomor WhatsApp', 'tel', 'Format internasional tanpa tanda plus. Contoh: 6281234567890.'), F('meta.waText', 'Pesan awal saat chat dibuka', 'area')])
     ] },

@@ -359,6 +359,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   var DEFAULTS = {
     meta: {
       title: 'flooww: Bubble Mengambang untuk Belajar | Unduh APK Android',
+      siteTitle: 'flooww asisten belajar',
+      description: 'flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit.',
       version: '9',
       waNumber: '62XXXXXXXXXX',
       waText: 'Halo, saya mau beli lisensi flooww. Mohon info paket dan harganya.',
@@ -645,8 +647,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     tip.style.setProperty('--c', 'var(' + m[0] + ')');
     tip.innerHTML = '<strong>' + esc(fill(c.tools[i].name, c)) + '</strong>' + esc(fill(c.tools[i].desc, c));
   }
+  /* judul dan deskripsi untuk Google dan pratinjau tautan; diambil dari menu developer */
+  function syncSeo(c) {
+    var t = fill(c.meta.siteTitle || c.meta.title, c), d = fill(c.meta.description || '', c);
+    document.title = t;
+    [['meta[name="description"]', d], ['meta[property="og:title"]', t], ['meta[property="og:description"]', d], ['meta[name="twitter:title"]', t], ['meta[name="twitter:description"]', d]].forEach(function (x) {
+      var el = document.querySelector(x[0]);
+      if (el && x[1]) el.setAttribute('content', x[1]);
+    });
+  }
   function renderSite() {
-    document.title = fill(content.meta.title, content);
+    syncSeo(content);
     app.innerHTML = siteHTML(content);
     var menu = $('menu'), bubble = $('bubble');
     if (menu) menu.hidden = !st.open;
@@ -691,6 +702,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     { id: 'tayang', label: 'Tayangkan', desc: 'Simpan, ekspor, dan impor seluruh teks situs.' },
     { id: 'umum', label: 'Umum', desc: 'Judul tab, merek, versi, nomor WhatsApp, dan tautan.', blocks: [
       G('Situs', [F('meta.title', 'Judul tab browser'), F('brand.name', 'Nama merek di pojok kiri atas'), F('brand.aria', 'Label pembaca layar untuk merek')]),
+      G('Mesin pencari (Google)', [F('meta.siteTitle', 'Judul yang tampil di Google dan tab', 'text', 'Mis. "flooww asisten belajar". Google membaca judul setelah situs dirender; judul di HTML statis tidak ikut berubah.'), F('meta.description', 'Deskripsi di Google', 'area', 'Sekitar 120 sampai 160 karakter.')]),
       G('Aplikasi', [F('meta.version', 'Nomor versi cadangan', 'text', 'Terisi otomatis dari rilis terbaru di GitHub. Angka ini hanya dipakai bila GitHub tidak terjangkau.'), F('meta.apkUrl', 'Tautan unduh APK', 'url', 'Dipakai oleh semua tombol Unduh APK.')]),
       G('WhatsApp', [F('meta.waNumber', 'Nomor WhatsApp', 'tel', 'Format internasional tanpa tanda plus. Contoh: 6281234567890.'), F('meta.waText', 'Pesan awal saat chat dibuka', 'area')])
     ] },
