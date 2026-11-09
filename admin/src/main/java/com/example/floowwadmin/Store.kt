@@ -128,6 +128,11 @@ object Store {
         }
     }
 
+    // ---------- pembaruan aplikasi admin ----------
+
+    fun updSkip(c: Context): Int = sp(c).getInt("upd_skip", 0)
+    fun setUpdSkip(c: Context, v: Int) = sp(c).edit().putInt("upd_skip", v).apply()
+
     // ---------- pembersihan data trial di awan ----------
 
     // Hanya admin yang boleh menghapus data trial (aplikasi pembeli tidak bisa, supaya trial tidak bisa diulang).

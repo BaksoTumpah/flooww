@@ -54,25 +54,28 @@ object Updater {
         val first = if (custom.startsWith("https://")) custom else DEFAULT_INFO_URL
         try {
             val o = JSONObject(get(first))
-            return Info(o.getInt("version"), o.getString("url"), o.optString("notes"), o.optString("sha256").lowercase())
+            val u = o.getString("url")
+            if (!u.endsWith("/flooww.apk")) error("Bukan berkas flooww.apk.")
+            return Info(o.getInt("version"), u, o.optString("notes"), o.optString("sha256").lowercase())
         } catch (e: Exception) {
             // update.json belum ada di rilis: baca langsung dari API rilis GitHub
         }
         val o = JSONObject(get(API_LATEST))
         val tag = o.optString("tag_name")
-        val ver = Regex("\\d+").find(tag)?.value?.toIntOrNull() ?: error("Nama rilis terbaru tidak berisi nomor versi.")
+        // hanya rilis flooww (tag v10, v11, ...) dan hanya berkas flooww.apk; rilis atau APK aplikasi admin diabaikan
+        val ver = Regex("^v(\\d+)$").find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: error("Rilis terbaru bukan rilis flooww.")
         val assets = o.optJSONArray("assets")
         var url = ""
         if (assets != null) {
             for (i in 0 until assets.length()) {
                 val a = assets.getJSONObject(i)
-                if (a.optString("name").endsWith(".apk", true)) {
+                if (a.optString("name") == "flooww.apk") {
                     url = a.optString("browser_download_url")
                     break
                 }
             }
         }
-        if (url.isEmpty()) error("Rilis terbaru belum berisi berkas APK.")
+        if (url.isEmpty()) error("Rilis terbaru belum berisi flooww.apk.")
         return Info(ver, url, o.optString("body").trim(), "")
     }
 

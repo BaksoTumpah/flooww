@@ -351,34 +351,18 @@ class MainActivity : Activity() {
                         else -> {
                             msg.text = "Versi ${info.version} tersedia (terpasang ${BuildConfig.VERSION_NAME})."
                             if (!(auto && skipped == info.version)) {
-                                android.app.AlertDialog.Builder(this)
-                                    .setTitle("Pembaruan tersedia: versi ${info.version}")
-                                    .setMessage(info.notes.ifBlank { "Pembaruan baru." })
-                                    .setNegativeButton("Nanti") { _, _ ->
-                                        Prefs.sp(this).edit().putInt("upd_skip", info.version).apply()
-                                    }
-                                    .setPositiveButton("Unduh dan pasang") { _, _ -> downloadUpdate(info, msg) }
-                                    .show()
+                                UpdateDialog.show(
+                                    this, info, "flooww", BuildConfig.VERSION_NAME.ifBlank { BuildConfig.VERSION_CODE.toString() },
+                                    Prefs.bubbleColor(this),
+                                    onLater = { Prefs.sp(this).edit().putInt("upd_skip", info.version).apply() },
+                                    onStatus = { t -> msg.text = t }
+                                )
                             }
                         }
                     }
                 }
             } catch (e: Exception) {
                 if (!auto) runOnUiThread { msg.text = "Gagal memeriksa: ${e.message ?: e.javaClass.simpleName}" }
-            }
-        }.start()
-    }
-
-    private fun downloadUpdate(info: Updater.Info, msg: TextView) {
-        msg.text = "Mengunduh versi ${info.version}... 0%"
-        Thread {
-            try {
-                val f = Updater.download(this, info) { pct -> runOnUiThread { msg.text = "Mengunduh versi ${info.version}... $pct%" } }
-                runOnUiThread {
-                    msg.text = if (Updater.install(this, f)) "Unduhan selesai. Ikuti pemasangan." else "Izinkan flooww memasang aplikasi, lalu tekan Cek pembaruan lagi."
-                }
-            } catch (e: Exception) {
-                runOnUiThread { msg.text = "Gagal mengunduh: ${e.message ?: e.javaClass.simpleName}" }
             }
         }.start()
     }

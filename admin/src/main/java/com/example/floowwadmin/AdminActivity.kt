@@ -279,6 +279,8 @@ class AdminActivity : Activity() {
         showTab(tab)
         // sinkron rilis terbaru di latar supaya lisensi baru langsung memakai versi terbaru
         Thread { try { Store.syncLatest(this) } catch (e: Exception) { } }.start()
+        // seperti flooww: otomatis memeriksa pembaruan flow admin setiap dibuka
+        checkUpdate(null, auto = true)
     }
 
     private fun showTab(t: Int) {
@@ -462,7 +464,45 @@ class AdminActivity : Activity() {
 
     // ---------- tab Lainnya ----------
 
+    /**
+     * Cek pembaruan flow admin dari rilis "admin" di GitHub (otomatis, tanpa alamat yang diisi manual).
+     * auto = true: dijalankan sendiri saat dibuka; diam bila tidak ada pembaruan atau gagal, dan tidak menampilkan
+     * lagi versi yang sudah dijawab "Nanti".
+     */
+    private fun checkUpdate(msg: TextView?, auto: Boolean = false) {
+        if (!auto) msg?.text = "Memeriksa pembaruan..."
+        Thread {
+            try {
+                val info = Updater.fetch()
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (info.version <= BuildConfig.VERSION_CODE) {
+                        msg?.text = "Versi ${BuildConfig.VERSION_NAME}. Sudah yang terbaru."
+                    } else {
+                        msg?.text = "Versi ${info.version} tersedia (terpasang ${BuildConfig.VERSION_NAME})."
+                        if (!(auto && Store.updSkip(this) == info.version)) {
+                            UpdateDialog.show(
+                                this, info, "flow admin", BuildConfig.VERSION_NAME, Ui.ACCENT,
+                                onLater = { Store.setUpdSkip(this, info.version) },
+                                onStatus = { t -> msg?.text = t }
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (!auto) runOnUiThread { msg?.text = "Gagal memeriksa: ${e.message ?: e.javaClass.simpleName}" }
+            }
+        }.start()
+    }
+
     private fun moreTab() {
+        val upMsg = label("Versi ${BuildConfig.VERSION_NAME}.", 13f, Ui.ACCENT)
+        content.addView(card(
+            "Pembaruan flow admin",
+            upMsg,
+            label("Cara memperbarui: 1. Ketuk Cek pembaruan, atau tunggu jendela Pembaruan tersedia saat aplikasi dibuka. 2. Ketuk Unduh dan pasang, lalu izinkan pasang dari sumber ini bila diminta (sekali saja). 3. Ketuk Pasang di layar Android dan buka flow admin lagi."),
+            spaced(btn("Cek pembaruan", true) { checkUpdate(upMsg) })
+        ))
         val free = Ui.field(this, "Update gratis bawaan", number = true).apply { setText(Store.freeUpdates(this@AdminActivity).toString()) }
         content.addView(card(
             "Update gratis bawaan",
