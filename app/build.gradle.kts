@@ -14,8 +14,8 @@ android {
         setProperty("archivesBaseName", "flooww")
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "11"
+        versionCode = 12
+        versionName = "12"
         // alamat Firebase Realtime Database (data trial) dan berkas info pembaruan; bisa diisi lewat env CI
         buildConfigField("String", "TRIAL_DB_URL", "\"" + (System.getenv("FLOOWW_DB_URL") ?: "") + "\"")
         buildConfigField("String", "UPDATE_URL", "\"" + (System.getenv("FLOOWW_UPDATE_URL") ?: "") + "\"")
