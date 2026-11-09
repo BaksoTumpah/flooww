@@ -28,6 +28,11 @@ import android.widget.TextView
 /** Layar pengaturan. Semua pengaturan bubble, menu, jendela, AI, dan API key ada di sini. */
 class MainActivity : Activity() {
 
+    private companion object {
+        /** Sudah menekan "Lanjut ke flooww" pada halaman izin (berlaku selama proses aplikasi hidup). */
+        @Volatile var permSkipped = false
+    }
+
     private val reqOverlay = 1
     private val reqProjection = 2
     private val reqNotif = 3
@@ -51,6 +56,12 @@ class MainActivity : Activity() {
                 if (License.state(this) == License.State.NONE) "Masa trial 10 menit habis. Bubble dimatikan dan semua fitur nonaktif. Kirim kode perangkat ke admin, lalu tempel lisensi."
                 else null
             )
+            return
+        }
+
+        // izin wajib belum lengkap: tampilkan daftar izin dulu (tanpa melompat ke pengaturan sistem)
+        if (!permSkipped && buildSteps().any { !it.optional && !it.ok() }) {
+            showPermPage()
             return
         }
 
@@ -363,12 +374,24 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    // ---------- izin (diminta berurutan saat aplikasi dibuka) ----------
+    // ---------- izin ----------
+    // Aplikasi tidak lagi melompat ke pengaturan sistem saat dibuka. Daftar izin tampil di halaman sendiri
+    // (atau kartu "Izin" di layar utama), tiap izin punya penjelasan singkat dan tombol menuju pengaturannya.
 
-    private class Step(val name: String, val ok: () -> Boolean, val ask: () -> Unit, val optional: Boolean = false)
+    private class Step(
+        val name: String,
+        val desc: String,
+        val ok: () -> Boolean,
+        val ask: () -> Unit,
+        val optional: Boolean = false,
+        val action: String = "Buka pengaturan"
+    )
 
     private val asked = mutableSetOf<String>()
-    private val permRows = mutableListOf<TextView>()
+    private var chaining = false
+    private var onPermPage = false
+    private val permMarks = mutableListOf<TextView>()
+    private val permBtns = mutableListOf<TextView>()
     private var permSteps: List<Step> = emptyList()
 
     private fun a11yOn(): Boolean {
@@ -384,94 +407,191 @@ class MainActivity : Activity() {
 
     private fun buildSteps(): List<Step> {
         val l = mutableListOf<Step>()
-        l += Step("Tampil di atas aplikasi lain", { Settings.canDrawOverlays(this) }, {
-            startActivityForResult(
-                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), reqOverlay
-            )
-        })
-        if (Build.VERSION.SDK_INT >= 33) {
-            l += Step("Notifikasi", {
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-            }, { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), reqNotif) })
-        }
-        l += Step("Akses foto (Galeri mengambang)", {
-            if (Build.VERSION.SDK_INT >= 33) {
-                checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
-                    (Build.VERSION.SDK_INT >= 34 &&
-                        checkSelfPermission("android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == PackageManager.PERMISSION_GRANTED)
-            } else {
-                checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-            }
-        }, {
-            requestPermissions(
-                if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
-                else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
-                reqMedia
-            )
-        }, true)
-        l += Step("Tanpa batasan baterai", { batteryOk() }, {
-            try {
-                startActivity(
-                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+        l += Step("Tampil di atas aplikasi lain",
+            "Supaya bubble dan jendela flooww bisa muncul di atas aplikasi lain. Tanpa ini bubble tidak tampil.",
+            { Settings.canDrawOverlays(this) }, {
+                startActivityForResult(
+                    Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), reqOverlay
                 )
-            } catch (e: Exception) {
-                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-            }
-        })
-        if (xiaomi()) {
-            l += Step("Mulai otomatis (Xiaomi)", { Prefs.sp(this).getBoolean("autostartDone", false) }, {
-                Prefs.sp(this).edit().putBoolean("autostartDone", true).apply()
+            })
+        if (Build.VERSION.SDK_INT >= 33) {
+            l += Step("Notifikasi",
+                "Android mewajibkan notifikasi tetap selama bubble aktif. Dipakai juga untuk menghentikan bubble dari notifikasi.",
+                { checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED },
+                { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), reqNotif) },
+                action = "Beri izin")
+        }
+        l += Step("Akses foto (Galeri mengambang)",
+            "Untuk membuka Galeri mengambang. Foto hanya dibaca saat Anda membukanya, tidak diunggah.",
+            {
+                if (Build.VERSION.SDK_INT >= 33) {
+                    checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
+                        (Build.VERSION.SDK_INT >= 34 &&
+                            checkSelfPermission("android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == PackageManager.PERMISSION_GRANTED)
+                } else {
+                    checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                }
+            }, {
+                requestPermissions(
+                    if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+                    else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+                    reqMedia
+                )
+            }, true, "Beri izin")
+        l += Step("Tanpa batasan baterai",
+            "Agar sistem tidak mematikan bubble saat dipakai lama atau layar dikunci.",
+            { batteryOk() }, {
                 try {
-                    startActivity(Intent().setClassName(
-                        "com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"
-                    ))
+                    startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+                    )
                 } catch (e: Exception) {
-                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                    startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                 }
             })
+        if (xiaomi()) {
+            l += Step("Mulai otomatis (Xiaomi)",
+                "Di Xiaomi, HyperOS dan MIUI sering menutup aplikasi latar. Izinkan flooww mulai otomatis agar bubble tetap hidup.",
+                { Prefs.sp(this).getBoolean("autostartDone", false) }, {
+                    Prefs.sp(this).edit().putBoolean("autostartDone", true).apply()
+                    try {
+                        startActivity(Intent().setClassName(
+                            "com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"
+                        ))
+                    } catch (e: Exception) {
+                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                    }
+                })
         }
-        l += Step("Aksesibilitas (Auto Clicker)", { a11yOn() }, {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        }, true)
+        l += Step("Aksesibilitas (Auto Clicker)",
+            "Hanya untuk Auto Clicker mengetuk titik target. Tidak membaca layar atau isi aplikasi. Boleh dilewati bila tidak memakai Auto Clicker.",
+            { a11yOn() }, {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }, true)
         return l
     }
 
-    private fun permCard(): View {
+    /** Daftar izin: nama dan status, penjelasan singkat, dan tombol menuju pengaturannya. */
+    private fun permList(): LinearLayout {
         permSteps = buildSteps()
+        permMarks.clear()
+        permBtns.clear()
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         permSteps.forEach { s ->
-            val row = TextView(this).apply {
+            val mark = TextView(this).apply {
                 textSize = 14f
-                setPadding(0, dp(6), 0, dp(6))
-                setOnClickListener { if (!s.ok()) s.ask() }
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             }
-            permRows += row
-            box.addView(row)
+            val btn = Ui.button(this, s.action, false) {
+                try {
+                    s.ask()
+                } catch (e: Exception) {
+                }
+            }
+            permMarks += mark
+            permBtns += btn
+            box.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, dp(8), 0, dp(8))
+                addView(mark)
+                addView(TextView(this@MainActivity).apply {
+                    text = s.desc
+                    textSize = 13f
+                    setTextColor(p.muted)
+                    setPadding(0, dp(2), 0, dp(6))
+                })
+                addView(btn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            })
         }
+        refreshPerm()
+        return box
+    }
+
+    private fun permCard(): View {
+        val list = permList()
         refreshers.add { refreshPerm() }
-        return card("Izin", box, spaced(Ui.button(this, "Beri semua izin", true) {
-            asked.clear()
-            nextPermission()
-        }))
+        return card("Izin", list,
+            TextView(this).apply {
+                text = "Izin tangkap layar diminta Android setiap bubble dimulai. Itu normal dan tidak bisa dimatikan."
+                textSize = 12f
+                setTextColor(p.muted)
+                setPadding(0, dp(6), 0, dp(6))
+            },
+            spaced(Ui.button(this, "Beri semua izin satu per satu", true) {
+                asked.clear()
+                chaining = true
+                nextPermission()
+            }))
     }
 
     private fun refreshPerm() {
         permSteps.forEachIndexed { i, s ->
             val ok = s.ok()
-            permRows[i].text = (if (ok) "✓  " else "✕  ") + s.name
-            permRows[i].setTextColor(if (ok) 0xFF16A34A.toInt() else p.on)
+            permMarks[i].text = (if (ok) "✓  " else "✕  ") + s.name + (if (s.optional) " (opsional)" else "")
+            permMarks[i].setTextColor(if (ok) 0xFF16A34A.toInt() else p.on)
+            permBtns[i].visibility = if (ok) View.GONE else View.VISIBLE
         }
     }
 
-    /** Minta izin yang belum ada, satu per satu. Tiap izin hanya ditanyakan sekali per pembukaan. */
+    /** Dipakai tombol "Beri semua izin satu per satu": minta izin yang belum ada, satu per satu, tiap izin sekali. */
     private fun nextPermission() {
         refreshPerm()
-        val s = permSteps.firstOrNull { !it.ok() && it.name !in asked } ?: return
+        val s = permSteps.firstOrNull { !it.ok() && it.name !in asked }
+        if (s == null) {
+            chaining = false
+            return
+        }
         asked.add(s.name)
         try {
             s.ask()
         } catch (e: Exception) {
         }
+    }
+
+    /** Halaman daftar izin, tampil saat aplikasi dibuka bila ada izin wajib yang belum diberikan. */
+    private fun showPermPage() {
+        onPermPage = true
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(28), dp(16), dp(24))
+        }
+        col.addView(TextView(this).apply {
+            text = "flooww"
+            textSize = 28f
+            typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
+            setTextColor(p.on)
+        })
+        col.addView(TextView(this).apply {
+            text = "Izin aplikasi"
+            textSize = 18f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(Ui.accentText(p, Prefs.bubbleColor(this@MainActivity)))
+            setPadding(0, dp(2), 0, dp(4))
+        })
+        col.addView(TextView(this).apply {
+            text = "flooww butuh beberapa izin agar bubble bisa berjalan. Tiap izin dijelaskan di bawah, dan tombolnya membuka pengaturan yang sesuai. Izin opsional boleh dilewati."
+            textSize = 14f
+            setTextColor(p.muted)
+            setPadding(0, 0, 0, dp(14))
+        })
+        col.addView(card("Daftar izin", permList()))
+        col.addView(TextView(this).apply {
+            text = "Izin tangkap layar diminta Android setiap bubble dimulai. Itu normal dan tidak bisa dimatikan."
+            textSize = 12f
+            setTextColor(p.muted)
+            setPadding(dp(4), 0, dp(4), dp(12))
+        })
+        col.addView(Ui.button(this, "Lanjut ke flooww", true) {
+            permSkipped = true
+            recreate()
+        })
+        window.decorView.setBackgroundColor(p.bg)
+        setContentView(
+            ScrollView(this).apply {
+                setBackgroundColor(p.bg)
+                addView(col, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+        )
     }
 
     /** Layar aktivasi: semua fitur terkunci sampai lisensi dari admin ditempel. */
@@ -571,7 +691,10 @@ class MainActivity : Activity() {
         super.onResume()
         tickH.removeCallbacks(tick)
         if (!lockedScreen) tickH.post(tick)
-        if (permSteps.isNotEmpty()) window.decorView.postDelayed({ nextPermission() }, 350)
+        if (permSteps.isNotEmpty()) {
+            refreshPerm()
+            if (chaining) window.decorView.postDelayed({ nextPermission() }, 350)
+        }
     }
 
     // ---------- komponen ----------
