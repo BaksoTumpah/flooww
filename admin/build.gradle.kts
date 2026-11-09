@@ -14,8 +14,8 @@ android {
         setProperty("archivesBaseName", "flow-admin")
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "2"
+        versionCode = 3
+        versionName = "3"
         // ID klien web OAuth (Google Cloud). Kosong = login Google dilewati dan hanya PIN yang dipakai.
         buildConfigField("String", "GOOGLE_CLIENT_ID", "\"" + (System.getenv("FLOOWW_ADMIN_GOOGLE_CLIENT_ID") ?: "") + "\"")
     }
