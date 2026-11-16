@@ -342,22 +342,23 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     val li = License.info(this)
-                    val skipped = Prefs.sp(this).getInt("upd_skip", 0)
+                    val cur = BuildConfig.VERSION_NAME.ifBlank { BuildConfig.VERSION_CODE.toString() }
+                    // popup muncul setiap aplikasi dibuka selama ada versi baru, tanpa "lewati"
+                    fun popup(i: Updater.Info) = UpdateDialog.show(
+                        this, i, "flooww", cur, Prefs.bubbleColor(this),
+                        onLater = { }, onStatus = { t -> msg.text = t }
+                    )
                     when {
                         info.version <= BuildConfig.VERSION_CODE -> msg.text = "Versi ${BuildConfig.VERSION_NAME}. Sudah yang terbaru."
                         li == null -> msg.text = "Versi ${info.version} tersedia. Masukkan lisensi dulu untuk memperbarui."
-                        li.maxVersion in 1 until info.version ->
-                            msg.text = "Versi ${info.version} tersedia, tetapi di luar jatah update lisensi (sampai versi ${li.maxVersion}). Hubungi admin."
+                        li.maxVersion in 1 until info.version -> {
+                            val warn = "Lisensi Anda berlaku sampai versi ${li.maxVersion}. Versi ${info.version} butuh lisensi baru dari admin. Versi yang terpasang tetap bisa dipakai."
+                            msg.text = "Versi ${info.version} tersedia, di luar jatah lisensi (sampai versi ${li.maxVersion}). Hubungi admin."
+                            popup(Updater.Info(info.version, info.url, warn + "\n\n" + info.notes, info.sha256))
+                        }
                         else -> {
                             msg.text = "Versi ${info.version} tersedia (terpasang ${BuildConfig.VERSION_NAME})."
-                            if (!(auto && skipped == info.version)) {
-                                UpdateDialog.show(
-                                    this, info, "flooww", BuildConfig.VERSION_NAME.ifBlank { BuildConfig.VERSION_CODE.toString() },
-                                    Prefs.bubbleColor(this),
-                                    onLater = { Prefs.sp(this).edit().putInt("upd_skip", info.version).apply() },
-                                    onStatus = { t -> msg.text = t }
-                                )
-                            }
+                            popup(info)
                         }
                     }
                 }

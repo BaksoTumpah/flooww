@@ -3,9 +3,11 @@ package com.example.floatstudy
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Typeface
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -210,16 +212,41 @@ class Osk(private val c: Context, private val wm: WindowManager) {
             when (ev.action) {
                 MotionEvent.ACTION_DOWN -> {
                     v.isPressed = true
+                    pressFx(v, true)
                     n = 0
                     backspace()
                     ui.postDelayed(rep, 320)
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     v.isPressed = false
+                    pressFx(v, false)
                     ui.removeCallbacks(rep)
                 }
             }
             true
+        }
+    }
+
+    /** Efek ketik seperti keyboard sistem: getar singkat, bunyi klik tuts, dan tuts sedikit mengecil saat ditekan. */
+    private fun pressFx(v: View, down: Boolean) {
+        if (down) {
+            v.animate().cancel()
+            v.animate().scaleX(0.93f).scaleY(0.93f).setDuration(40).start()
+            try {
+                v.performHapticFeedback(
+                    HapticFeedbackConstants.KEYBOARD_TAP,
+                    HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
+                )
+            } catch (e: Exception) {
+            }
+            try {
+                (c.getSystemService(Context.AUDIO_SERVICE) as AudioManager)
+                    .playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, -1f)
+            } catch (e: Exception) {
+            }
+        } else {
+            v.animate().cancel()
+            v.animate().scaleX(1f).scaleY(1f).setDuration(90).start()
         }
     }
 
@@ -245,12 +272,19 @@ class Osk(private val c: Context, private val wm: WindowManager) {
         if (click != null) {
             setOnTouchListener { v, ev ->
                 when (ev.action) {
-                    MotionEvent.ACTION_DOWN -> v.isPressed = true
+                    MotionEvent.ACTION_DOWN -> {
+                        v.isPressed = true
+                        pressFx(v, true)
+                    }
                     MotionEvent.ACTION_UP -> {
                         v.isPressed = false
+                        pressFx(v, false)
                         click()
                     }
-                    MotionEvent.ACTION_CANCEL -> v.isPressed = false
+                    MotionEvent.ACTION_CANCEL -> {
+                        v.isPressed = false
+                        pressFx(v, false)
+                    }
                 }
                 true
             }
