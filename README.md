@@ -10,7 +10,7 @@ Alat yang mengambil soal dari layar (Tanya AI, Salin, Terjemah, Gambar) langsung
 
 | Menu | Fungsi |
 | --- | --- |
-| Tanya AI | Lingkari soal, gambar dibuka di browser mengambang pada website ChatGPT atau Claude (pilih di aplikasi; Claude lebih lambat dan perlu login dulu di jendela mengambang), gambar otomatis terlampir lalu perintah dikirim |
+| Tanya AI | Lingkari soal, gambar dibuka di browser mengambang pada website ChatGPT atau Google AI Mode (pilih di aplikasi), gambar otomatis terlampir lalu perintah dikirim |
 | Salin | Lingkari area, baca teks (OCR di HP), otomatis tersalin |
 | Terjemah | Lingkari teks, terjemah di HP (Inggris atau Jepang ke Indonesia, bisa dibalik) |
 | Screenshot | Ambil layar penuh, simpan ke galeri (Pictures/flooww) |

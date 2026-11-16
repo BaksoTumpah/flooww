@@ -141,7 +141,7 @@ class MainActivity : Activity() {
             })
         }
         gAi.add(sec("Tujuan Tanya AI",
-            note("Direkomendasikan: ChatGPT (bawaan). Gambar soal paling stabil terlampir dan pengirimannya cepat. Claude lebih lambat dimuat dan Anda harus login dulu di jendela mengambang (buka Tanya AI, login sekali, lalu ulangi)."),
+            note("Direkomendasikan: ChatGPT (bawaan). Gambar soal paling stabil terlampir. Google AI Mode juga tersedia, tanpa login. Bila jendela AI masih terbuka, soal berikutnya melanjutkan chat yang sama sehingga lebih cepat."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn)
         ))

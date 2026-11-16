@@ -1031,14 +1031,14 @@ class FloatService : Service() {
     }
 
     private fun toJpegB64(src: Bitmap): String {
-        val scale = minOf(1f, 1400f / maxOf(src.width, src.height))
+        val scale = minOf(1f, 1280f / maxOf(src.width, src.height))
         val bmp = if (scale < 1f) {
             Bitmap.createScaledBitmap(
                 src, (src.width * scale).toInt(), (src.height * scale).toInt(), true
             )
         } else src
         val bos = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.JPEG, 80, bos)
+        bmp.compress(Bitmap.CompressFormat.JPEG, 75, bos)
         return Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
     }
 
@@ -1391,8 +1391,16 @@ class FloatService : Service() {
 
     // ---------- Tanya AI lewat browser mengambang ----------
 
-    private val AI_WEB = listOf("https://chatgpt.com/", "https://claude.ai/new")
-    private val AI_WEB_Q = listOf("https://chatgpt.com/?q=", "https://claude.ai/new?q=")
+    private val AI_WEB = listOf("https://chatgpt.com/", "https://www.google.com/search?udm=50")
+    private val AI_WEB_Q = listOf("https://chatgpt.com/?q=", "https://www.google.com/search?udm=50&q=")
+
+    /** Halaman web saat ini masih situs AI yang dipilih: sesi chat dilanjutkan, tidak dimuat ulang. */
+    private fun onAiSite(target: Int): Boolean {
+        val w = web ?: return false
+        val u = w.url ?: return false
+        return if (target == 0) u.startsWith("https://chatgpt.com/")
+        else u.startsWith("https://www.google.com/search") && u.contains("udm=50")
+    }
 
     // gambar yang akan dilampirkan otomatis saat situs AI membuka pemilih file
     private var pendingUpload: Uri? = null
@@ -1404,7 +1412,7 @@ class FloatService : Service() {
     /**
      * Buka situs AI pilihan di browser mengambang (bukan aplikasi AI yang terpasang).
      * Gambar disiapkan: saat Anda menekan tombol lampirkan di situs, gambar langsung terpilih.
-     * Perintah: ChatGPT dan Claude menerimanya lewat alamat.
+     * Perintah: ChatGPT dan Google AI Mode menerimanya lewat alamat. Bila situs AI sudah terbuka, sesi chat dilanjutkan.
      */
     private fun askWeb(bmp: Bitmap?, prompt: String) {
         val target = Prefs.aiTarget(c)
@@ -1416,7 +1424,7 @@ class FloatService : Service() {
             try {
                 val dir = File(cacheDir, "shared").apply { mkdirs() }
                 val f = File(dir, "ask.jpg")
-                f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+                f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
                 pendingUpload = Uri.fromFile(f)
                 pendingB64 = toJpegB64(bmp)
                 // cadangan: gambar juga disalin ke clipboard, bisa ditempel lewat tekan lama di kolom pesan
@@ -1434,15 +1442,26 @@ class FloatService : Service() {
         val base = AI_WEB_Q[target]
         // ada gambar: buka halaman polos, lampirkan gambar dulu, baru isi perintah lalu kirim
         pendingPrompt = if (bmp != null) prompt else null
+        val resume = onAiSite(target)
+        pendingPrompt = prompt
+        if (bmp == null) pendingPrompt = null
         val url = if (base != null && bmp == null) base + URLEncoder.encode(prompt.take(1500), "UTF-8") else AI_WEB[target]
         openTool(M_BROWSER)
         refreshAttach()
+        if (resume) {
+            // sesi sebelumnya masih terbuka: lanjutkan di chat yang sama, tanpa memuat ulang
+            toast("Melanjutkan chat $name…")
+            if (bmp != null) {
+                web?.evaluateJavascript(WEB_SEL_JS, null)
+                autoAttach(50, true)
+            } else {
+                pendingPrompt = prompt
+                fillAndSend()
+            }
+            return
+        }
         web?.loadUrl(url)
-        toast(
-            if (target == 1) "Membuka $name. Lebih lambat dimuat. Login dulu di jendela ini bila diminta."
-            else if (bmp != null) "Membuka $name…"
-            else "Membuka $name."
-        )
+        toast(if (bmp != null) "Membuka $name…" else "Membuka $name.")
     }
 
     private fun refreshAttach() {
@@ -1464,7 +1483,7 @@ class FloatService : Service() {
         val js = "(function(){try{var b=window.floowwImg.get();if(!b)return 0;" +
             "var s=atob(b),a=new Uint8Array(s.length);for(var i=0;i<s.length;i++)a[i]=s.charCodeAt(i);" +
             "var f=new File([a],'soal.jpg',{type:'image/jpeg'});var dt=new DataTransfer();dt.items.add(f);" +
-            // 1) input berkas yang menerima gambar (ChatGPT, Claude punya sejak awal)
+            // 1) input berkas yang menerima gambar (ChatGPT, Google AI Mode)
             "var ins=document.querySelectorAll('input[type=file]');var t=null;" +
             "for(var k=0;k<ins.length;k++){var ac=(ins[k].accept||'');if(!ac||ac.indexOf('image')>=0||ac.indexOf('*')>=0){t=ins[k];break;}}" +
             "if(t){t.files=dt.files;t.dispatchEvent(new Event('input',{bubbles:true}));t.dispatchEvent(new Event('change',{bubbles:true}));return 2;}" +
@@ -1483,17 +1502,17 @@ class FloatService : Service() {
     /** Coba beberapa kali setelah halaman dimuat, karena kolom pesan situs AI muncul belakangan. */
     private var attachRun: Runnable? = null
 
-    private val COUNT_JS = "(function(){return document.querySelectorAll('img[src^=\"blob:\"],img[src^=\"data:\"],canvas').length;})()"
+    private val COUNT_JS = "(function(){return document.querySelectorAll('img[src^=\"blob:\"],img[src^=\"data:\"],canvas').length+(document.body?document.body.innerText.split('soal.jpg').length-1:0);})()"
 
     /**
      * Lampirkan gambar secepat mungkin tapi tetap aman: tunggu kolom pesan ada dan halaman tenang sebentar (0,7 detik),
      * tempel gambar, cek bahwa gambar benar muncul (miniatur atau nama berkas), lalu langsung isi perintah dan kirim.
      */
-    private fun autoAttach(tries: Int = 50) {
+    private fun autoAttach(tries: Int = 50, resume: Boolean = false) {
         attachRun?.let { ui.removeCallbacks(it) }
         val w = web ?: return
         if (pendingB64 == null || tries <= 0 || attachDone) return
-        if (tries == 50) {
+        if (tries == 50 && !resume) {
             w.evaluateJavascript(
                 "(function(){if(!window.__fq){window.__fq=Date.now();" +
                     "try{new MutationObserver(function(){window.__fq=Date.now();}).observe(document,{subtree:true,childList:true,attributes:true});}catch(e){}}})()",
@@ -1507,19 +1526,19 @@ class FloatService : Service() {
                     "if(!e||document.readyState=='loading')return -1;return window.__fq?(Date.now()-window.__fq):9999;})()"
             ) { v ->
                 val quiet = v?.trim()?.toIntOrNull() ?: -1
-                if (quiet >= 700 || (tries <= 2 && quiet >= 0)) {
+                if (resume && quiet >= 0 || quiet >= 350 || (tries <= 2 && quiet >= 0)) {
                     attachDone = true
                     w.evaluateJavascript(COUNT_JS) { base ->
                         val b0 = base?.trim()?.toIntOrNull() ?: 0
                         attachAndVerify(b0, 0)
                     }
                 } else {
-                    autoAttach(tries - 1)
+                    autoAttach(tries - 1, resume)
                 }
             }
         }
         attachRun = r
-        ui.postDelayed(r, 400)
+        ui.postDelayed(r, if (resume) 60L else 150L)
     }
 
     /** Tempel gambar, lalu cek tiap 0,3 detik sampai muncul. Bila tidak muncul dalam 3 detik, ulangi sekali. */
@@ -1527,7 +1546,7 @@ class FloatService : Service() {
         val w = web ?: return
         injectImage { code ->
             if (code == 0 && round < 3) {
-                ui.postDelayed({ attachAndVerify(base, round + 1) }, 500)
+                ui.postDelayed({ attachAndVerify(base, round + 1) }, 250)
                 return@injectImage
             }
             toast("Melampirkan gambar…")
@@ -1535,21 +1554,21 @@ class FloatService : Service() {
             val check = object : Runnable {
                 override fun run() {
                     w.evaluateJavascript(
-                        "(function(b){var n=document.querySelectorAll('img[src^=\"blob:\"],img[src^=\"data:\"],canvas').length;" +
-                            "var t=document.body&&document.body.innerText.indexOf('soal.jpg')>=0;return(n>b||t)?1:0;})($base)"
+                        "(function(b){var n=document.querySelectorAll('img[src^=\"blob:\"],img[src^=\"data:\"],canvas').length+(document.body?document.body.innerText.split('soal.jpg').length-1:0);" +
+                            "return n>b?1:0;})($base)"
                     ) { v ->
                         val ok = v?.trim() == "1"
-                        waited += 300
+                        waited += 150
                         when {
                             ok -> fillAndSend()
                             waited >= 3000 && round < 1 -> attachAndVerify(base, round + 1)
                             waited >= 6000 -> fillAndSend()
-                            else -> ui.postDelayed(this, 300)
+                            else -> ui.postDelayed(this, 150)
                         }
                     }
                 }
             }
-            ui.postDelayed(check, 300)
+            ui.postDelayed(check, 150)
         }
     }
 
@@ -1563,8 +1582,8 @@ class FloatService : Service() {
                 "if(!e)return 0;e.focus();var t=$q;" +
                 "if(e.tagName=='TEXTAREA'){var d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');d.set.call(e,t);e.dispatchEvent(new Event('input',{bubbles:true}));}" +
                 "else{document.execCommand('selectAll',false,null);if(!document.execCommand('insertText',false,t)){e.textContent=t;e.dispatchEvent(new Event('input',{bubbles:true}));}}" +
-                "var n=0;var iv=setInterval(function(){n++;var b=document.querySelector('button[data-testid=send-button],button[aria-label*=Send],button[aria-label*=Kirim],button[aria-label*=send],button.send-button');" +
-                "if(b&&!b.disabled&&b.getAttribute('aria-disabled')!='true'){clearInterval(iv);b.click();}else if(n>60)clearInterval(iv);},250);return 1;})()",
+                "var n=0;var iv=setInterval(function(){n++;var b=document.querySelector('button[data-testid=send-button],button[aria-label*=Send],button[aria-label*=Kirim],button[aria-label*=send],button[aria-label*=Submit],button[aria-label*=submit],button.send-button');" +
+                "if(b&&!b.disabled&&b.getAttribute('aria-disabled')!='true'){clearInterval(iv);b.click();}else if(n>120)clearInterval(iv);},120);return 1;})()",
             null
         )
     }

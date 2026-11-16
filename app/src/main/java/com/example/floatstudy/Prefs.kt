@@ -30,7 +30,7 @@ object Prefs {
     )
     /** Kode bahasa ML Kit untuk LANGS, urutannya sama. */
     val LANG_CODES = listOf("id", "en", "ar", "ja", "zh", "ko", "de", "fr", "es")
-    val AI_NAMES = listOf("ChatGPT", "Claude")
+    val AI_NAMES = listOf("ChatGPT", "Google AI Mode")
     val LANGS = listOf(
         "Indonesia", "Inggris", "Arab", "Jepang", "Mandarin",
         "Korea", "Jerman", "Prancis", "Spanyol"
@@ -56,13 +56,14 @@ object Prefs {
 
     // ---------- AI tujuan untuk Tanya AI dan Terjemah ----------
 
-    /** Gemini dihapus: pilihan lama 0 (Gemini) dan 1 (ChatGPT) jadi ChatGPT, 2 (Claude) jadi Claude. */
+    /** Claude diganti Google AI Mode: pilihan lama 1 (Claude) jadi ChatGPT agar tidak berubah diam-diam. */
     private fun migrateAi(c: Context) {
         val sp = sp(c)
-        if (sp.getBoolean("aimig1", false)) return
+        if (sp.getBoolean("aimig2", false)) return
         val e = sp.edit()
-        if (sp.contains("aiTarget")) e.putInt("aiTarget", if (sp.getInt("aiTarget", 1) >= 2) 1 else 0)
-        e.putBoolean("aimig1", true).apply()
+        if (sp.getBoolean("aimig1", false) && sp.getInt("aiTarget", 0) == 1) e.putInt("aiTarget", 0)
+        else if (!sp.getBoolean("aimig1", false) && sp.contains("aiTarget")) e.putInt("aiTarget", 0)
+        e.putBoolean("aimig1", true).putBoolean("aimig2", true).apply()
     }
 
     fun aiTarget(c: Context): Int {

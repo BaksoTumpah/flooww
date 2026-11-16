@@ -54,7 +54,7 @@
   "tools": [
     {
       "name": "Tanya AI",
-      "desc": "Lingkari soal di layar. Gambarnya dikirim ke ChatGPT atau Claude di browser mengambang."
+      "desc": "Lingkari soal di layar. Gambarnya dikirim ke ChatGPT atau Google AI Mode di browser mengambang."
     },
     {
       "name": "Salin",
@@ -143,7 +143,7 @@
     ],
     "honest": {
       "title": "Satu hal yang perlu diketahui",
-      "p1": "Saat memakai Tanya AI, gambar soal Anda dikirim ke website AI yang Anda pilih (ChatGPT atau Claude) dan tunduk pada kebijakan situs itu.",
+      "p1": "Saat memakai Tanya AI, gambar soal Anda dikirim ke website AI yang Anda pilih (ChatGPT atau Google AI Mode) dan tunduk pada kebijakan situs itu.",
       "p2": "flooww tidak menyembunyikan dirinya. Hormati aturan sekolah, kampus, dan ujian saat memakainya."
     }
   },
