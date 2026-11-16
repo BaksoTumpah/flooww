@@ -3,7 +3,6 @@ package com.example.floatstudy
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Typeface
-import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
@@ -237,11 +236,6 @@ class Osk(private val c: Context, private val wm: WindowManager) {
                     HapticFeedbackConstants.KEYBOARD_TAP,
                     HapticFeedbackConstants.FLAG_IGNORE_VIEW_SETTING
                 )
-            } catch (e: Exception) {
-            }
-            try {
-                (c.getSystemService(Context.AUDIO_SERVICE) as AudioManager)
-                    .playSoundEffect(AudioManager.FX_KEYPRESS_STANDARD, -1f)
             } catch (e: Exception) {
             }
         } else {
