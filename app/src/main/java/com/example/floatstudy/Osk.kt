@@ -226,7 +226,7 @@ class Osk(private val c: Context, private val wm: WindowManager) {
         }
     }
 
-    /** Efek ketik seperti keyboard sistem: getar singkat, bunyi klik tuts, dan tuts sedikit mengecil saat ditekan. */
+    /** Efek ketik seperti keyboard sistem: getar singkat dan tuts sedikit mengecil saat ditekan. */
     private fun pressFx(v: View, down: Boolean) {
         if (down) {
             v.animate().cancel()
