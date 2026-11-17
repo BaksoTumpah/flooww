@@ -1,5 +1,18 @@
 [
-  {"v": 16, "n": "Fitur baru: overlay aksesibilitas (tidak butuh izin tampil di atas aplikasi lain) dan tombol PiP di browser mini"},
-  {"v": 17, "n": "Fitur PiP dihapus"},
-  {"v": 18, "n": "Fitur baru: warna bubble putih dan abu, bubble selalu menempel di tepi layar, tampilan default baru, changelog di cek update"}
+  {
+    "v": 16,
+    "n": "Fitur baru: overlay aksesibilitas (tidak butuh izin tampil di atas aplikasi lain) dan tombol PiP di browser mini"
+  },
+  {
+    "v": 17,
+    "n": "Fitur PiP dihapus"
+  },
+  {
+    "v": 18,
+    "n": "Fitur baru: warna bubble putih dan abu, bubble selalu menempel di tepi layar, tampilan default baru, changelog di cek update"
+  },
+  {
+    "v": 19,
+    "n": "Versi naik otomatis, changelog gabungan, pesan ROM blokir overlay, pulihkan bubble saat aksesibilitas mati. Workflow menaikkan versi dan mencatat changelog.json tiap push. Cek update menampilkan semua perubahan sejak versi terpasang. Pesan izin overlay sesuai merek HP. Bubble pindah ke overlay biasa bila layanan aksesibilitas mati."
+  }
 ]
