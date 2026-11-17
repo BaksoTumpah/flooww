@@ -2771,8 +2771,16 @@ class FloatService : Service() {
         // di jendela lamanya dan ukuran jendela diabaikan.
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
         val (sw, sh) = realSize()
-        val w = minOf(dp(pref(Setting.APP_W)), sw - dp(16))
-        val h = minOf(dp(pref(Setting.APP_H)), sh - dp(96))
+        // rasio sama dengan layar HP (memanjang). Lebar dari pengaturan, tinggi mengikuti rasio.
+        // Bila tinggi melebihi layar, ukuran dikecilkan bersama-sama supaya rasio tetap.
+        val ratio = maxOf(sw, sh).toFloat() / minOf(sw, sh)
+        val maxH = sh - dp(96)
+        var w = minOf(dp(pref(Setting.APP_W)), sw - dp(16))
+        var h = (w * ratio).toInt()
+        if (h > maxH) {
+            h = maxH
+            w = (h / ratio).toInt()
+        }
         val l = (sw - w) / 2
         val t = dp(72)
         hidePanel()
