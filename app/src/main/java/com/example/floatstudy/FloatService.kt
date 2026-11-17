@@ -1890,35 +1890,35 @@ class FloatService : Service() {
             orientation = LinearLayout.VERTICAL
             edge = dp(16)
             background = Ui.clay(c, P.surface, dp(24), 6f)
-            setPadding(dp(12), dp(6), dp(12), dp(10))
+            setPadding(dp(8), dp(3), dp(8), dp(6))
             elevation = dp(10).toFloat()
         }
 
         // garis kecil penanda bisa digeser
         root.addView(
             View(c).apply { background = Ui.round(P.outline, dp(2)) },
-            LinearLayout.LayoutParams(dp(36), dp(4)).apply {
+            LinearLayout.LayoutParams(dp(30), dp(3)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(6)
+                bottomMargin = dp(2)
             }
         )
 
         val icon = ImageView(c).apply {
             setColorFilter(accent)
-            val pd = dp(6)
+            val pd = dp(4)
             setPadding(pd, pd, pd, pd)
-            background = Ui.clay(c, Ui.mix(P.surface, accent, 0.22f), dp(11), 2f)
+            background = Ui.clay(c, Ui.mix(P.surface, accent, 0.22f), dp(9), 2f)
         }
         val title = TextView(c).apply {
-            textSize = 15f
+            textSize = 13f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             setTextColor(P.on)
-            setPadding(dp(10), 0, 0, 0)
+            setPadding(dp(8), 0, 0, 0)
         }
         val close = ImageView(c).apply {
             setImageResource(R.drawable.ic_close)
             setColorFilter(P.muted)
-            val pd = dp(9)
+            val pd = dp(6)
             setPadding(pd, pd, pd, pd)
             contentDescription = "Sembunyikan jendela"
             setOnClickListener { hidePanel() }
@@ -1926,7 +1926,7 @@ class FloatService : Service() {
         val paste = ImageView(c).apply {
             setImageResource(R.drawable.ic_paste)
             setColorFilter(accent)
-            val pd = dp(9)
+            val pd = dp(6)
             setPadding(pd, pd, pd, pd)
             contentDescription = "Tempel teks dari gambar"
             visibility = View.GONE
@@ -1936,7 +1936,7 @@ class FloatService : Service() {
         val attach = ImageView(c).apply {
             setImageResource(R.drawable.ic_image)
             setColorFilter(accent)
-            val pd = dp(9)
+            val pd = dp(6)
             setPadding(pd, pd, pd, pd)
             contentDescription = "Lampirkan gambar soal ke halaman"
             visibility = View.GONE
@@ -1958,11 +1958,11 @@ class FloatService : Service() {
         val header = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(icon, LinearLayout.LayoutParams(dp(30), dp(30)))
+            addView(icon, LinearLayout.LayoutParams(dp(24), dp(24)))
             addView(title, LinearLayout.LayoutParams(0, WRAP, 1f))
-            addView(attach, LinearLayout.LayoutParams(dp(36), dp(36)))
-            addView(paste, LinearLayout.LayoutParams(dp(36), dp(36)))
-            addView(close, LinearLayout.LayoutParams(dp(36), dp(36)))
+            addView(attach, LinearLayout.LayoutParams(dp(28), dp(28)))
+            addView(paste, LinearLayout.LayoutParams(dp(28), dp(28)))
+            addView(close, LinearLayout.LayoutParams(dp(28), dp(28)))
         }
         val content = FrameLayout(c)
         val grip = TextView(c).apply {
@@ -1977,7 +1977,7 @@ class FloatService : Service() {
             addView(grip)
         }
         root.addView(header, lay(MATCH, WRAP))
-        root.addView(content, lay(MATCH, 0, 1f).apply { topMargin = dp(6) })
+        root.addView(content, lay(MATCH, 0, 1f).apply { topMargin = dp(3) })
         root.addView(bottom, lay(MATCH, WRAP))
 
         val dm = resources.displayMetrics
@@ -2227,16 +2227,26 @@ class FloatService : Service() {
             w.requestFocus()
             true
         }
+        // bilah browser dibuat ramping: tombol dan kolom alamat lebih pendek agar halaman lebih luas
+        url.apply {
+            textSize = 12f
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+        }
         fun nav(label: String, f: () -> Unit) = btn(label) { f() }.apply {
             minWidth = 0
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            minHeight = 0
+            minimumHeight = 0
+            textSize = 13f
+            setPadding(dp(9), dp(3), dp(9), dp(5))
         }
         val bar = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(nav("‹") { if (w.canGoBack()) w.goBack() }, lay(WRAP, WRAP, 0f, 2))
-            addView(nav("›") { if (w.canGoForward()) w.goForward() }, lay(WRAP, WRAP, 0f, 2))
-            addView(url, lay(0, WRAP, 1f, 2))
+            addView(nav("‹") { if (w.canGoBack()) w.goBack() }, lay(WRAP, WRAP, 0f, 1))
+            addView(nav("›") { if (w.canGoForward()) w.goForward() }, lay(WRAP, WRAP, 0f, 1))
+            addView(url, lay(0, WRAP, 1f, 1))
         }
         col.addView(bar)
         col.addView(w, lay(MATCH, 0, 1f, 2))
