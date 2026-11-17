@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# izin tulis diperlukan agar workflow bisa mengirim commit kenaikan versi dan changelog
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -25,6 +31,34 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
+
+      # Versi naik otomatis satu angka tiap push ke main, dan catatan perubahan (changelog.json) bertambah.
+      # Lewati kenaikan dengan menaruh [skip bump] di pesan commit. Bila commit sendiri sudah mengubah versionCode, tidak dinaikkan lagi.
+      - name: Naikkan versi dan catat changelog
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          MSG=$(git log -1 --pretty=%B)
+          OLD=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts | head -1)
+          if echo "$MSG" | grep -q '\[skip bump\]'; then
+            echo "Lewati kenaikan versi."
+            exit 0
+          fi
+          DIFF=$(git diff HEAD~1 HEAD -- app/build.gradle.kts || true)
+          if echo "$DIFF" | grep -q '^+.*versionCode'; then
+            NEW=$OLD
+          else
+            NEW=$((OLD+1))
+            sed -i "s/versionCode = $OLD/versionCode = $NEW/; s/versionName = \"[0-9.]*\"/versionName = \"$NEW\"/" app/build.gradle.kts
+          fi
+          SUBJ=$(git log -1 --pretty=%s | tr -d '"\\')
+          BODY=$( (git log -1 --pretty=%b | grep -v -e '^Co-Authored-By' -e '^Claude-Session' || true) | tr '\n' ' ' | tr -d '"\\' | sed 's/ *$//')
+          NOTE="$SUBJ"
+          if [ -n "$BODY" ]; then NOTE="$SUBJ. $BODY"; fi
+          [ -f changelog.json ] || echo '[]' > changelog.json
+          jq --argjson v "$NEW" --arg n "$NOTE" 'map(select(.v != $v)) + [{v:$v,n:$n}] | sort_by(.v)' changelog.json > changelog.tmp
+          mv changelog.tmp changelog.json
+          echo "Versi $OLD -> $NEW"
 
       - name: Build debug APK
         env:
@@ -72,10 +106,15 @@ jobs:
           VER=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts | head -1)
           APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
           SHA=$(sha256sum "$APK" | cut -d' ' -f1)
-          NOTES=$(git log -1 --pretty=%s | tr -d '"\\')
+          NOTES=$(jq -r --argjson v "$VER" 'map(select(.v == $v)) | .[0].n // empty' changelog.json 2>/dev/null || true)
+          if [ -z "$NOTES" ]; then NOTES=$(git log -1 --pretty=%s | tr -d '"\\'); fi
           mkdir -p rel
           cp "$APK" rel/flooww.apk
-          printf '{"version":%s,"url":"https://github.com/%s/releases/download/v%s/flooww.apk","notes":"%s","sha256":"%s"}\n' "$VER" "$RELEASE_REPO" "$VER" "$NOTES" "$SHA" > rel/update.json
+          # changelog: 40 versi terakhir. Aplikasi memilih sendiri versi yang lebih baru dari yang terpasang.
+          [ -f changelog.json ] || echo '[]' > changelog.json
+          jq -n --argjson version "$VER" --arg url "https://github.com/$RELEASE_REPO/releases/download/v$VER/flooww.apk" \
+            --arg notes "$NOTES" --arg sha "$SHA" --slurpfile cl changelog.json \
+            '{version:$version,url:$url,notes:$notes,sha256:$sha,changelog:($cl[0] | sort_by(.v) | .[-40:])}' > rel/update.json
           cat rel/update.json
           if gh release view "v$VER" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
             gh release upload "v$VER" rel/flooww.apk rel/update.json --clobber --repo "$RELEASE_REPO"
@@ -105,3 +144,23 @@ jobs:
           else
             gh release create admin rel-admin/flow-admin.apk rel-admin/admin.json --repo "$RELEASE_REPO" --title "flow admin versi $AVER" --notes "$NOTES" --latest=false
           fi
+
+      # Kirim kenaikan versi dan changelog kembali ke main. [skip ci] dan token bawaan mencegah build berulang.
+      - name: Simpan versi dan changelog ke repo
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/build.gradle.kts changelog.json
+          if git diff --cached --quiet; then
+            echo "Tidak ada perubahan versi."
+            exit 0
+          fi
+          VER=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts | head -1)
+          git commit -m "Versi app $VER [skip ci]"
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git pull --rebase origin main || true
+          done
+          echo "::warning::Gagal mengirim kenaikan versi ke main."

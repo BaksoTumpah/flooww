@@ -48,6 +48,29 @@ object Updater {
         }
     }
 
+    /**
+     * Changelog gabungan: semua perubahan dari versi setelah yang terpasang sampai versi terbaru.
+     * Contoh: terpasang 15, terbaru 19 -> catatan v16, v17, v18, v19. Bila sudah terbaru, tampil catatan versi terpasang.
+     * Rilis lama tanpa daftar changelog memakai catatan tunggal ("notes").
+     */
+    private fun composeNotes(o: JSONObject, latest: Int): String {
+        val single = o.optString("notes").trim()
+        val arr = o.optJSONArray("changelog") ?: return single
+        val all = (0 until arr.length()).mapNotNull {
+            val e = arr.optJSONObject(it) ?: return@mapNotNull null
+            val n = e.optString("n").trim()
+            if (n.isEmpty()) null else e.optInt("v") to n
+        }.sortedBy { it.first }
+        val installed = BuildConfig.VERSION_CODE
+        val fresh = all.filter { it.first in (installed + 1)..latest }
+        val pick = when {
+            fresh.isNotEmpty() -> fresh
+            else -> all.filter { it.first == latest }
+        }
+        if (pick.isEmpty()) return single
+        return pick.joinToString("\n") { "v${it.first}: ${it.second}" }
+    }
+
     /** Ambil info pembaruan (thread latar). Melempar Exception bila gagal. */
     fun fetch(): Info {
         val custom = BuildConfig.UPDATE_URL.trim()
@@ -56,7 +79,8 @@ object Updater {
             val o = JSONObject(get(first))
             val u = o.getString("url")
             if (!u.endsWith("/flooww.apk")) error("Bukan berkas flooww.apk.")
-            return Info(o.getInt("version"), u, o.optString("notes"), o.optString("sha256").lowercase())
+            val ver = o.getInt("version")
+            return Info(ver, u, composeNotes(o, ver), o.optString("sha256").lowercase())
         } catch (e: Exception) {
             // update.json belum ada di rilis: baca langsung dari API rilis GitHub
         }

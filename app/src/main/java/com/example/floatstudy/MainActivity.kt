@@ -336,7 +336,7 @@ class MainActivity : Activity() {
      */
     /** Keterangan versi: changelog dari rilis, ditambahkan di bawah teks hasil cek update. */
     private fun changelog(i: Updater.Info): String =
-        if (i.notes.isBlank()) "" else "\n\nChangelog versi ${i.version}:\n${i.notes.trim()}"
+        if (i.notes.isBlank()) "" else "\n\nChangelog:\n${i.notes.trim()}"
 
     private fun checkUpdate(msg: TextView, auto: Boolean = false) {
         if (!auto) msg.text = "Memeriksa pembaruan..."
@@ -1036,7 +1036,7 @@ class MainActivity : Activity() {
 
     private fun startFlow() {
         if (!Settings.canDrawOverlays(this) && ClickService.instance == null) {
-            status.text = "Aktifkan izin 'tampil di atas aplikasi lain', lalu tekan Mulai lagi."
+            status.text = "Aktifkan izin 'tampil di atas aplikasi lain', lalu tekan Mulai lagi. " + RomHint.overlayBlocked()
             startActivityForResult(
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
                 reqOverlay

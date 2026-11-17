@@ -15,6 +15,10 @@ class ClickService : AccessibilityService() {
     companion object {
         @Volatile
         var instance: ClickService? = null
+
+        /** Dipanggil bila layanan terputus (dimatikan pengguna atau sistem). FloatService memakainya untuk pindah ke overlay biasa. */
+        @Volatile
+        var onLost: (() -> Unit)? = null
     }
 
     override fun onServiceConnected() {
@@ -23,11 +27,13 @@ class ClickService : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
+        onLost?.invoke()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         instance = null
+        onLost?.invoke()
         super.onDestroy()
     }
 

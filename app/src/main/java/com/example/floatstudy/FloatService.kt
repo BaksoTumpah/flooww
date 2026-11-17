@@ -218,6 +218,9 @@ class FloatService : Service() {
         // wm harus siap sebelum dipakai (realSize, bubble)
         // tipe overlay dipilih sekali saat bubble dibuat, supaya semua jendela memakai tipe yang sama
         if (!::wm.isInitialized || bubble == null) pickWindowManager()
+        ClickService.onLost = if (ovType == WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) {
+            { ui.post { onA11yLost() } }
+        } else null
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
         @Suppress("DEPRECATION")
         val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
@@ -537,6 +540,7 @@ class FloatService : Service() {
 
     override fun onDestroy() {
         Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefListener)
+        ClickService.onLost = null
         ui.removeCallbacksAndMessages(null)
         clicking = false
         if (::wm.isInitialized) {
@@ -1110,12 +1114,57 @@ class FloatService : Service() {
             wm = getSystemService(WINDOW_SERVICE) as WindowManager
             ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             lp.type = ovType
-            wm.addView(b, lp)
+            try {
+                wm.addView(b, lp)
+            } catch (e2: Exception) {
+                // ROM atau izin menolak semua jenis overlay
+                Toast.makeText(c, RomHint.overlayBlocked(), Toast.LENGTH_LONG).show()
+                stopSelf()
+                return
+            }
         }
         bubble = b
         bubbleBg = bg
         bubbleLp = lp
         applyBubble()
+    }
+
+    /**
+     * Layanan aksesibilitas mati saat bubble masih jalan: sistem ikut menghapus semua jendela
+     * bertipe TYPE_ACCESSIBILITY_OVERLAY. Pindah ke overlay biasa dan bangun ulang bubble.
+     */
+    private fun onA11yLost() {
+        if (ovType != WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) return
+        ClickService.onLost = null
+        if (clicking) stopClicking()
+        hideMenu()
+        osk.hide()
+        listOf<View?>(bubble, selector, target, lockView, panel).forEach { v ->
+            v?.let {
+                try {
+                    wm.removeView(it)
+                } catch (e: Exception) {
+                }
+            }
+        }
+        panelAttached = false
+        bubble = null
+        selector = null
+        target = null
+        lockView = null
+        wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        panelLp?.type = ovType
+        targetLp?.type = ovType
+        osk.wm = wm
+        osk.type = ovType
+        if (Settings.canDrawOverlays(this)) {
+            showBubble()
+            toast("Layanan aksesibilitas mati, memakai overlay biasa")
+        } else {
+            Toast.makeText(c, "Layanan aksesibilitas mati dan izin tampil di atas aplikasi lain belum aktif. " + RomHint.overlayBlocked(), Toast.LENGTH_LONG).show()
+            stopSelf()
+        }
     }
 
     private fun onBubbleTap() {
