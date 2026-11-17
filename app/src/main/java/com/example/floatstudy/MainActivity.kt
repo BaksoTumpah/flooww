@@ -334,6 +334,10 @@ class MainActivity : Activity() {
      * auto = true: dijalankan sendiri saat aplikasi dibuka; hasil diam bila tidak ada pembaruan atau gagal,
      * dan dialog tidak muncul lagi untuk versi yang sudah dijawab "Nanti".
      */
+    /** Keterangan versi: changelog dari rilis, ditambahkan di bawah teks hasil cek update. */
+    private fun changelog(i: Updater.Info): String =
+        if (i.notes.isBlank()) "" else "\n\nChangelog versi ${i.version}:\n${i.notes.trim()}"
+
     private fun checkUpdate(msg: TextView, auto: Boolean = false) {
         if (!auto) msg.text = "Memeriksa pembaruan..."
         Thread {
@@ -349,15 +353,15 @@ class MainActivity : Activity() {
                         onLater = { }, onStatus = { t -> msg.text = t }
                     )
                     when {
-                        info.version <= BuildConfig.VERSION_CODE -> msg.text = "Versi ${BuildConfig.VERSION_NAME}. Sudah yang terbaru."
-                        li == null -> msg.text = "Versi ${info.version} tersedia. Masukkan lisensi dulu untuk memperbarui."
+                        info.version <= BuildConfig.VERSION_CODE -> msg.text = "Versi ${BuildConfig.VERSION_NAME}. Sudah yang terbaru." + changelog(info)
+                        li == null -> msg.text = "Versi ${info.version} tersedia. Masukkan lisensi dulu untuk memperbarui." + changelog(info)
                         li.maxVersion in 1 until info.version -> {
                             val warn = "Lisensi Anda berlaku sampai versi ${li.maxVersion}. Versi ${info.version} butuh lisensi baru dari admin. Versi yang terpasang tetap bisa dipakai."
-                            msg.text = "Versi ${info.version} tersedia, di luar jatah lisensi (sampai versi ${li.maxVersion}). Hubungi admin."
+                            msg.text = "Versi ${info.version} tersedia, di luar jatah lisensi (sampai versi ${li.maxVersion}). Hubungi admin." + changelog(info)
                             popup(Updater.Info(info.version, info.url, warn + "\n\n" + info.notes, info.sha256))
                         }
                         else -> {
-                            msg.text = "Versi ${info.version} tersedia (terpasang ${BuildConfig.VERSION_NAME})."
+                            msg.text = "Versi ${info.version} tersedia (terpasang ${BuildConfig.VERSION_NAME})." + changelog(info)
                             popup(info)
                         }
                     }

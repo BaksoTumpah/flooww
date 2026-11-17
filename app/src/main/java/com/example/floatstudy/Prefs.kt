@@ -5,17 +5,17 @@ import android.content.SharedPreferences
 
 /** Pengaturan angka yang bisa diubah pengguna di layar pengaturan aplikasi. */
 enum class Setting(val key: String, val def: Int, val min: Int, val max: Int) {
-    BUBBLE_SIZE("bubbleSize", 48, 32, 96),     // dp
-    BUBBLE_ALPHA("bubbleAlpha", 90, 20, 100),  // persen
-    MENU_SIZE("menuSize", 100, 70, 140),       // persen
-    MENU_ALPHA("menuAlpha", 100, 40, 100),     // persen
+    BUBBLE_SIZE("bubbleSize", 55, 32, 96),     // dp
+    BUBBLE_ALPHA("bubbleAlpha", 29, 20, 100),  // persen
+    MENU_SIZE("menuSize", 85, 70, 140),       // persen
+    MENU_ALPHA("menuAlpha", 63, 40, 100),     // persen
     WIN_W("winW", 300, 220, 480),              // dp, jendela alat
     WIN_H("winH", 360, 240, 640),              // dp
     WIN_ALPHA("winAlpha", 100, 40, 100),       // persen
     APP_W("appW", 320, 240, 700),              // dp, jendela aplikasi
     APP_H("appH", 480, 300, 900),              // dp
     LONG_MS("longMs", 700, 400, 3000),         // ms, lama tekan bubble
-    WEB_ZOOM("webZoom", 80, 40, 150),          // %, skala halaman di Browser mengambang
+    WEB_ZOOM("webZoom", 150, 40, 150),          // %, skala halaman di Browser mengambang
     OSK_H("oskH", 100, 70, 170),               // %, tinggi tombol keyboard flooww
     OSK_ALPHA("oskAlpha", 100, 50, 100)        // %, opasitas keyboard flooww
 }
@@ -26,7 +26,9 @@ object Prefs {
 
     val COLORS = intArrayOf(
         0xFF7C6CF0.toInt(), 0xFF2EC4B6.toInt(), 0xFFFF6B81.toInt(), 0xFFFFA94D.toInt(),
-        0xFF4CC9F0.toInt(), 0xFF56C271.toInt(), 0xFFF368E0.toInt(), 0xFF2D2A4A.toInt()
+        0xFF4CC9F0.toInt(), 0xFF56C271.toInt(), 0xFFF368E0.toInt(), 0xFF2D2A4A.toInt(),
+        // putih dan abu-abu, mirip bola asisten / sidebar bawaan HP
+        0xFFFFFFFF.toInt(), 0xFFB8BCC4.toInt()
     )
     /** Kode bahasa ML Kit untuk LANGS, urutannya sama. */
     val LANG_CODES = listOf("id", "en", "ar", "ja", "zh", "ko", "de", "fr", "es")
@@ -113,7 +115,7 @@ object Prefs {
     /** Bentuk bubble: 0 bulat, 1 panah kecil di tepi, 2 garis tepi. */
     val SHAPE_NAMES = listOf("Bulat", "Panah", "Garis tepi")
 
-    fun shape(c: Context): Int = sp(c).getInt("bubbleShape", 0).coerceIn(0, 2)
+    fun shape(c: Context): Int = sp(c).getInt("bubbleShape", 2).coerceIn(0, 2)
 
     fun setShape(c: Context, v: Int) {
         sp(c).edit().putInt("bubbleShape", v).apply()

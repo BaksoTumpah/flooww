@@ -1149,17 +1149,13 @@ class FloatService : Service() {
     /** Bentuk yang tampil: saat Auto Jawab atau auto clicker aktif selalu bulat supaya tombol berhenti jelas. */
     private fun shapeNow() = if (clicking) 0 else Prefs.shape(c)
 
-    /** Bentuk tepi (panah dan garis) menempel di sisi layar terdekat. */
+    /** Semua bentuk (bulat, panah, garis) menempel di sisi layar terdekat, seperti bola asisten. */
     private fun snapBubble() {
         val b = bubble ?: return
         val lp = bubbleLp ?: return
         val (sw, sh) = realSize()
         lp.y = lp.y.coerceIn(0, sh - lp.height)
-        if (shapeNow() != 0) {
-            lp.x = if (lp.x + lp.width / 2 < sw / 2) 0 else sw - lp.width
-        } else {
-            lp.x = lp.x.coerceIn(0, sw - lp.width)
-        }
+        lp.x = if (lp.x + lp.width / 2 < sw / 2) 0 else sw - lp.width
         try {
             wm.updateViewLayout(b, lp)
         } catch (e: Exception) {
@@ -1208,8 +1204,10 @@ class FloatService : Service() {
             shape == 1 -> if (onLeft) "›" else "‹"
             else -> ""
         }
+        // warna terang (putih/abu): tanda di bubble dibuat gelap supaya tetap terbaca
+        b.setTextColor(if (androidx.core.graphics.ColorUtils.calculateLuminance(col) > 0.6) 0xFF2D2A4A.toInt() else Color.WHITE)
         b.setTextSize(TypedValue.COMPLEX_UNIT_DIP, if (shape == 1) sizeDp * 0.5f else sizeDp * 0.4f)
-        if (snap && shape != 0) lp.x = if (onLeft) 0 else sw - lp.width
+        if (snap) lp.x = if (onLeft) 0 else sw - lp.width
         try {
             wm.updateViewLayout(b, lp)
         } catch (e: Exception) {
