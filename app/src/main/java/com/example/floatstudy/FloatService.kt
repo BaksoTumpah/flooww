@@ -2239,14 +2239,6 @@ class FloatService : Service() {
             addView(nav("‹") { if (w.canGoBack()) w.goBack() }, lay(WRAP, WRAP, 0f, 2))
             addView(nav("›") { if (w.canGoForward()) w.goForward() }, lay(WRAP, WRAP, 0f, 2))
             addView(url, lay(0, WRAP, 1f, 2))
-            // PiP: buka halaman saat ini di jendela Picture-in-Picture milik sistem
-            addView(nav("PiP") {
-                hidePanel()
-                startActivity(Intent(c, PipActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    putExtra(PipActivity.EXTRA_URL, w.url ?: "https://www.google.com")
-                })
-            }, lay(WRAP, WRAP, 0f, 2))
         }
         col.addView(bar)
         col.addView(w, lay(MATCH, 0, 1f, 2))
