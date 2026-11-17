@@ -403,7 +403,7 @@ class MainActivity : Activity() {
         val l = mutableListOf<Step>()
         l += Step("Tampil di atas aplikasi lain",
             "Supaya bubble dan jendela flooww bisa muncul di atas aplikasi lain. Tanpa ini bubble tidak tampil.",
-            { Settings.canDrawOverlays(this) }, {
+            { Settings.canDrawOverlays(this) || ClickService.instance != null }, {
                 startActivityForResult(
                     Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), reqOverlay
                 )
@@ -1031,7 +1031,7 @@ class MainActivity : Activity() {
     // ---------- mulai ----------
 
     private fun startFlow() {
-        if (!Settings.canDrawOverlays(this)) {
+        if (!Settings.canDrawOverlays(this) && ClickService.instance == null) {
             status.text = "Aktifkan izin 'tampil di atas aplikasi lain', lalu tekan Mulai lagi."
             startActivityForResult(
                 Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),

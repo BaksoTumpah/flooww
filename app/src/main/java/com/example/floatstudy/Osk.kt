@@ -26,7 +26,7 @@ interface OskTarget {
  * Keyboard layar buatan flooww. Berupa jendela overlay sendiri di dasar layar yang tidak pernah menerima fokus,
  * jadi aplikasi di bawahnya tetap fokus. Mengetik langsung mengubah teks di EditText target.
  */
-class Osk(private val c: Context, private val wm: WindowManager) {
+class Osk(private val c: Context, private val wm: WindowManager, private val type: Int = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
     private val ui = Handler(Looper.getMainLooper())
     private val pal get() = Ui.pal(c)
     private var view: LinearLayout? = null
@@ -54,7 +54,7 @@ class Osk(private val c: Context, private val wm: WindowManager) {
         rebuild()
         val lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT
@@ -171,7 +171,7 @@ class Osk(private val c: Context, private val wm: WindowManager) {
                 view,
                 WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    type,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                         WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                     PixelFormat.TRANSLUCENT

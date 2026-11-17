@@ -107,6 +107,24 @@ class FloatService : Service() {
     private lateinit var P: Pal
 
     private lateinit var wm: WindowManager
+
+    // Tipe jendela overlay. Bila layanan aksesibilitas aktif, pakai TYPE_ACCESSIBILITY_OVERLAY
+    // (tidak butuh izin "tampil di atas aplikasi lain", tetap tampil di atas aplikasi lain).
+    // Jika tidak, pakai TYPE_APPLICATION_OVERLAY biasa.
+    private var ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+
+    private fun pickWindowManager() {
+        val a11y = ClickService.instance
+        if (a11y != null) {
+            // WindowManager dari layanan aksesibilitas membawa token yang disyaratkan
+            // TYPE_ACCESSIBILITY_OVERLAY. WindowManager dari Service biasa akan melempar BadTokenException.
+            wm = a11y.getSystemService(WINDOW_SERVICE) as WindowManager
+            ovType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        } else {
+            wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        }
+    }
     private var grab: ScreenGrabber? = null
 
     // bubble dan menu
@@ -198,7 +216,8 @@ class FloatService : Service() {
             return START_NOT_STICKY
         }
         // wm harus siap sebelum dipakai (realSize, bubble)
-        wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        // tipe overlay dipilih sekali saat bubble dibuat, supaya semua jendela memakai tipe yang sama
+        if (!::wm.isInitialized || bubble == null) pickWindowManager()
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
         @Suppress("DEPRECATION")
         val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
@@ -501,7 +520,7 @@ class FloatService : Service() {
         }
         val lp = WindowManager.LayoutParams(
             resources.displayMetrics.widthPixels - dp(24), WRAP,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            ovType,
             OVERLAY_FLAGS,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -1068,7 +1087,7 @@ class FloatService : Service() {
         val size = dp(pref(Setting.BUBBLE_SIZE))
         val lp = WindowManager.LayoutParams(
             size, size,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            ovType,
             OVERLAY_FLAGS,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -1084,7 +1103,15 @@ class FloatService : Service() {
             onSwipe = { onBubbleGesture(it) },
             onDrop = { snapBubble() }
         )
-        wm.addView(b, lp)
+        try {
+            wm.addView(b, lp)
+        } catch (e: Exception) {
+            // token aksesibilitas ditolak: kembali ke overlay biasa
+            wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            lp.type = ovType
+            wm.addView(b, lp)
+        }
         bubble = b
         bubbleBg = bg
         bubbleLp = lp
@@ -1207,7 +1234,7 @@ class FloatService : Service() {
         }
         val lp = WindowManager.LayoutParams(
             MATCH, MATCH,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            ovType,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 OVERLAY_FLAGS,
@@ -1653,7 +1680,7 @@ class FloatService : Service() {
         }
         val lp = WindowManager.LayoutParams(
             MATCH, MATCH,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            ovType,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 OVERLAY_FLAGS,
@@ -1762,7 +1789,7 @@ class FloatService : Service() {
 
     // keyboard layar flooww (jendela sendiri, tidak pernah fokus)
     private val osk by lazy {
-        Osk(c, wm).also { k ->
+        Osk(c, wm, ovType).also { k ->
             k.onHeight = { h -> liftPanel(h) }
             k.onHidden = {
                 clearSel()
@@ -1959,7 +1986,7 @@ class FloatService : Service() {
         val w = panelW()
         val lp = WindowManager.LayoutParams(
             w, panelH(),
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            ovType,
             panelFlags(),
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -2212,6 +2239,14 @@ class FloatService : Service() {
             addView(nav("‹") { if (w.canGoBack()) w.goBack() }, lay(WRAP, WRAP, 0f, 2))
             addView(nav("›") { if (w.canGoForward()) w.goForward() }, lay(WRAP, WRAP, 0f, 2))
             addView(url, lay(0, WRAP, 1f, 2))
+            // PiP: buka halaman saat ini di jendela Picture-in-Picture milik sistem
+            addView(nav("PiP") {
+                hidePanel()
+                startActivity(Intent(c, PipActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra(PipActivity.EXTRA_URL, w.url ?: "https://www.google.com")
+                })
+            }, lay(WRAP, WRAP, 0f, 2))
         }
         col.addView(bar)
         col.addView(w, lay(MATCH, 0, 1f, 2))
@@ -2628,7 +2663,7 @@ class FloatService : Service() {
         val (sw, sh) = realSize()
         val lp = WindowManager.LayoutParams(
             size, size,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            ovType,
             OVERLAY_FLAGS,
             PixelFormat.TRANSLUCENT
         ).apply {
