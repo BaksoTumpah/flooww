@@ -584,8 +584,14 @@ class FloatService : Service() {
     private fun lay(w: Int = MATCH, h: Int = WRAP, wt: Float = 0f, m: Int = 0) =
         LinearLayout.LayoutParams(w, h, wt).apply { setMargins(dp(m), dp(m), dp(m), dp(m)) }
 
+    // tombol ramping untuk semua alat di jendela mengambang (bilah atas galeri, terjemah, apps, dan lain-lain)
     private fun btn(label: String, primary: Boolean = false, onClick: () -> Unit): TextView =
-        Ui.button(c, label, primary, onClick)
+        Ui.button(c, label, primary, onClick).apply {
+            minHeight = 0
+            minimumHeight = 0
+            textSize = 13f
+            setPadding(dp(10), dp(4), dp(10), dp(7))
+        }
 
     private fun field(hint: String, multi: Boolean = false) = Ui.field(c, hint, multi).apply {
         inputs.add(this)
@@ -833,14 +839,14 @@ class FloatService : Service() {
         text = t
         textSize = 12f
         setTextColor(P.muted)
-        setPadding(dp(2), dp(6), dp(2), dp(4))
+        setPadding(dp(2), dp(3), dp(2), dp(2))
     }
 
     private fun vbox() = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
 
     private fun row(vararg v: View) = LinearLayout(c).apply {
         orientation = LinearLayout.HORIZONTAL
-        v.forEach { addView(it, lay(0, WRAP, 1f, 3)) }
+        v.forEach { addView(it, lay(0, WRAP, 1f, 1)) }
     }
 
     /** Kotak hasil yang mengisi sisa tinggi jendela, jadi ikut berubah saat jendela diubah ukurannya. */
