@@ -14,5 +14,9 @@
   {
     "v": 19,
     "n": "Versi naik otomatis, changelog gabungan, pesan ROM blokir overlay, pulihkan bubble saat aksesibilitas mati. Workflow menaikkan versi dan mencatat changelog.json tiap push. Cek update menampilkan semua perubahan sejak versi terpasang. Pesan izin overlay sesuai merek HP. Bubble pindah ke overlay biasa bila layanan aksesibilitas mati."
+  },
+  {
+    "v": 20,
+    "n": "Klik otomatis tombol Pasang saat memperbarui flooww. ClickService menekan tombol Pasang/Perbarui di jendela pemasang bawaan HP, hanya selama 2 menit setelah Perbarui ditekan, hanya jika jendela menyebut flooww, dan hanya di paket pemasang yang dikenal."
   }
 ]
