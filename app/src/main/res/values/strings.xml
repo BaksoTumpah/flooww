@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="click_desc">flooww Auto Clicker: hanya mengetuk satu titik yang Anda tentukan sendiri, dengan jeda yang Anda atur. Tidak membaca isi layar.</string>
+    <string name="click_desc">flooww Auto Clicker: hanya mengetuk satu titik yang Anda tentukan sendiri, dengan jeda yang Anda atur. Layanan ini juga menekan tombol Pasang/Perbarui di jendela pemasang bawaan HP, hanya saat Anda menekan Perbarui di flooww dan hanya untuk flooww. Aplikasi lain tidak dibaca.</string>
 </resources>

@@ -5,10 +5,12 @@ import android.accessibilityservice.GestureDescription
 import android.content.Intent
 import android.graphics.Path
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 
 /**
  * Layanan aksesibilitas khusus untuk Auto Clicker.
- * Hanya mengirim ketukan ke titik yang ditentukan pengguna. Tidak membaca isi layar.
+ * Mengirim ketukan ke titik yang ditentukan pengguna. Selain itu, saat pembaruan flooww sedang dipasang,
+ * menekan tombol Pasang/Perbarui di jendela pemasang paket (hanya pemasang bawaan HP, hanya untuk flooww).
  */
 class ClickService : AccessibilityService() {
 
@@ -19,6 +21,27 @@ class ClickService : AccessibilityService() {
         /** Dipanggil bila layanan terputus (dimatikan pengguna atau sistem). FloatService memakainya untuk pindah ke overlay biasa. */
         @Volatile
         var onLost: (() -> Unit)? = null
+
+        /** Batas waktu (uptime ms) klik otomatis tombol Pasang. 0 = tidak aktif. */
+        @Volatile
+        private var autoInstallUntil = 0L
+
+        private val INSTALLERS = setOf(
+            "com.android.packageinstaller", "com.google.android.packageinstaller",
+            "com.miui.packageinstaller", "com.samsung.android.packageinstaller",
+            "com.oplus.packageinstaller", "com.coloros.packageinstaller",
+            "com.vivo.packageinstaller", "com.huawei.android.packageinstaller"
+        )
+
+        // teks tombol pemasangan (Indonesia dan Inggris); harus sama persis, bukan sebagian
+        private val LABELS = setOf("install", "instal", "pasang", "update", "perbarui", "upgrade")
+
+        /** Aktifkan klik otomatis selama 2 menit. Dipanggil tepat saat pemasang paket dibuka untuk pembaruan. Mengembalikan false bila layanan aksesibilitas tidak aktif. */
+        fun armAutoInstall(): Boolean {
+            if (instance == null) return false
+            autoInstallUntil = android.os.SystemClock.uptimeMillis() + 120_000L
+            return true
+        }
     }
 
     override fun onServiceConnected() {
@@ -37,7 +60,45 @@ class ClickService : AccessibilityService() {
         super.onDestroy()
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (autoInstallUntil == 0L) return
+        if (android.os.SystemClock.uptimeMillis() > autoInstallUntil) {
+            autoInstallUntil = 0L
+            return
+        }
+        val pkg = event?.packageName?.toString() ?: return
+        if (pkg !in INSTALLERS) return
+        val root = rootInActiveWindow ?: return
+        try {
+            if (root.packageName?.toString() !in INSTALLERS) return
+            // pengaman: hanya jika jendela pemasang menyebut flooww, supaya tidak memasang aplikasi lain
+            if (root.findAccessibilityNodeInfosByText("flooww").isNullOrEmpty()) return
+            val btn = findInstallButton(root) ?: return
+            if (clickNode(btn)) autoInstallUntil = 0L
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun findInstallButton(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val t = n.text?.toString()?.trim()?.lowercase()
+        if (t != null && t in LABELS && n.isEnabled) return n
+        for (i in 0 until n.childCount) {
+            val ch = n.getChild(i) ?: continue
+            findInstallButton(ch)?.let { return it }
+        }
+        return null
+    }
+
+    private fun clickNode(n: AccessibilityNodeInfo): Boolean {
+        var cur: AccessibilityNodeInfo? = n
+        var depth = 0
+        while (cur != null && depth < 4) {
+            if (cur.isClickable && cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+            cur = cur.parent
+            depth++
+        }
+        return false
+    }
 
     override fun onInterrupt() {}
 

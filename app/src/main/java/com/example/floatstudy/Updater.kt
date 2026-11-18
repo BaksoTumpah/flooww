@@ -157,6 +157,8 @@ object Updater {
             return false
         }
         val uri = FileProvider.getUriForFile(c, "${c.packageName}.files", f)
+        // bila layanan aksesibilitas aktif, tombol Pasang di jendela pemasang ditekan otomatis (hanya untuk flooww)
+        ClickService.armAutoInstall()
         c.startActivity(
             Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
