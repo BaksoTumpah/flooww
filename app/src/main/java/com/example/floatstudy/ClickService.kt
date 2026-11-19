@@ -37,9 +37,9 @@ class ClickService : AccessibilityService() {
         private val LABELS = setOf("install", "instal", "pasang", "update", "perbarui", "upgrade")
 
         /** Aktifkan klik otomatis selama 2 menit. Dipanggil tepat saat pemasang paket dibuka untuk pembaruan. Mengembalikan false bila layanan aksesibilitas tidak aktif. */
-        fun armAutoInstall(): Boolean {
+        fun armAutoInstall(ms: Long = 120_000L): Boolean {
             if (instance == null) return false
-            autoInstallUntil = android.os.SystemClock.uptimeMillis() + 120_000L
+            autoInstallUntil = android.os.SystemClock.uptimeMillis() + ms
             return true
         }
     }

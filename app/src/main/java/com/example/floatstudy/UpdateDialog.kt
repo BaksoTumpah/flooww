@@ -161,6 +161,17 @@ object UpdateDialog {
                         }
                     }
                     a.runOnUiThread {
+                        // layar flooww tidak sedang aktif (pengguna pindah aplikasi saat mengunduh): kirim notifikasi
+                        val inFront = a.window.decorView.hasWindowFocus()
+                        if (!inFront && Updater.notifyReady(a, f, info.version)) {
+                            d.setCancelable(true)
+                            buttons.visibility = View.VISIBLE
+                            bar.progress = 100
+                            status.text = "Unduhan selesai. Ketuk notifikasi untuk memasang."
+                            setButtons(null, "Tutup") { }
+                            onStatus(status.text.toString())
+                            return@runOnUiThread
+                        }
                         val started = Updater.install(a, f)
                         d.setCancelable(true)
                         buttons.visibility = View.VISIBLE

@@ -103,26 +103,78 @@ object Updater {
         return Info(ver, url, o.optString("body").trim(), "")
     }
 
-    /** Unduh APK ke cache (thread latar). onProgress menerima persen 0..100. */
+    /**
+     * Unduh APK ke cache (thread latar). onProgress menerima persen 0..100.
+     * Unduhan bisa dilanjutkan: bila koneksi putus atau lambat sampai timeout, diulang otomatis (sampai 6 kali)
+     * dari byte terakhir, tidak dari nol lagi.
+     */
     fun download(c: Context, info: Info, onProgress: (Int) -> Unit): File {
         require(info.url.startsWith("https://")) { "Alamat unduhan harus https." }
         val dir = File(c.cacheDir, "shared").apply { mkdirs() }
         val f = File(dir, "update.apk")
-        val h = open(info.url)
-        try {
-            if (h.responseCode != 200) error("Unduhan gagal (${h.responseCode}).")
-            val total = h.contentLengthLong
+        val part = File(dir, "update.apk.part")
+        f.delete()
+        var lastErr: Exception? = null
+        var ok = false
+        for (attempt in 1..6) {
+            try {
+                fetchInto(part, info.url, onProgress)
+                ok = true
+                break
+            } catch (e: java.io.IOException) {
+                lastErr = e
+                Thread.sleep(1500L)
+            }
+        }
+        if (!ok) error("Unduhan terputus: ${lastErr?.message ?: "koneksi lambat"}. Periksa koneksi lalu coba lagi.")
+        if (info.sha256.isNotEmpty()) {
             val md = MessageDigest.getInstance("SHA-256")
+            part.inputStream().use { ins ->
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = ins.read(buf)
+                    if (n < 0) break
+                    md.update(buf, 0, n)
+                }
+            }
+            val hex = md.digest().joinToString("") { "%02x".format(it) }
+            if (hex != info.sha256) {
+                part.delete()
+                error("Berkas unduhan rusak (sidik jari tidak cocok).")
+            }
+        }
+        if (!part.renameTo(f)) error("Gagal menyimpan berkas unduhan.")
+        return f
+    }
+
+    /** Satu percobaan unduh. Melanjutkan dari ukuran berkas .part bila server mendukung Range. */
+    private fun fetchInto(part: File, url: String, onProgress: (Int) -> Unit) {
+        val have = if (part.exists()) part.length() else 0L
+        val h = open(url)
+        h.readTimeout = 30000
+        h.setRequestProperty("Accept", "application/octet-stream")
+        h.setRequestProperty("Accept-Encoding", "identity")
+        if (have > 0) h.setRequestProperty("Range", "bytes=$have-")
+        try {
+            val code = h.responseCode
+            if (code == 416) {
+                // berkas .part tidak cocok dengan server: mulai dari awal
+                part.delete()
+                throw java.io.IOException("ulang dari awal")
+            }
+            if (code != 200 && code != 206) error("Unduhan gagal ($code).")
+            val resumed = code == 206 && have > 0
+            val len = h.contentLengthLong
+            val total = if (len > 0) (if (resumed) have + len else len) else -1L
+            var done = if (resumed) have else 0L
+            var last = -1
             h.inputStream.use { ins ->
-                f.outputStream().use { out ->
-                    val buf = ByteArray(16 * 1024)
-                    var done = 0L
-                    var last = -1
+                java.io.FileOutputStream(part, resumed).use { out ->
+                    val buf = ByteArray(64 * 1024)
                     while (true) {
                         val n = ins.read(buf)
                         if (n < 0) break
                         out.write(buf, 0, n)
-                        md.update(buf, 0, n)
                         done += n
                         if (total > 0) {
                             val pct = (done * 100 / total).toInt()
@@ -134,17 +186,42 @@ object Updater {
                     }
                 }
             }
-            if (info.sha256.isNotEmpty()) {
-                val hex = md.digest().joinToString("") { "%02x".format(it) }
-                if (hex != info.sha256) {
-                    f.delete()
-                    error("Berkas unduhan rusak (sidik jari tidak cocok).")
-                }
-            }
+            if (total > 0 && done < total) throw java.io.IOException("terputus di ${done * 100 / total}%")
         } finally {
             h.disconnect()
         }
-        return f
+    }
+
+    /**
+     * Unduhan selesai saat flooww tidak sedang di layar: Android 10+ melarang aplikasi di latar membuka jendela pemasang,
+     * jadi pemasang tidak pernah muncul dan klik otomatis tidak terjadi. Kirim notifikasi; ketukan pengguna membuka pemasang.
+     */
+    fun notifyReady(c: Context, f: File, version: Int): Boolean {
+        return try {
+            val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            nm.createNotificationChannel(
+                android.app.NotificationChannel("update", "Pembaruan flooww", android.app.NotificationManager.IMPORTANCE_HIGH)
+            )
+            val uri = FileProvider.getUriForFile(c, "${c.packageName}.files", f)
+            val i = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            val pi = android.app.PendingIntent.getActivity(
+                c, 7, i, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            val n = android.app.Notification.Builder(c, "update")
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("flooww versi $version siap dipasang")
+                .setContentText("Ketuk untuk memasang. Tombol Pasang ditekan otomatis bila layanan aksesibilitas aktif.")
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(7, n)
+            // pengguna mungkin mengetuk beberapa menit kemudian: perpanjang jendela klik otomatis
+            ClickService.armAutoInstall(10 * 60_000L)
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /** Buka pemasang paket. Mengembalikan false bila izin "pasang aplikasi" belum diberikan (halaman izin dibuka). */
