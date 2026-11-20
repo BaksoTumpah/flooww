@@ -18,5 +18,9 @@
   {
     "v": 20,
     "n": "Klik otomatis tombol Pasang saat memperbarui flooww. ClickService menekan tombol Pasang/Perbarui di jendela pemasang bawaan HP, hanya selama 2 menit setelah Perbarui ditekan, hanya jika jendela menyebut flooww, dan hanya di paket pemasang yang dikenal."
+  },
+  {
+    "v": 21,
+    "n": "Keterangan izin aksesibilitas di halaman perizinan, kotak terjemahan lebih pekat"
   }
 ]
