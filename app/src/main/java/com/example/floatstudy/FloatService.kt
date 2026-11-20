@@ -1633,18 +1633,30 @@ class FloatService : Service() {
      * Lampirkan gambar secepat mungkin tapi tetap aman: tunggu kolom pesan ada dan halaman tenang sebentar (0,7 detik),
      * tempel gambar, cek bahwa gambar benar muncul (miniatur atau nama berkas), lalu langsung isi perintah dan kirim.
      */
-    private val ATTACH_TRIES = 400
+    private val ATTACH_TRIES = 400 // batas pengaman jumlah percobaan; batas waktu sebenarnya 45 detik (di bawah)
+    private val ATTACH_MAX_MS = 45_000L
+    private val ATTACH_NOTICE_MS = 20_000L
+    private var attachT0 = 0L
+    private var attachNoticed = false
 
     private fun autoAttach(tries: Int = ATTACH_TRIES, resume: Boolean = false) {
         attachRun?.let { ui.removeCallbacks(it) }
         val w = web ?: return
-        if (pendingB64 != null && tries <= 0 && !attachDone) {
-            // sudah menunggu sekitar 100 detik: jangan diam saja
+        if (tries == ATTACH_TRIES) {
+            attachT0 = android.os.SystemClock.elapsedRealtime()
+            attachNoticed = false
+        }
+        val waited = android.os.SystemClock.elapsedRealtime() - attachT0
+        if (pendingB64 != null && !attachDone && (tries <= 0 || waited > ATTACH_MAX_MS)) {
+            // sudah menunggu 45 detik: jangan diam saja
             toast("Gagal melampirkan otomatis. Gambar sudah di clipboard: tekan lama kolom pesan lalu Tempel, atau ketuk tombol lampir.")
             return
         }
         if (pendingB64 == null || attachDone) return
-        if (tries == ATTACH_TRIES - 80) toast("Halaman AI masih dimuat (HP lambat), mohon tunggu…")
+        if (waited >= ATTACH_NOTICE_MS && !attachNoticed) {
+            attachNoticed = true
+            toast("Halaman AI masih dimuat. Gambar sudah di clipboard: bisa ditempel manual, atau ketuk tombol lampir.")
+        }
         if (tries == ATTACH_TRIES && !resume) {
             w.evaluateJavascript(
                 "(function(){if(!window.__fq){window.__fq=Date.now();" +
@@ -1659,7 +1671,7 @@ class FloatService : Service() {
                     "if(!e||document.readyState=='loading')return -1;return window.__fq?(Date.now()-window.__fq):9999;})()"
             ) { v ->
                 val quiet = v?.trim()?.toIntOrNull() ?: -1
-                if (resume && quiet >= 0 || quiet >= 350 || (tries <= 3 && quiet >= 0)) {
+                if (resume && quiet >= 0 || quiet >= 350 || (waited >= ATTACH_MAX_MS - 2000 && quiet >= 0)) {
                     attachDone = true
                     w.evaluateJavascript(COUNT_JS) { base ->
                         val b0 = base?.trim()?.toIntOrNull() ?: 0
