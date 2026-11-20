@@ -5,10 +5,17 @@
     "trial": {
       "$id": {
         ".read": "$id.matches(/^[0-9A-F]{12}$/)",
-        ".write": "!data.exists() && newData.exists() && $id.matches(/^[0-9A-F]{12}$/)",
-        ".validate": "newData.hasChildren(['start']) && newData.child('start').val() === now",
-        "start": { ".validate": "newData.isNumber()" },
-        "$other": { ".validate": false }
+        ".write": "$id.matches(/^[0-9A-F]{12}$/) && newData.exists() && (!data.exists() || newData.child('start').val() === data.child('start').val())",
+        ".validate": "newData.hasChildren(['start'])",
+        "start": {
+          ".validate": "newData.isNumber() && (data.exists() ? newData.val() === data.val() : newData.val() === now)"
+        },
+        "used": {
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 600000 && (!data.exists() || newData.val() >= data.val())"
+        },
+        "$other": {
+          ".validate": false
+        }
       }
     }
   }

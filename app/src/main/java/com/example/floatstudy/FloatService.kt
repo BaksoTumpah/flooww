@@ -384,6 +384,7 @@ class FloatService : Service() {
                 lockAll()
                 return
             }
+            Trial.tick(c)
             if (rem <= 60_000L && !warned) {
                 warned = true
                 toast("Trial tinggal 1 menit")
@@ -543,6 +544,8 @@ class FloatService : Service() {
         Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefListener)
         ClickService.onLost = null
         ClickService.setLive(false) { }
+        // bubble berhenti: timer trial berhenti dan sisa waktu disimpan; lanjut saat bubble dinyalakan lagi
+        Trial.pause(c)
         ui.removeCallbacksAndMessages(null)
         clicking = false
         if (::wm.isInitialized) {
@@ -1505,54 +1508,85 @@ class FloatService : Service() {
      * Gambar disiapkan: saat Anda menekan tombol lampirkan di situs, gambar langsung terpilih.
      * Perintah: ChatGPT dan Google AI Mode menerimanya lewat alamat. Bila situs AI sudah terbuka, sesi chat dilanjutkan.
      */
+    /** URL awal browser bila dibuat khusus untuk situs AI (mencegah memuat Google lalu situs AI = dua kali muat). */
+    private var browserStart: String? = null
+
     private fun askWeb(bmp: Bitmap?, prompt: String) {
-        val target = Prefs.aiTarget(c)
-        val name = Prefs.AI_NAMES[target]
         pendingUpload = null
         pendingB64 = null
         attachDone = false
-        if (bmp != null) {
+        if (bmp == null) {
+            askWebGo(false, prompt)
+            return
+        }
+        toast("Menyiapkan gambar…")
+        // kompres JPEG dan base64 di thread latar: di HP lambat langkah ini bisa memakan beberapa detik dan membuat layar macet
+        Thread {
+            var up: Uri? = null
+            var b64: String? = null
+            var cu: Uri? = null
+            var err: String? = null
             try {
                 val dir = File(cacheDir, "shared").apply { mkdirs() }
                 val f = File(dir, "ask.jpg")
                 f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-                pendingUpload = Uri.fromFile(f)
-                pendingB64 = toJpegB64(bmp)
-                // cadangan: gambar juga disalin ke clipboard, bisa ditempel lewat tekan lama di kolom pesan
+                up = Uri.fromFile(f)
+                b64 = toJpegB64(bmp)
                 try {
-                    val cu = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", f)
-                    (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
-                        .setPrimaryClip(android.content.ClipData.newUri(contentResolver, "soal", cu))
+                    cu = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", f)
                 } catch (e: Exception) {
                 }
             } catch (e: Exception) {
-                toast("Gagal menyiapkan gambar: ${e.message}")
+                err = e.message ?: "gagal"
             }
-        }
+            ui.post {
+                if (err != null) toast("Gagal menyiapkan gambar: $err")
+                pendingUpload = up
+                pendingB64 = b64
+                // cadangan: gambar juga disalin ke clipboard, bisa ditempel lewat tekan lama di kolom pesan
+                if (cu != null) {
+                    try {
+                        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                            .setPrimaryClip(android.content.ClipData.newUri(contentResolver, "soal", cu))
+                    } catch (e: Exception) {
+                    }
+                }
+                askWebGo(true, prompt)
+            }
+        }.start()
+    }
+
+    private fun askWebGo(hasImg: Boolean, prompt: String) {
+        val target = Prefs.aiTarget(c)
+        val name = Prefs.AI_NAMES[target]
         lastCopied = prompt
         val base = AI_WEB_Q[target]
         // ada gambar: buka halaman polos, lampirkan gambar dulu, baru isi perintah lalu kirim
-        pendingPrompt = if (bmp != null) prompt else null
+        pendingPrompt = if (hasImg) prompt else null
         val resume = onAiSite(target)
         pendingPrompt = prompt
-        if (bmp == null) pendingPrompt = null
-        val url = if (base != null && bmp == null) base + URLEncoder.encode(prompt.take(1500), "UTF-8") else AI_WEB[target]
+        if (!hasImg) pendingPrompt = null
+        val url = if (base != null && !hasImg) base + URLEncoder.encode(prompt.take(1500), "UTF-8") else AI_WEB[target]
+        val existed = web != null
+        browserStart = if (resume) null else url
         openTool(M_BROWSER)
         refreshAttach()
         if (resume) {
             // sesi sebelumnya masih terbuka: lanjutkan di chat yang sama, tanpa memuat ulang
             toast("Melanjutkan chat $name…")
-            if (bmp != null) {
+            if (hasImg) {
                 web?.evaluateJavascript(WEB_SEL_JS, null)
-                autoAttach(50, true)
+                autoAttach(ATTACH_TRIES, true)
             } else {
                 pendingPrompt = prompt
                 fillAndSend()
             }
             return
         }
-        web?.loadUrl(url)
-        toast(if (bmp != null) "Membuka $name…" else "Membuka $name.")
+        // browser baru sudah memuat situs AI sejak dibuat; browser lama baru dimuat sekarang
+        if (existed) web?.loadUrl(url)
+        browserStart = null
+        toast(if (hasImg) "Membuka $name…" else "Membuka $name.")
     }
 
     private fun refreshAttach() {
@@ -1599,11 +1633,19 @@ class FloatService : Service() {
      * Lampirkan gambar secepat mungkin tapi tetap aman: tunggu kolom pesan ada dan halaman tenang sebentar (0,7 detik),
      * tempel gambar, cek bahwa gambar benar muncul (miniatur atau nama berkas), lalu langsung isi perintah dan kirim.
      */
-    private fun autoAttach(tries: Int = 50, resume: Boolean = false) {
+    private val ATTACH_TRIES = 400
+
+    private fun autoAttach(tries: Int = ATTACH_TRIES, resume: Boolean = false) {
         attachRun?.let { ui.removeCallbacks(it) }
         val w = web ?: return
-        if (pendingB64 == null || tries <= 0 || attachDone) return
-        if (tries == 50 && !resume) {
+        if (pendingB64 != null && tries <= 0 && !attachDone) {
+            // sudah menunggu sekitar 100 detik: jangan diam saja
+            toast("Gagal melampirkan otomatis. Gambar sudah di clipboard: tekan lama kolom pesan lalu Tempel, atau ketuk tombol lampir.")
+            return
+        }
+        if (pendingB64 == null || attachDone) return
+        if (tries == ATTACH_TRIES - 80) toast("Halaman AI masih dimuat (HP lambat), mohon tunggu…")
+        if (tries == ATTACH_TRIES && !resume) {
             w.evaluateJavascript(
                 "(function(){if(!window.__fq){window.__fq=Date.now();" +
                     "try{new MutationObserver(function(){window.__fq=Date.now();}).observe(document,{subtree:true,childList:true,attributes:true});}catch(e){}}})()",
@@ -1617,7 +1659,7 @@ class FloatService : Service() {
                     "if(!e||document.readyState=='loading')return -1;return window.__fq?(Date.now()-window.__fq):9999;})()"
             ) { v ->
                 val quiet = v?.trim()?.toIntOrNull() ?: -1
-                if (resume && quiet >= 0 || quiet >= 350 || (tries <= 2 && quiet >= 0)) {
+                if (resume && quiet >= 0 || quiet >= 350 || (tries <= 3 && quiet >= 0)) {
                     attachDone = true
                     w.evaluateJavascript(COUNT_JS) { base ->
                         val b0 = base?.trim()?.toIntOrNull() ?: 0
@@ -1674,7 +1716,7 @@ class FloatService : Service() {
                 "if(e.tagName=='TEXTAREA'){var d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');d.set.call(e,t);e.dispatchEvent(new Event('input',{bubbles:true}));}" +
                 "else{document.execCommand('selectAll',false,null);if(!document.execCommand('insertText',false,t)){e.textContent=t;e.dispatchEvent(new Event('input',{bubbles:true}));}}" +
                 "var n=0;var iv=setInterval(function(){n++;var b=document.querySelector('button[data-testid=send-button],button[aria-label*=Send],button[aria-label*=Kirim],button[aria-label*=send],button[aria-label*=Submit],button[aria-label*=submit],button.send-button');" +
-                "if(b&&!b.disabled&&b.getAttribute('aria-disabled')!='true'){clearInterval(iv);b.click();}else if(n>120)clearInterval(iv);},120);return 1;})()",
+                "if(b&&!b.disabled&&b.getAttribute('aria-disabled')!='true'){clearInterval(iv);b.click();}else if(n>600)clearInterval(iv);},120);return 1;})()",
             null
         )
     }
@@ -2266,7 +2308,8 @@ class FloatService : Service() {
                     if (pendingB64 != null) autoAttach()
                 }
             }
-            loadUrl("https://www.google.com")
+            loadUrl(browserStart ?: "https://www.google.com")
+            browserStart = null
         }
         // tempel ke kolom ketik di halaman (mis. kolom pesan situs AI). Bila tidak ada, jadi kata pencarian.
         pasteFns[M_BROWSER] = { t ->
@@ -2860,38 +2903,77 @@ class FloatService : Service() {
         val l = (sw - w) / 2
         val t = dp(72)
         hidePanel()
-        try {
-            val o = ActivityOptions.makeBasic().setLaunchBounds(Rect(l, t, l + w, t + h))
-            // 5 = WINDOWING_MODE_FREEFORM. API tersembunyi, dibuka lewat HiddenApiBypass.
-            var forced = false
-            try {
-                ActivityOptions::class.java
-                    .getMethod("setLaunchWindowingMode", Int::class.javaPrimitiveType)
-                    .invoke(o, 5)
-                forced = true
-            } catch (e: Throwable) {
-            }
-            startActivity(i, o.toBundle())
-            when {
-                !freeformOn() -> toast("Mode jendela bebas belum aktif")
-                !forced -> toast("Jendela bebas diblokir HP")
-            }
-        } catch (e: Exception) {
-            toast("Gagal membuka: ${e.message}")
+        val bounds = Rect(l, t, l + w, t + h)
+        // Aktifkan setelan jendela bebas sendiri bila izin WRITE_SECURE_SETTINGS sudah diberikan lewat ADB
+        if ((!freeformOn() || !globalOn("force_resizable_activities")) && tryEnableFreeform()) {
+            toast("Jendela bebas diaktifkan. Restart HP sekali agar berlaku.")
         }
+        var forced = false
+        fun options(withMode: Boolean): android.os.Bundle {
+            val o = ActivityOptions.makeBasic().setLaunchBounds(bounds)
+            forced = false
+            if (withMode) {
+                // 5 = WINDOWING_MODE_FREEFORM. API tersembunyi: coba lewat refleksi, lalu lewat HiddenApiBypass.
+                forced = try {
+                    ActivityOptions::class.java
+                        .getMethod("setLaunchWindowingMode", Int::class.javaPrimitiveType)
+                        .invoke(o, 5)
+                    true
+                } catch (e: Throwable) {
+                    try {
+                        if (Build.VERSION.SDK_INT >= 28) {
+                            org.lsposed.hiddenapibypass.HiddenApiBypass.invoke(
+                                ActivityOptions::class.java, o, "setLaunchWindowingMode", 5
+                            )
+                            true
+                        } else false
+                    } catch (e2: Throwable) {
+                        false
+                    }
+                }
+            }
+            return o.toBundle()
+        }
+        // percobaan 0: jendela bebas penuh. 1: hanya ukuran jendela (bila ROM menolak mode bebas). 2: dibuka biasa.
+        var done = -1
+        var err: Exception? = null
+        for (attempt in 0..2) {
+            try {
+                when (attempt) {
+                    0 -> startActivity(i, options(true))
+                    1 -> startActivity(i, options(false))
+                    else -> startActivity(i)
+                }
+                done = attempt
+                break
+            } catch (e: Exception) {
+                err = e
+            }
+        }
+        when {
+            done < 0 -> toast(
+                "Gagal membuka aplikasi: ${err?.message ?: "ditolak sistem"}." +
+                    if (!Settings.canDrawOverlays(this)) " Beri izin \"tampil di atas aplikasi lain\" agar Android mengizinkan bubble membuka aplikasi." else ""
+            )
+            done > 0 -> toast("HP menolak jendela bebas, aplikasi dibuka biasa")
+            !freeformOn() -> toast("Mode jendela bebas belum aktif di HP ini")
+            !forced -> toast("Jendela bebas diblokir HP")
+        }
+    }
+
+    /** Menyalakan setelan jendela bebas lewat Settings.Global. Butuh WRITE_SECURE_SETTINGS (diberikan sekali lewat ADB). */
+    private fun tryEnableFreeform(): Boolean = try {
+        Settings.Global.putInt(contentResolver, "enable_freeform_support", 1)
+        Settings.Global.putInt(contentResolver, "force_resizable_activities", 1)
+        true
+    } catch (e: Exception) {
+        false
     }
 
     private fun appsView(): View {
         val col = vbox()
         val title = note("")
         val grid = vbox()
-        val devBtn = btn("Mode jendela") {
-            try {
-                startFloating(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
-            } catch (e: Exception) {
-                toast("Buka Pengaturan > Opsi pengembang secara manual")
-            }
-        }
         val status = TextView(c).apply {
             text = freeformStatus()
             textSize = 12f
@@ -2949,7 +3031,6 @@ class FloatService : Service() {
             }
         }
 
-                col.addView(row(devBtn))
         col.addView(status)
         col.addView(title)
         col.addView(grid)
