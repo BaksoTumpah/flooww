@@ -1325,19 +1325,24 @@ class FloatService : Service() {
         NAMES.indices.chunked(cols).forEach { chunk ->
             val line = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
             chunk.forEach { i ->
+                // tombol Live disorot (warna aksen penuh) selama terjemahan langsung menyala, normal bila mati
+                val liveOn = i == M_LIVE && ClickService.liveActive()
                 val icon = ImageView(c).apply {
                     setImageResource(ICONS[i])
-                    setColorFilter(accent)
+                    setColorFilter(if (liveOn) Ui.onAccent(accent) else accent)
                     val padIc = (tile * 0.27f).toInt()
                     setPadding(padIc, padIc, padIc, padIc)
-                    background = Ui.ripple(Ui.clay(c, Ui.mix(P.surface, accent, 0.22f), dpf(16f * sc), 3f), P.night)
+                    background = Ui.ripple(
+                        Ui.clay(c, if (liveOn) accent else Ui.mix(P.surface, accent, 0.22f), dpf(16f * sc), 3f), P.night
+                    )
                 }
                 val name = TextView(c).apply {
-                    text = NAMES[i]
+                    text = if (liveOn) "Live aktif" else NAMES[i]
                     gravity = Gravity.CENTER
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
-                    setTextColor(P.on)
+                    setTextColor(if (liveOn) Ui.accentText(P, accent) else P.on)
+                    if (liveOn) typeface = Typeface.DEFAULT_BOLD
                     setTextSize(TypedValue.COMPLEX_UNIT_DIP, 10f * sc)
                 }
                 val item = LinearLayout(c).apply {

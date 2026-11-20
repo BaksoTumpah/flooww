@@ -68,14 +68,31 @@ class LiveTranslator(private val svc: AccessibilityService) {
             say("Gagal membuat jendela overlay.")
             return
         }
-        say("Live translate nyala. Mengunduh model bila perlu...")
+        say("Live translate dinyalakan…")
+        var finished = false
+        // pemberitahuan unduh hanya muncul bila unduhan benar-benar butuh waktu (model belum ada di HP)
+        val downloadingNotice = Runnable {
+            if (!finished && active) say("Mengunduh model terjemahan Inggris ke Indonesia (sekitar 30 MB). Mohon tunggu, butuh internet…")
+        }
+        main.postDelayed(downloadingNotice, 700)
+        val t0 = android.os.SystemClock.elapsedRealtime()
         tr.downloadModelIfNeeded(DownloadConditions.Builder().build())
             .addOnSuccessListener {
+                finished = true
+                main.removeCallbacks(downloadingNotice)
+                if (!active) return@addOnSuccessListener
                 ready = true
-                if (active) refresh()
+                val downloaded = android.os.SystemClock.elapsedRealtime() - t0 > 700
+                say(
+                    (if (downloaded) "Model selesai diunduh. " else "") +
+                        "Live translate siap. Teks Inggris di layar akan diterjemahkan, layar tetap bisa digulir."
+                )
+                refresh()
             }
             .addOnFailureListener {
-                say("Gagal mengunduh model terjemahan. Periksa koneksi internet.")
+                finished = true
+                main.removeCallbacks(downloadingNotice)
+                say("Gagal mengunduh model terjemahan. Periksa koneksi internet lalu nyalakan Live lagi.")
                 stop()
             }
     }
