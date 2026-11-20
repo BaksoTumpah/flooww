@@ -203,7 +203,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
     /** Menggambar kotak hasil terjemahan tepat di atas posisi teks aslinya. */
     private class OverlayView(c: Context) : View(c) {
         private var boxes: List<Box> = emptyList()
-        private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xF21F1B2E.toInt() }
+        private val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFA1F1B2E.toInt() }
         private val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
         private val d = c.resources.displayMetrics.density
 

@@ -468,8 +468,8 @@ class MainActivity : Activity() {
                     }
                 })
         }
-        l += Step("Aksesibilitas (Auto Clicker)",
-            "Hanya untuk Auto Clicker mengetuk titik target. Tidak membaca layar atau isi aplikasi. Boleh dilewati bila tidak memakai Auto Clicker.",
+        l += Step("Aksesibilitas (jendela aman)",
+            "Disarankan. Dengan izin ini jendela flooww terbuka dengan aman lewat jalur resmi Android, tanpa izin \"tampil di atas aplikasi lain\" dan lebih jarang diblokir HP. Juga dipakai untuk Auto Clicker, Live Translate, dan menekan tombol Pasang saat flooww memperbarui diri. Teks layar hanya dibaca saat Live Translate dinyalakan dan diterjemahkan di dalam HP, tidak dikirim ke mana pun. Kolom sandi dan isian tidak dibaca. Boleh dilewati bila bubble sudah tampil normal.",
             { a11yOn() }, {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             }, true)
