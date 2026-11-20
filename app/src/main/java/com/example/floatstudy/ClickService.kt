@@ -33,6 +33,42 @@ class ClickService : AccessibilityService() {
             return true
         }
 
+        /**
+         * Baca semua teks node yang berada di dalam kotak [box] (koordinat layar) dari jendela aktif.
+         * Satu kali baca saat diminta, tanpa tangkap layar. Kolom sandi tidak dibaca. Null bila layanan belum aktif.
+         */
+        fun readBox(box: android.graphics.Rect): String? {
+            val s = instance ?: return null
+            val root = s.rootInActiveWindow ?: return ""
+            val found = ArrayList<Triple<Int, Int, String>>()
+            fun walk(n: AccessibilityNodeInfo, depth: Int) {
+                if (depth > 60 || found.size >= 400 || !n.isVisibleToUser || n.isPassword) return
+                val t = (n.text ?: n.contentDescription)?.toString()?.trim()
+                if (!t.isNullOrEmpty()) {
+                    val r = android.graphics.Rect()
+                    n.getBoundsInScreen(r)
+                    val area = r.width().toLong() * r.height()
+                    val i = android.graphics.Rect(r)
+                    // masuk bila minimal separuh luas node berada di dalam kotak
+                    if (area > 0 && i.intersect(box) && i.width().toLong() * i.height() * 2 >= area) {
+                        found.add(Triple(r.top, r.left, t))
+                    }
+                }
+                for (k in 0 until n.childCount) {
+                    val ch = n.getChild(k) ?: continue
+                    walk(ch, depth + 1)
+                }
+            }
+            try {
+                walk(root, 0)
+            } catch (e: Exception) {
+            }
+            // urut atas ke bawah lalu kiri ke kanan, teks kembar dibuang
+            val seen = HashSet<String>()
+            return found.sortedWith(compareBy({ it.first / 12 }, { it.second }))
+                .map { it.third }.filter { seen.add(it) }.joinToString("\n")
+        }
+
         /** Batas waktu (uptime ms) klik otomatis tombol Pasang. 0 = tidak aktif. */
         @Volatile
         private var autoInstallUntil = 0L

@@ -75,16 +75,17 @@ class FloatService : Service() {
         private const val M_NOTE = 8
         private const val M_GAL = 9
         private const val M_LIVE = 10
-        private const val M_OFF = 11
+        private const val M_READ = 11
+        private const val M_OFF = 12
 
         private val NAMES = listOf(
             "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
-            "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Live", "Matikan"
+            "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Live", "Baca", "Matikan"
         )
         private val ICONS = intArrayOf(
             R.drawable.ic_ask, R.drawable.ic_copy, R.drawable.ic_translate, R.drawable.ic_shot,
             R.drawable.ic_browser, R.drawable.ic_calc, R.drawable.ic_touch,
-            R.drawable.ic_apps, R.drawable.ic_note, R.drawable.ic_image, R.drawable.ic_live, R.drawable.ic_power
+            R.drawable.ic_apps, R.drawable.ic_note, R.drawable.ic_image, R.drawable.ic_live, R.drawable.ic_read, R.drawable.ic_power
         )
 
         // alat yang mengambil soal dari layar: lingkaran pilih area muncul dulu, jendela sesudahnya
@@ -552,6 +553,7 @@ class FloatService : Service() {
             hideMenu()
             hidePanel()
             osk.hide()
+            hideReadBox()
             listOf<View?>(selector, target, bubble, lockView).forEach { v ->
                 v?.let {
                     try {
@@ -1405,12 +1407,168 @@ class FloatService : Service() {
         else if (!on) toast("Live translate mati")
     }
 
+    // ---------- Baca: kotak seleksi, teks dalam kotak dibaca lewat aksesibilitas lalu dikirim ke AI ----------
+
+    private var readBox: FrameLayout? = null
+    private var readLp: WindowManager.LayoutParams? = null
+
+    private fun hideReadBox() {
+        readBox?.let {
+            try {
+                wm.removeView(it)
+            } catch (e: Exception) {
+            }
+        }
+        readBox = null
+        readLp = null
+    }
+
+    /**
+     * Kotak mengambang tipis dengan tombol centang dan silang. Seret di dalam kotak untuk memindah, seret tepi atau
+     * sudut untuk mengubah panjang dan lebar. Centang: semua teks di dalam kotak dibaca dari pohon tampilan
+     * (bukan tangkap layar) dan dikirim ke AI seperti Tanya AI.
+     */
+    private fun showReadBox() {
+        if (ClickService.instance == null) {
+            toast("Aktifkan layanan aksesibilitas flooww dulu di Pengaturan")
+            return
+        }
+        if (readBox != null) return
+        val dm = resources.displayMetrics
+        val minW = dp(140)
+        val minH = dp(72)
+        val lp = WindowManager.LayoutParams(
+            minOf(dm.widthPixels - dp(32), dp(300)), dp(170), ovType,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or OVERLAY_FLAGS,
+            PixelFormat.TRANSLUCENT
+        )
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.x = (dm.widthPixels - lp.width) / 2
+        lp.y = dm.heightPixels / 3
+
+        val acc = accent
+        val box = object : FrameLayout(c) {
+            private var mode = 0 // 0 pindah, bit EDGE_* untuk ubah ukuran
+            private var dx = 0f
+            private var dy = 0f
+            private var sx = 0
+            private var sy = 0
+            private var sw = 0
+            private var sh = 0
+
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                val band = dp(22)
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        dx = e.rawX
+                        dy = e.rawY
+                        sx = lp.x
+                        sy = lp.y
+                        sw = lp.width
+                        sh = lp.height
+                        mode = (if (e.x < band) EDGE_L else 0) or (if (e.x > width - band) EDGE_R else 0) or
+                            (if (e.y < band / 2) EDGE_T else 0) or (if (e.y > height - band) EDGE_B else 0)
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val mx = (e.rawX - dx).toInt()
+                        val my = (e.rawY - dy).toInt()
+                        if (mode == 0) {
+                            lp.x = (sx + mx).coerceIn(0, dm.widthPixels - lp.width)
+                            lp.y = (sy + my).coerceIn(0, dm.heightPixels - lp.height)
+                        } else {
+                            var l = sx
+                            var t = sy
+                            var r = sx + sw
+                            var b = sy + sh
+                            if (mode and EDGE_L != 0) l = (sx + mx).coerceIn(0, r - minW)
+                            if (mode and EDGE_R != 0) r = (sx + sw + mx).coerceIn(l + minW, dm.widthPixels)
+                            if (mode and EDGE_T != 0) t = (sy + my).coerceIn(0, b - minH)
+                            if (mode and EDGE_B != 0) b = (sy + sh + my).coerceIn(t + minH, dm.heightPixels)
+                            lp.x = l
+                            lp.y = t
+                            lp.width = r - l
+                            lp.height = b - t
+                        }
+                        try {
+                            wm.updateViewLayout(this, lp)
+                        } catch (ex: Exception) {
+                        }
+                    }
+                }
+                return true
+            }
+        }
+        box.background = GradientDrawable().apply {
+            setColor((acc and 0x00FFFFFF) or 0x22000000)
+            setStroke(dp(2), acc)
+            cornerRadius = dp(8).toFloat()
+        }
+        fun chip(label: String, color: Int, onTap: () -> Unit) = TextView(c).apply {
+            text = label
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = dp(12).toFloat()
+            }
+            setOnClickListener { onTap() }
+        }
+        val bar = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, dp(4), 0)
+            background = GradientDrawable().apply {
+                setColor(0xE61F1B2E.toInt())
+                cornerRadii = floatArrayOf(dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), dp(8).toFloat(), 0f, 0f, 0f, 0f)
+            }
+        }
+        bar.addView(TextView(c).apply {
+            text = "Baca teks di kotak"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            maxLines = 1
+        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+        bar.addView(chip("✓", 0xFF2E9E5B.toInt()) { readBoxSend() }, LinearLayout.LayoutParams(dp(34), dp(24)).apply { rightMargin = dp(4) })
+        bar.addView(chip("✕", 0xFFC0392B.toInt()) { hideReadBox() }, LinearLayout.LayoutParams(dp(34), dp(24)))
+        box.addView(bar, FrameLayout.LayoutParams(MATCH, dp(30)).apply { gravity = Gravity.TOP; setMargins(dp(2), dp(2), dp(2), 0) })
+        try {
+            wm.addView(box, lp)
+            readBox = box
+            readLp = lp
+            toast("Atur kotak, lalu tekan ✓")
+        } catch (e: Exception) {
+            toast("Gagal menampilkan kotak: ${e.message}")
+        }
+    }
+
+    private fun readBoxSend() {
+        val box = readBox ?: return
+        val loc = IntArray(2)
+        box.getLocationOnScreen(loc)
+        // area teks: di bawah bilah tombol
+        val r = Rect(loc[0], loc[1] + dp(32), loc[0] + box.width, loc[1] + box.height)
+        hideReadBox()
+        val text = ClickService.readBox(r)
+        when {
+            text == null -> toast("Layanan aksesibilitas flooww belum aktif")
+            text.isBlank() -> toast("Tidak ada teks terbaca di kotak (mungkin berupa gambar)")
+            else -> {
+                val p = Prefs.prompt(c)
+                val head = if (p == Prefs.DEFAULT_PROMPT) "Jawab soal berikut. Jelaskan langkah singkat, lalu tulis jawaban akhir." else p
+                toast("Mengirim ${text.length} huruf ke AI…")
+                askWeb(null, head + "\n\n" + text.take(3000))
+            }
+        }
+    }
+
     private fun onMenuPick(i: Int) {
         hideMenu()
         when {
             i in CIRCLE_FIRST -> circleFirst(i)
             i == M_IMG -> screenshotNow()
             i == M_LIVE -> toggleLive()
+            i == M_READ -> showReadBox()
             i == M_OFF -> {
                 toast("Bubble dimatikan")
                 stopSelf()
