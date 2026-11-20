@@ -967,7 +967,7 @@ class MainActivity : Activity() {
         fun paint() {
             cells.forEachIndexed { i, t ->
                 val on = i == get()
-                t.setTextColor(if (on) Color.WHITE else p.on)
+                t.setTextColor(if (on) Ui.onAccent(accent) else p.on)
                 t.background = if (on) Ui.clay(this@MainActivity, accent, dp(13), 3f) else null
             }
         }

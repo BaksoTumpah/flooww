@@ -46,7 +46,7 @@ object UpdateDialog {
             textSize = 26f
             gravity = Gravity.CENTER
             typeface = Typeface.create("sans-serif-black", Typeface.NORMAL)
-            setTextColor(Color.WHITE)
+            setTextColor(Ui.onAccent(accent))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(accent)

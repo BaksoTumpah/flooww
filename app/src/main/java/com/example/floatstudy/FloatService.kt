@@ -1260,7 +1260,7 @@ class FloatService : Service() {
             else -> ""
         }
         // warna terang (putih/abu): tanda di bubble dibuat gelap supaya tetap terbaca
-        b.setTextColor(if (androidx.core.graphics.ColorUtils.calculateLuminance(col) > 0.6) 0xFF2D2A4A.toInt() else Color.WHITE)
+        b.setTextColor(Ui.onAccent(col))
         b.setTextSize(TypedValue.COMPLEX_UNIT_DIP, if (shape == 1) sizeDp * 0.5f else sizeDp * 0.4f)
         if (snap) lp.x = if (onLeft) 0 else sw - lp.width
         try {
@@ -2639,7 +2639,7 @@ class FloatService : Service() {
                     typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
                     setTextColor(
                         when {
-                            equals -> Color.WHITE
+                            equals -> Ui.onAccent(accent)
                             k == "C" -> 0xFFDC2626.toInt()
                             op -> accent
                             else -> P.on

@@ -51,6 +51,10 @@ object Ui {
         return 0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0)
     }
 
+    /** Warna teks/ikon yang terbaca di atas latar berwarna aksen apa pun: gelap di atas warna terang (putih, abu, kuning), putih di atas warna gelap. */
+    fun onAccent(accent: Int): Int =
+        if (lum(accent) > 0.25) 0xFF1F1B2E.toInt() else 0xFFFFFFFF.toInt()
+
     /** Warna teks aksen yang pasti terbaca di atas latar: dipakai warna pilihan pengguna bila kontrasnya cukup, selain itu warna cerah/gelap yang aman. */
     fun accentText(p: Pal, preferred: Int): Int {
         val bgL = lum(p.bg)
@@ -126,7 +130,7 @@ object Ui {
             gravity = Gravity.CENTER
             textSize = 14f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(if (primary) 0xFFFFFFFF.toInt() else p.on)
+            setTextColor(if (primary) onAccent(accent) else p.on)
             minHeight = dp(c, 46f)
             setPadding(dp(c, 16f), dp(c, 8f), dp(c, 16f), dp(c, 12f))
             background = ripple(clay(c, if (primary) accent else p.surface, dp(c, 16f)), p.night)
