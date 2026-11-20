@@ -51,6 +51,8 @@ class LiveTranslator(private val svc: AccessibilityService) {
         private set
 
     private val refreshRun = Runnable { refresh() }
+    private var firstPending = 0L // kapan permintaan refresh pertama yang belum jalan masuk
+    private var lastSig = 0 // sidik isi layar saat semua terjemahan sudah tampil
 
     fun start(say: (String) -> Unit) {
         if (active) return
@@ -113,26 +115,35 @@ class LiveTranslator(private val svc: AccessibilityService) {
         if (pkg == svc.packageName || pkg == "com.android.systemui") return
         when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                // layar sedang digulir: sembunyikan terjemahan lama, tampilkan lagi setelah layar diam
+                // layar sedang digulir: sembunyikan terjemahan lama, tampilkan lagi begitu layar diam
                 view?.setBoxes(emptyList())
+                lastSig = 0
                 gen++
-                schedule(450)
+                schedule(160)
             }
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 view?.setBoxes(emptyList())
+                lastSig = 0
                 gen++
-                schedule(500)
+                schedule(200)
             }
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> schedule(650)
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> schedule(220)
         }
     }
 
+    /**
+     * Jalankan refresh setelah layar diam sebentar. Bila layar terus berubah (animasi, video), refresh tetap dipaksa
+     * jalan setelah 600 ms supaya terjemahan tidak tertunda terus.
+     */
     private fun schedule(ms: Long) {
+        val now = android.os.SystemClock.uptimeMillis()
+        if (firstPending == 0L) firstPending = now
         main.removeCallbacks(refreshRun)
-        main.postDelayed(refreshRun, ms)
+        main.postDelayed(refreshRun, if (now - firstPending >= 600L) 0L else ms)
     }
 
     private fun refresh() {
+        firstPending = 0L
         val tr = translator ?: return
         if (!active || !ready) return
         val root = svc.rootInActiveWindow ?: return
@@ -143,6 +154,10 @@ class LiveTranslator(private val svc: AccessibilityService) {
         } catch (e: Exception) {
             return
         }
+        // isi layar sama dengan yang sudah tampil semua: tidak perlu dikerjakan lagi (mencegah kedip)
+        var sig = items.size
+        for (b in items) sig = 31 * sig + b.text.hashCode() + 17 * b.r.top + b.r.left
+        if (sig == lastSig && sig != 0) return
         val myGen = ++gen
         val shown = ArrayList<Box>()
         val pending = ArrayList<Box>()
@@ -151,13 +166,24 @@ class LiveTranslator(private val svc: AccessibilityService) {
             if (hit != null) shown.add(Box(b.r, hit)) else pending.add(b)
         }
         view?.setBoxes(shown.toList())
-        for (b in pending) {
-            tr.translate(b.text).addOnSuccessListener { out ->
-                cache[b.text] = out
+        if (pending.isEmpty()) {
+            lastSig = sig
+            return
+        }
+        // teks yang sama di beberapa tempat hanya diterjemahkan sekali; yang paling atas di layar dikerjakan dulu
+        val byText = LinkedHashMap<String, MutableList<Box>>()
+        for (b in pending.sortedBy { it.r.top }) byText.getOrPut(b.text) { ArrayList() }.add(b)
+        var left = byText.size
+        for ((text, boxes) in byText) {
+            tr.translate(text).addOnSuccessListener { out ->
+                cache[text] = out
                 if (gen == myGen && active) {
-                    shown.add(Box(b.r, out))
+                    for (b in boxes) shown.add(Box(b.r, out))
                     view?.setBoxes(shown.toList())
                 }
+            }.addOnCompleteListener {
+                left--
+                if (left == 0 && gen == myGen && active && shown.size == items.size) lastSig = sig
             }
         }
     }
