@@ -22,6 +22,17 @@ class ClickService : AccessibilityService() {
         @Volatile
         var onLost: (() -> Unit)? = null
 
+        /** Terjemahan langsung layar (Inggris ke Indonesia). Lihat LiveTranslator. */
+        fun liveActive(): Boolean = instance?.live?.active == true
+
+        /** Nyalakan atau matikan terjemahan langsung. Mengembalikan false bila layanan aksesibilitas belum aktif. */
+        fun setLive(on: Boolean, say: (String) -> Unit): Boolean {
+            val s = instance ?: return false
+            val t = s.live ?: LiveTranslator(s).also { s.live = it }
+            if (on) t.start(say) else t.stop()
+            return true
+        }
+
         /** Batas waktu (uptime ms) klik otomatis tombol Pasang. 0 = tidak aktif. */
         @Volatile
         private var autoInstallUntil = 0L
@@ -44,23 +55,28 @@ class ClickService : AccessibilityService() {
         }
     }
 
+    private var live: LiveTranslator? = null
+
     override fun onServiceConnected() {
         instance = this
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
+        live?.stop()
         instance = null
         onLost?.invoke()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
+        live?.stop()
         instance = null
         onLost?.invoke()
         super.onDestroy()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event != null) live?.onEvent(event)
         if (autoInstallUntil == 0L) return
         if (android.os.SystemClock.uptimeMillis() > autoInstallUntil) {
             autoInstallUntil = 0L

@@ -74,16 +74,17 @@ class FloatService : Service() {
         private const val M_APPS = 7
         private const val M_NOTE = 8
         private const val M_GAL = 9
-        private const val M_OFF = 10
+        private const val M_LIVE = 10
+        private const val M_OFF = 11
 
         private val NAMES = listOf(
             "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
-            "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Matikan"
+            "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Live", "Matikan"
         )
         private val ICONS = intArrayOf(
             R.drawable.ic_ask, R.drawable.ic_copy, R.drawable.ic_translate, R.drawable.ic_shot,
             R.drawable.ic_browser, R.drawable.ic_calc, R.drawable.ic_touch,
-            R.drawable.ic_apps, R.drawable.ic_note, R.drawable.ic_image, R.drawable.ic_power
+            R.drawable.ic_apps, R.drawable.ic_note, R.drawable.ic_image, R.drawable.ic_live, R.drawable.ic_power
         )
 
         // alat yang mengambil soal dari layar: lingkaran pilih area muncul dulu, jendela sesudahnya
@@ -541,6 +542,7 @@ class FloatService : Service() {
     override fun onDestroy() {
         Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefListener)
         ClickService.onLost = null
+        ClickService.setLive(false) { }
         ui.removeCallbacksAndMessages(null)
         clicking = false
         if (::wm.isInitialized) {
@@ -1387,11 +1389,20 @@ class FloatService : Service() {
         menu = null
     }
 
+    /** Terjemah Langsung: baca teks layar lewat aksesibilitas, timpa dengan terjemahan, layar tetap bisa digulir. */
+    private fun toggleLive() {
+        val on = !ClickService.liveActive()
+        val ok = ClickService.setLive(on) { m -> ui.post { toast(m) } }
+        if (!ok) toast("Aktifkan layanan aksesibilitas flooww dulu di Pengaturan")
+        else if (!on) toast("Live translate mati")
+    }
+
     private fun onMenuPick(i: Int) {
         hideMenu()
         when {
             i in CIRCLE_FIRST -> circleFirst(i)
             i == M_IMG -> screenshotNow()
+            i == M_LIVE -> toggleLive()
             i == M_OFF -> {
                 toast("Bubble dimatikan")
                 stopSelf()
