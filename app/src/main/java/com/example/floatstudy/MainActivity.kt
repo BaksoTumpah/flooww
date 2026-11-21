@@ -142,6 +142,9 @@ class MainActivity : Activity() {
         gAi.add(sec("Tujuan Tanya AI",
             note("Direkomendasikan: ChatGPT (bawaan). Gambar soal paling stabil terlampir. Google AI Mode juga tersedia, tanpa login. Bila jendela AI masih terbuka, soal berikutnya melanjutkan chat yang sama sehingga lebih cepat."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
+            label("Isi yang dikirim"),
+            note("Kirim teks (OCR): soal dibaca di HP lalu dikirim sebagai teks. Lebih cepat dan stabil di HP lambat, tapi gambar atau grafik tidak ikut. Kirim gambar: gambar soal dilampirkan ke AI. Bawaan mengikuti kemampuan HP."),
+            segmented(listOf("Kirim gambar", "Kirim teks (OCR)"), { if (Prefs.askText(this)) 1 else 0 }) { Prefs.setAskText(this, it == 1) },
             spaced(promptIn)
         ))
 
@@ -293,6 +296,29 @@ class MainActivity : Activity() {
         ))
         gLook.add(sec("Jendela alat",
             slider("Zoom halaman web", Setting.WEB_ZOOM, "%")
+        ))
+        gLook.add(sec("Laporan masalah",
+            note("Catatan singkat kejadian di HP ini (tidak dikirim ke mana pun). Bila Apps atau Tanya AI bermasalah, salin lalu kirim ke pengembang."),
+            spaced(Ui.button(this, "Lihat laporan", false) {
+                val txt = Diag.report(this)
+                val tv = TextView(this).apply {
+                    text = txt
+                    textSize = 11f
+                    setTextIsSelectable(true)
+                    setPadding(dp(16), dp(8), dp(16), dp(8))
+                }
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Laporan masalah")
+                    .setView(android.widget.ScrollView(this).apply { addView(tv) })
+                    .setPositiveButton("Salin") { _, _ ->
+                        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                            .setPrimaryClip(android.content.ClipData.newPlainText("laporan flooww", txt))
+                        android.widget.Toast.makeText(this, "Laporan disalin", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    .setNeutralButton("Hapus catatan") { _, _ -> Diag.clear(this) }
+                    .setNegativeButton("Tutup", null)
+                    .show()
+            })
         ))
         gLook.add(sec("Bawaan",
             spaced(Ui.button(this, "Kembalikan tampilan bawaan", false) {
@@ -506,8 +532,8 @@ class MainActivity : Activity() {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             })
         l += Step("Tampil di atas aplikasi lain",
-            "Supaya bubble dan jendela flooww bisa muncul di atas aplikasi lain. Boleh dilewati bila Aksesibilitas sudah aktif.",
-            { Settings.canDrawOverlays(this) || ClickService.instance != null }, {
+            "Wajib. Tanpa izin ini Android (Android 10 ke atas) diam-diam menolak bubble membuka aplikasi di menu Apps. Tetap aktifkan walau Aksesibilitas sudah menyala.",
+            { Settings.canDrawOverlays(this) }, {
                 startActivityForResult(
                     Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), reqOverlay
                 )

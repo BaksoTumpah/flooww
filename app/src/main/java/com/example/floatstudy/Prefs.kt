@@ -103,6 +103,27 @@ object Prefs {
         sp(c).edit().putInt("liveSrc", i).apply()
     }
 
+    /**
+     * Tanya AI mengirim teks hasil OCR (bukan gambar). Jauh lebih ringan dan stabil di HP lambat atau WebView lama,
+     * jadi bawaannya aktif di HP dengan RAM kurang dari sekitar 3,5 GB.
+     */
+    fun askText(c: Context): Boolean {
+        val sp = sp(c)
+        if (sp.contains("askText")) return sp.getBoolean("askText", false)
+        return try {
+            val am = c.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val mi = android.app.ActivityManager.MemoryInfo()
+            am.getMemoryInfo(mi)
+            mi.totalMem < 3_500L * 1024 * 1024
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun setAskText(c: Context, on: Boolean) {
+        sp(c).edit().putBoolean("askText", on).apply()
+    }
+
     fun lang(c: Context): Int = sp(c).getInt("lang", 1).coerceIn(0, LANGS.size - 1)
 
     fun setLang(c: Context, i: Int) {

@@ -1668,7 +1668,19 @@ class FloatService : Service() {
                 return@pickRegion
             }
             when (id) {
-                M_ASK -> askWeb(bmp, Prefs.prompt(c))
+                M_ASK -> if (Prefs.askText(c)) {
+                    toast("Membaca soal…")
+                    Ocr.read(bmp) { res ->
+                        ui.post {
+                            val t = res.getOrNull()
+                            if (t.isNullOrBlank()) toast("Tidak ada teks terbaca. Coba mode Kirim gambar di Pengaturan.")
+                            else {
+                                Diag.add(c, "Tanya AI teks: ${t.length} huruf")
+                                sendReadText(t)
+                            }
+                        }
+                    }
+                } else askWeb(bmp, Prefs.prompt(c))
                 M_TR -> {
                     openTool(M_TR)
                     runTranslate(bmp)
@@ -1802,6 +1814,7 @@ class FloatService : Service() {
         // ada gambar: buka halaman polos, lampirkan gambar dulu, baru isi perintah lalu kirim
         pendingPrompt = if (hasImg) prompt else null
         val resume = onAiSite(target)
+        Diag.add(c, "Tanya AI ke $name, gambar=$hasImg, lanjut chat=$resume, existed=${web != null}")
         pendingPrompt = prompt
         if (!hasImg) pendingPrompt = null
         val url = if (base != null && !hasImg) base + URLEncoder.encode(prompt.take(1500), "UTF-8") else AI_WEB[target]
@@ -2525,6 +2538,10 @@ class FloatService : Service() {
             isLongClickable = false
             setOnLongClickListener { true }
             isHapticFeedbackEnabled = false
+            Diag.add(c, "Browser dibuat, WebView ${Diag.webViewInfo()}")
+            if (Diag.webViewMajor() in 1..89) {
+                toast("WebView HP ini versi lama (${Diag.webViewMajor()}). Situs AI bisa macet. Perbarui 'Android System WebView' di Play Store.")
+            }
             // beberapa situs menolak WebView. Samarkan "wv" agar tampil seperti Chrome biasa.
             settings.userAgentString = settings.userAgentString.replace("; wv", "")
             // skala lebih kecil: halaman tampak lebih luas di jendela yang tetap kecil
@@ -2534,6 +2551,13 @@ class FloatService : Service() {
             settings.builtInZoomControls = true
             settings.displayZoomControls = false
             webChromeClient = object : WebChromeClient() {
+                override fun onConsoleMessage(m: android.webkit.ConsoleMessage?): Boolean {
+                    if (m?.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
+                        Diag.add(c, "JS: ${m.message()?.take(120)}")
+                    }
+                    return super.onConsoleMessage(m)
+                }
+
                 override fun onShowFileChooser(
                     wv: WebView?,
                     cb: ValueCallback<Array<Uri>>?,
@@ -2552,7 +2576,26 @@ class FloatService : Service() {
                 }
             }
             webViewClient = object : WebViewClient() {
+                override fun onPageStarted(view: WebView?, u: String?, favicon: Bitmap?) {
+                    Diag.add(c, "Muat: ${u?.take(80)}")
+                }
+
+                override fun onReceivedError(view: WebView?, req: android.webkit.WebResourceRequest?, err: android.webkit.WebResourceError?) {
+                    if (req?.isForMainFrame == true && Build.VERSION.SDK_INT >= 23) {
+                        Diag.add(c, "Gagal muat halaman: ${err?.errorCode} ${err?.description}")
+                        toast("Halaman gagal dimuat: ${err?.description}. Periksa internet.")
+                    }
+                }
+
+                override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                    // HP berRAM kecil menutup proses halaman: jangan biarkan flooww ikut mati, dan jangan diam saja
+                    Diag.add(c, "Proses browser ditutup sistem (kehabisan memori=${detail?.didCrash() == false})")
+                    toast("Browser kehabisan memori. Tutup jendela lalu buka lagi, atau pakai mode Kirim teks.")
+                    return true
+                }
+
                 override fun onPageFinished(view: WebView?, u: String?) {
+                    Diag.add(c, "Selesai: ${u?.take(80)}")
                     if (!url.hasFocus() && u != null) url.setText(u)
                     view?.evaluateJavascript(WEB_SEL_JS, null)
                     if (pendingB64 != null) autoAttach()
@@ -3153,7 +3196,12 @@ class FloatService : Service() {
         val l = (sw - w) / 2
         val t = dp(72)
         hidePanel()
+        Diag.add(c, "Buka app mengambang ${i.component?.packageName ?: i.`package`}, overlay=${Settings.canDrawOverlays(this)}, bebas=${freeformOn()}")
         val bounds = Rect(l, t, l + w, t + h)
+        if (Build.VERSION.SDK_INT >= 29 && !Settings.canDrawOverlays(this)) {
+            // Android 10+ menolak aplikasi di latar membuka aplikasi lain tanpa membuang kesalahan: tidak ada yang terbuka dan tidak ada pesan
+            toast("Izin \"Tampil di atas aplikasi lain\" belum aktif, Android bisa menolak membuka aplikasi. Aktifkan di flooww > Izin.")
+        }
         // Aktifkan setelan jendela bebas sendiri bila izin WRITE_SECURE_SETTINGS sudah diberikan lewat ADB
         if ((!freeformOn() || !globalOn("force_resizable_activities")) && tryEnableFreeform()) {
             toast("Jendela bebas diaktifkan. Restart HP sekali agar berlaku.")
@@ -3198,8 +3246,10 @@ class FloatService : Service() {
                 break
             } catch (e: Exception) {
                 err = e
+                Diag.add(c, "Percobaan $attempt gagal: ${e.javaClass.simpleName} ${e.message?.take(100)}")
             }
         }
+        Diag.add(c, "Hasil buka app: percobaan $done, mode bebas dipaksa=$forced")
         when {
             done < 0 -> toast(
                 "Gagal membuka aplikasi: ${err?.message ?: "ditolak sistem"}." +
