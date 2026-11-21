@@ -84,6 +84,13 @@ object Prefs {
         sp(c).edit().putString("userName", n.trim()).apply()
     }
 
+    /** Bahasa sumber Live Translate (indeks LANGS). Tujuannya selalu Indonesia, jadi Indonesia tidak boleh jadi sumber. */
+    fun liveSrc(c: Context): Int = sp(c).getInt("liveSrc", 1).coerceIn(1, LANGS.size - 1)
+
+    fun setLiveSrc(c: Context, i: Int) {
+        sp(c).edit().putInt("liveSrc", i).apply()
+    }
+
     fun lang(c: Context): Int = sp(c).getInt("lang", 1).coerceIn(0, LANGS.size - 1)
 
     fun setLang(c: Context, i: Int) {

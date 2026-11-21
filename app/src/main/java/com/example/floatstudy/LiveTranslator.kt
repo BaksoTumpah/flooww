@@ -30,7 +30,7 @@ import com.google.mlkit.nl.translate.Translator
 import com.google.mlkit.nl.translate.TranslatorOptions
 
 /**
- * Terjemahan langsung (Inggris ke Indonesia) untuk teks yang tampil di layar.
+ * Terjemahan langsung (bahasa pilihan, bawaan Inggris, ke Indonesia) untuk teks yang tampil di layar.
  *
  * Teks dan posisinya dibaca dari layanan aksesibilitas (tanpa tangkap layar). Terjemahan memakai ML Kit
  * di dalam HP, jadi tidak butuh API key dan tidak ada teks yang dikirim keluar. Hasilnya digambar di jendela
@@ -70,12 +70,23 @@ class LiveTranslator(private val svc: AccessibilityService) {
     private var firstPending = 0L // kapan permintaan refresh pertama yang belum jalan masuk
     private var lastSig = 0 // sidik isi layar saat semua terjemahan sudah tampil
 
+    private var srcCode = TranslateLanguage.ENGLISH
+    private var srcName = "Inggris"
+    private var hasLetter = Regex("[\\p{L}]{2,}")
+    private var ocrOk = true // OCR bawaan hanya untuk huruf Latin
+
     fun start(say: (String) -> Unit) {
         if (active) return
         active = true
+        val si = Prefs.liveSrc(svc)
+        srcCode = Prefs.LANG_CODES[si]
+        srcName = Prefs.LANGS[si]
+        val cjkAr = srcCode in listOf("ar", "ja", "zh", "ko")
+        hasLetter = if (cjkAr) Regex("\\p{L}") else Regex("[\\p{L}]{2,}")
+        ocrOk = !cjkAr
         val tr = Translation.getClient(
             TranslatorOptions.Builder()
-                .setSourceLanguage(TranslateLanguage.ENGLISH)
+                .setSourceLanguage(srcCode)
                 .setTargetLanguage(TranslateLanguage.INDONESIAN)
                 .build()
         )
@@ -91,7 +102,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
         // pemberitahuan unduh hanya muncul bila unduhan benar-benar butuh waktu (model belum ada di HP)
         val downloadingNotice = Runnable {
             if (!finished && active) {
-                say("Mengunduh model terjemahan Inggris ke Indonesia (sekitar 30 MB). Mohon tunggu, butuh internet…")
+                say("Mengunduh model terjemahan $srcName ke Indonesia (sekitar 30 MB). Mohon tunggu, butuh internet…")
                 modelNotice(true) // status tetap di notifikasi sampai unduhan selesai
             }
         }
@@ -107,7 +118,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
                 val downloaded = android.os.SystemClock.elapsedRealtime() - t0 > 700
                 say(
                     (if (downloaded) "Model selesai diunduh. " else "") +
-                        "Live translate siap. Teks Inggris di layar akan diterjemahkan, layar tetap bisa digulir."
+                        "Live translate siap. Teks $srcName di layar akan diterjemahkan, layar tetap bisa digulir."
                 )
                 refresh()
             }
@@ -134,7 +145,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
             val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(svc, "live") else Notification.Builder(svc)
             b.setSmallIcon(R.drawable.ic_live)
                 .setContentTitle("Mengunduh model terjemahan")
-                .setContentText("Inggris ke Indonesia, sekitar 30 MB. Butuh internet.")
+                .setContentText("$srcName ke Indonesia, sekitar 30 MB. Butuh internet.")
                 .setOngoing(true)
                 .setProgress(0, 0, true)
             nm.notify(7301, b.build())
@@ -223,7 +234,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
         val myGen = ++gen
         // layar hampir tanpa teks node (gambar, game, WebView tertentu): baca lewat tangkapan layar + OCR (Android 11+)
         nodeRects = items.map { it.r }
-        if (items.size < 4 || bigImage) maybeOcr() else if (ocrBoxes.isNotEmpty()) push(o = emptyList())
+        if (ocrOk && (items.size < 4 || bigImage)) maybeOcr() else if (ocrBoxes.isNotEmpty()) push(o = emptyList())
         val shown = ArrayList<Box>()
         val pending = ArrayList<Box>()
         for (b in items) {
@@ -364,7 +375,6 @@ class LiveTranslator(private val svc: AccessibilityService) {
     }
 
     private val idWords = Regex("\\b(yang|dan|di|ke|dari|untuk|dengan|ini|itu|adalah|tidak|atau|pada)\\b", RegexOption.IGNORE_CASE)
-    private val hasLetter = Regex("[A-Za-z]{2,}")
 
     private fun collect(n: AccessibilityNodeInfo, out: MutableList<Box>) {
         if (out.size >= 120) return

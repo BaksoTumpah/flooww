@@ -126,8 +126,7 @@ class MainActivity : Activity() {
         val gLook = Group("Tampilan", "Bubble, menu, jendela", false)
         val gCtl = Group("Kontrol", "Gestur bubble, keyboard", false)
         val gApps = Group("Aplikasi", "Menu Apps dan jendela bebas", false)
-        val gMore = Group("Lainnya", "Auto Clicker", false)
-        listOf(gAi, gLook, gCtl, gApps, gMore).forEach { col.addView(it.root) }
+        listOf(gAi, gLook, gCtl, gApps).forEach { col.addView(it.root) }
 
         // ---- AI untuk Tanya AI ----
         val promptIn = Ui.field(this, "Pertanyaan yang dikirim bersama gambar", true).apply {
@@ -144,6 +143,43 @@ class MainActivity : Activity() {
             note("Direkomendasikan: ChatGPT (bawaan). Gambar soal paling stabil terlampir. Google AI Mode juga tersedia, tanpa login. Bila jendela AI masih terbuka, soal berikutnya melanjutkan chat yang sama sehingga lebih cepat."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             spaced(promptIn)
+        ))
+
+        // ---- model bahasa terjemah (diunduh dari server ML Kit, tersimpan di HP) ----
+        val modelInfo = note("Memeriksa model terunduh…")
+        fun showModelInfo() {
+            com.google.mlkit.common.model.RemoteModelManager.getInstance()
+                .getDownloadedModels(com.google.mlkit.nl.translate.TranslateRemoteModel::class.java)
+                .addOnSuccessListener { set ->
+                    val codes = set.map { it.language }.toSet()
+                    val names = Prefs.LANG_CODES.indices.filter { Prefs.LANG_CODES[it] == "en" || Prefs.LANG_CODES[it] in codes }
+                        .joinToString { Prefs.LANGS[it] }
+                    modelInfo.text = "Terunduh: $names. Model berukuran sekitar 30 MB per bahasa dan dipakai tanpa internet."
+                }
+                .addOnFailureListener { modelInfo.text = "Daftar model tidak bisa dibaca." }
+        }
+        showModelInfo()
+        val liveSrcBtn = Ui.button(this, "", false) {}
+        fun showLiveSrc() {
+            liveSrcBtn.text = "Bahasa sumber Live Translate: ${Prefs.LANGS[Prefs.liveSrc(this)]}"
+        }
+        liveSrcBtn.setOnClickListener {
+            val ids = Prefs.LANGS.indices.filter { it != 0 }
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Bahasa sumber Live Translate")
+                .setItems(ids.map { Prefs.LANGS[it] }.toTypedArray()) { _, i ->
+                    Prefs.setLiveSrc(this, ids[i])
+                    showLiveSrc()
+                    android.widget.Toast.makeText(this, "Berlaku saat Live dinyalakan lagi", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                .show()
+        }
+        showLiveSrc()
+        gAi.add(sec("Model bahasa terjemah",
+            note("Berlaku untuk Terjemah dan Live Translate. Unduh lebih dulu lewat Wi-Fi supaya nanti langsung siap dan bisa dipakai tanpa internet. Hapus model yang tidak dipakai untuk menghemat ruang."),
+            modelInfo,
+            spaced(Ui.button(this, "Kelola model bahasa", true) { pickModels { showModelInfo() } }),
+            spaced(liveSrcBtn)
         ))
 
         // ---- tampilan ----
@@ -225,13 +261,6 @@ class MainActivity : Activity() {
             spaced(Ui.button(this, "Kembalikan tampilan bawaan", false) {
                 Prefs.resetLook(this)
                 refreshers.forEach { it() }
-            })
-        ))
-
-        // ---- auto clicker ----
-        gMore.add(sec("Auto Clicker",
-            spaced(Ui.button(this, "Aktifkan di pengaturan aksesibilitas", false) {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             })
         ))
 
@@ -434,8 +463,13 @@ class MainActivity : Activity() {
 
     private fun buildSteps(): List<Step> {
         val l = mutableListOf<Step>()
+        l += Step("Aksesibilitas (jendela aman)",
+            "Wajib. Agar jendela flooww terbuka aman di atas aplikasi lain dan tidak mudah diblokir HP. Dipakai juga oleh Auto Clicker, Live Translate, dan Baca. Layar hanya dibaca saat Anda memakai fitur itu.",
+            { a11yOn() }, {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            })
         l += Step("Tampil di atas aplikasi lain",
-            "Supaya bubble dan jendela flooww bisa muncul di atas aplikasi lain. Tanpa ini bubble tidak tampil.",
+            "Supaya bubble dan jendela flooww bisa muncul di atas aplikasi lain. Boleh dilewati bila Aksesibilitas sudah aktif.",
             { Settings.canDrawOverlays(this) || ClickService.instance != null }, {
                 startActivityForResult(
                     Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")), reqOverlay
@@ -497,12 +531,8 @@ class MainActivity : Activity() {
                     }
                 })
         }
-        l += Step("Aksesibilitas (jendela aman)",
-            "Disarankan. Dengan izin ini jendela flooww terbuka dengan aman lewat jalur resmi Android, tanpa izin \"tampil di atas aplikasi lain\" dan lebih jarang diblokir HP. Juga dipakai untuk Auto Clicker, Live Translate, Baca teks layar ke AI, dan menekan tombol Pasang saat flooww memperbarui diri. Teks layar hanya dibaca saat Live Translate dinyalakan atau saat Anda menekan centang pada kotak Baca, dan diterjemahkan di dalam HP. Bila bagian layar berupa gambar tanpa teks, layar ditangkap sementara lalu dibaca OCR (Android 11 ke atas). Kolom sandi dan isian tidak dibaca lewat teks layar. Boleh dilewati bila bubble sudah tampil normal.",
-            { a11yOn() }, {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }, true)
-        return l
+        // wajib dulu (urut prioritas), opsional di paling bawah
+        return l.sortedBy { it.optional }
     }
 
     /** Daftar izin: nama dan status, penjelasan singkat, dan tombol menuju pengaturannya. */
@@ -936,6 +966,50 @@ class MainActivity : Activity() {
                     .show()
             }
         }.start()
+    }
+
+    /** Dialog centang model bahasa: centang = unduh, hapus centang = hapus dari HP. Inggris selalu ada (dipakai sebagai perantara). */
+    private fun pickModels(done: () -> Unit) {
+        val mgr = com.google.mlkit.common.model.RemoteModelManager.getInstance()
+        mgr.getDownloadedModels(com.google.mlkit.nl.translate.TranslateRemoteModel::class.java)
+            .addOnSuccessListener { set ->
+                val have = set.map { it.language }.toSet()
+                val ids = Prefs.LANG_CODES.indices.filter { Prefs.LANG_CODES[it] != "en" }
+                val checked = BooleanArray(ids.size) { Prefs.LANG_CODES[ids[it]] in have }
+                val now = checked.copyOf()
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Model bahasa")
+                    .setMultiChoiceItems(ids.map { Prefs.LANGS[it] }.toTypedArray(), checked) { _, i, on -> now[i] = on }
+                    .setPositiveButton("Simpan") { _, _ ->
+                        var dl = 0
+                        var del = 0
+                        ids.forEachIndexed { i, id ->
+                            val code = Prefs.LANG_CODES[id]
+                            val model = com.google.mlkit.nl.translate.TranslateRemoteModel.Builder(code).build()
+                            if (now[i] && !checked[i]) {
+                                dl++
+                                mgr.download(model, com.google.mlkit.common.model.DownloadConditions.Builder().build())
+                                    .addOnSuccessListener {
+                                        android.widget.Toast.makeText(this, "Model ${Prefs.LANGS[id]} siap", android.widget.Toast.LENGTH_SHORT).show()
+                                        done()
+                                    }
+                                    .addOnFailureListener {
+                                        android.widget.Toast.makeText(this, "Gagal mengunduh ${Prefs.LANGS[id]}. Periksa internet.", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                            } else if (!now[i] && checked[i]) {
+                                del++
+                                mgr.deleteDownloadedModel(model).addOnSuccessListener { done() }
+                            }
+                        }
+                        if (dl > 0) android.widget.Toast.makeText(this, "Mengunduh $dl model di latar, tunggu notifikasi atau pesan siap", android.widget.Toast.LENGTH_LONG).show()
+                        else if (del > 0) android.widget.Toast.makeText(this, "$del model dihapus", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Batal", null)
+                    .show()
+            }
+            .addOnFailureListener {
+                android.widget.Toast.makeText(this, "Daftar model tidak bisa dibaca", android.widget.Toast.LENGTH_SHORT).show()
+            }
     }
 
     private fun gestureButton(title: String, g: Int): View {
