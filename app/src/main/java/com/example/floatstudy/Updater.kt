@@ -217,7 +217,7 @@ object Updater {
                 .build()
             nm.notify(7, n)
             // pengguna mungkin mengetuk beberapa menit kemudian: perpanjang jendela klik otomatis
-            ClickService.armAutoInstall(10 * 60_000L)
+            ClickService.armAutoInstall(10 * 60_000L, c)
             true
         } catch (e: Exception) {
             false
@@ -235,7 +235,14 @@ object Updater {
         }
         val uri = FileProvider.getUriForFile(c, "${c.packageName}.files", f)
         // bila layanan aksesibilitas aktif, tombol Pasang di jendela pemasang ditekan otomatis (hanya untuk flooww)
-        ClickService.armAutoInstall()
+        if (!ClickService.armAutoInstall(c = c)) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                android.widget.Toast.makeText(
+                    c, "Layanan aksesibilitas flooww mati, tombol Pasang tidak bisa ditekan otomatis. Nyalakan lagi di Pengaturan > Aksesibilitas.",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        }
         c.startActivity(
             Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)

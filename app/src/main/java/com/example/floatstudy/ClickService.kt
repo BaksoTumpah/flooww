@@ -113,11 +113,39 @@ class ClickService : AccessibilityService() {
         private val LABELS = setOf("install", "instal", "pasang", "update", "perbarui", "upgrade")
 
         /** Aktifkan klik otomatis selama 2 menit. Dipanggil tepat saat pemasang paket dibuka untuk pembaruan. Mengembalikan false bila layanan aksesibilitas tidak aktif. */
-        fun armAutoInstall(ms: Long = 120_000L): Boolean {
-            if (instance == null) return false
+        fun armAutoInstall(ms: Long = 120_000L, c: android.content.Context? = null): Boolean {
+            // beberapa ROM mematikan layanan aksesibilitas setelah aplikasi diperbarui/dihentikan: nyalakan lagi bila izin khusus ada
+            if (instance == null && c != null) tryEnable(c)
             autoInstallUntil = android.os.SystemClock.uptimeMillis() + ms
-            return true
+            return instance != null
         }
+
+        /** Nyalakan layanan lewat Secure Settings. Hanya berhasil bila izin WRITE_SECURE_SETTINGS pernah diberikan lewat adb. */
+        fun tryEnable(c: android.content.Context): Boolean {
+            if (instance != null) return true
+            if (c.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") != android.content.pm.PackageManager.PERMISSION_GRANTED) return false
+            return try {
+                val cn = android.content.ComponentName(c, ClickService::class.java)
+                val full = cn.flattenToString()
+                val short = cn.flattenToShortString()
+                val cr = c.contentResolver
+                val cur = android.provider.Settings.Secure.getString(cr, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
+                val parts = cur.split(':').filter { it.isNotBlank() }
+                if (full !in parts && short !in parts) {
+                    android.provider.Settings.Secure.putString(
+                        cr, android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, (parts + full).joinToString(":")
+                    )
+                }
+                android.provider.Settings.Secure.putInt(cr, android.provider.Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+                true
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        /** Jendela pemasang paket: daftar bawaan, ditambah nama paket apa pun yang memuat "packageinstaller" (ROM kustom). */
+        private fun isInstaller(pkg: String?): Boolean =
+            pkg != null && (pkg in INSTALLERS || pkg.contains("packageinstaller", true) || pkg.contains("installer", true))
     }
 
     private var live: LiveTranslator? = null
@@ -148,20 +176,28 @@ class ClickService : AccessibilityService() {
             return
         }
         val pkg = event?.packageName?.toString() ?: return
-        if (pkg !in INSTALLERS) return
+        if (!isInstaller(pkg)) return
         val root = rootInActiveWindow ?: return
         try {
-            if (root.packageName?.toString() !in INSTALLERS) return
-            // pengaman: hanya jika jendela pemasang menyebut flooww, supaya tidak memasang aplikasi lain
-            if (root.findAccessibilityNodeInfosByText("flooww").isNullOrEmpty()) return
+            if (!isInstaller(root.packageName?.toString())) return
             val btn = findInstallButton(root) ?: return
-            if (clickNode(btn)) autoInstallUntil = 0L
+            val label = btn.text?.toString()?.trim()?.lowercase() ?: ""
+            // pengaman: jendela pemasang harus menyebut flooww (nama atau paket), atau berupa PEMBARUAN aplikasi yang sudah ada.
+            // Pemasangan baru aplikasi lain tidak pernah ditekan otomatis.
+            val mine = !root.findAccessibilityNodeInfosByText("flooww").isNullOrEmpty() ||
+                !root.findAccessibilityNodeInfosByText(packageName).isNullOrEmpty()
+            val isUpdate = label in setOf("update", "perbarui", "upgrade")
+            if (!mine && !isUpdate) return
+            if (clickNode(btn)) {
+                // tetap siaga 15 detik untuk layar lanjutan (mis. konfirmasi kedua), lalu berhenti
+                autoInstallUntil = minOf(autoInstallUntil, android.os.SystemClock.uptimeMillis() + 15_000L)
+            }
         } catch (e: Exception) {
         }
     }
 
     private fun findInstallButton(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val t = n.text?.toString()?.trim()?.lowercase()
+        val t = (n.text ?: n.contentDescription)?.toString()?.trim()?.lowercase()
         if (t != null && t in LABELS && n.isEnabled) return n
         for (i in 0 until n.childCount) {
             val ch = n.getChild(i) ?: continue
@@ -177,6 +213,13 @@ class ClickService : AccessibilityService() {
             if (cur.isClickable && cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
             cur = cur.parent
             depth++
+        }
+        // tombol tidak mau menerima aksi klik di ROM ini: ketuk tepat di tengahnya dengan gestur
+        val r = android.graphics.Rect()
+        n.getBoundsInScreen(r)
+        if (r.width() > 0 && r.height() > 0) {
+            tap(r.exactCenterX(), r.exactCenterY())
+            return true
         }
         return false
     }
