@@ -1514,6 +1514,992 @@ class FloatService : Service() {
             }
             setOnClickListener { onTap() }
         }
+        // hanya dua tombol di pojok kanan atas, tanpa bilah judul
+        val btns = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
+        btns.addView(chip("✓", 0xFF2E9E5B.toInt()) { readBoxSend() }, LinearLayout.LayoutParams(dp(38), dp(26)).apply { rightMargin = dp(4) })
+        btns.addView(chip("✕", 0xFFC0392B.toInt()) { hideReadBox() }, LinearLayout.LayoutParams(dp(38), dp(26)))
+        box.addView(btns, FrameLayout.LayoutParams(WRAP, WRAP).apply { gravity = Gravity.TOP or Gravity.END; setMargins(0, dp(4), dp(4), 0) })
+        try {
+            wm.addView(box, lp)
+            lockView = box
+        } catch (e: Exception) {
+            toast("Gagal menampilkan popup")
+        }
+    }
+
+    override fun onDestroy() {
+        Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefListener)
+        ClickService.onLost = null
+        ClickService.setLive(false) { }
+        // bubble berhenti: timer trial berhenti dan sisa waktu disimpan; lanjut saat bubble dinyalakan lagi
+        Trial.pause(c)
+        ui.removeCallbacksAndMessages(null)
+        clicking = false
+        if (::wm.isInitialized) {
+            hideMenu()
+            hidePanel()
+            osk.hide()
+            hideReadBox()
+            listOf<View?>(selector, target, bubble, lockView).forEach { v ->
+                v?.let {
+                    try {
+                        wm.removeView(it)
+                    } catch (e: Exception) {
+                    }
+                }
+            }
+        }
+        web?.destroy()
+        web = null
+        panel = null
+        selector = null
+        target = null
+        bubble = null
+        grab?.release()
+        grab = null
+        super.onDestroy()
+    }
+
+    private fun realSize(): Pair<Int, Int> {
+        return if (Build.VERSION.SDK_INT >= 30) {
+            val b = wm.maximumWindowMetrics.bounds
+            b.width() to b.height()
+        } else {
+            val m = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealMetrics(m)
+            m.widthPixels to m.heightPixels
+        }
+    }
+
+    // ---------- util tampilan ----------
+
+    private fun lay(w: Int = MATCH, h: Int = WRAP, wt: Float = 0f, m: Int = 0) =
+        LinearLayout.LayoutParams(w, h, wt).apply { setMargins(dp(m), dp(m), dp(m), dp(m)) }
+
+    // tombol ramping untuk semua alat di jendela mengambang (bilah atas galeri, terjemah, apps, dan lain-lain)
+    private fun btn(label: String, primary: Boolean = false, onClick: () -> Unit): TextView =
+        Ui.button(c, label, primary, onClick).apply {
+            minHeight = 0
+            minimumHeight = 0
+            textSize = 13f
+            setPadding(dp(10), dp(4), dp(10), dp(7))
+        }
+
+    private fun field(hint: String, multi: Boolean = false) = Ui.field(c, hint, multi).apply {
+        inputs.add(this)
+        applyKb(this)
+        // keyboard flooww: ketuk kolom -> keyboard muncul di dasar layar tanpa mengambil fokus
+        selectable(this)
+    }
+
+    // ---------- blok teks dan salin tanpa fokus ----------
+
+    private var selTv: TextView? = null
+    private var selA = 0
+    private var selB = 0
+    private var selSpan: android.text.style.BackgroundColorSpan? = null
+
+    private fun clearSel() {
+        val tv = selTv
+        val sp = selSpan
+        if (tv != null && sp != null) (tv.text as? android.text.Spannable)?.removeSpan(sp)
+        selTv = null
+        selSpan = null
+        selA = 0
+        selB = 0
+    }
+
+    private fun setSel(tv: TextView, a: Int, b: Int) {
+        if (selTv !== tv) clearSel()
+        if (tv.text !is android.text.Spannable) tv.setText(tv.text, TextView.BufferType.SPANNABLE)
+        val sp = tv.text as android.text.Spannable
+        selSpan?.let { sp.removeSpan(it) }
+        val lo = minOf(a, b).coerceIn(0, sp.length)
+        val hi = maxOf(a, b).coerceIn(0, sp.length)
+        val span = android.text.style.BackgroundColorSpan((accent and 0x00FFFFFF) or 0x66000000)
+        if (hi > lo) sp.setSpan(span, lo, hi, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        selTv = tv
+        selA = lo
+        selB = hi
+        selSpan = span
+    }
+
+    private fun selRange(tv: TextView): IntRange? {
+        if (selTv !== tv) return null
+        val n = tv.text.length
+        val a = selA.coerceIn(0, n)
+        val b = selB.coerceIn(0, n)
+        return if (b > a) a until b else null
+    }
+
+    private fun wordAt(t: CharSequence, o: Int): Pair<Int, Int> {
+        if (t.isEmpty()) return 0 to 0
+        var a = o.coerceIn(0, t.length - 1)
+        var b = a
+        fun w(ch: Char) = ch.isLetterOrDigit() || ch == '_'
+        if (!w(t[a]) && a > 0 && w(t[a - 1])) {
+            a--
+            b = a
+        }
+        if (w(t[a])) {
+            while (a > 0 && w(t[a - 1])) a--
+            b = a
+            while (b < t.length && w(t[b])) b++
+        } else b = a + 1
+        return a to b
+    }
+
+    /** Tahan teks untuk memblok, geser untuk memperluas, lalu salin lewat tombol di keyboard flooww. Tidak butuh fokus jendela. */
+    private fun selectable(tv: TextView) {
+        val slop = android.view.ViewConfiguration.get(c).scaledTouchSlop
+        var sx = 0f
+        var sy = 0f
+        var active = false
+        var aS = 0
+        var aE = 0
+        val start = Runnable {
+            active = true
+            val o = tv.getOffsetForPosition(sx, sy)
+            val (a, b) = wordAt(tv.text, o)
+            aS = a
+            aE = b
+            setSel(tv, a, b)
+            tv.parent?.requestDisallowInterceptTouchEvent(true)
+            tv.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+            osk.show(TvTarget(tv))
+        }
+        tv.setOnTouchListener { _, ev ->
+            when (ev.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    sx = ev.x
+                    sy = ev.y
+                    active = false
+                    if (kbBlocked() || tv !is EditText) tv.postDelayed(start, 450)
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (active) {
+                        val o = tv.getOffsetForPosition(ev.x, ev.y)
+                        if (o < aS) setSel(tv, o, aE) else setSel(tv, aS, maxOf(o, aE))
+                    } else if (Math.abs(ev.x - sx) > slop || Math.abs(ev.y - sy) > slop) tv.removeCallbacks(start)
+                    active
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    tv.removeCallbacks(start)
+                    val was = active
+                    active = false
+                    if (!was && ev.action == MotionEvent.ACTION_UP) {
+                        clearSel()
+                        if (tv is EditText && kbBlocked()) osk.show(TvTarget(tv))
+                    }
+                    was
+                }
+                else -> active
+            }
+        }
+    }
+
+    private inner class TvTarget(val tv: TextView) : OskTarget {
+        private val ed get() = tv as? EditText
+
+        override fun type(s: String) {
+            val e = ed ?: return
+            val r = selRange(e)
+            if (r != null) {
+                e.text.replace(r.first, r.last + 1, s)
+                e.setSelection(r.first + s.length)
+                clearSel()
+            } else {
+                e.text.append(s)
+                e.setSelection(e.text.length)
+            }
+        }
+
+        override fun backspace() {
+            val e = ed ?: return
+            val r = selRange(e)
+            if (r != null) {
+                e.text.delete(r.first, r.last + 1)
+                e.setSelection(r.first)
+                clearSel()
+            } else if (e.text.isNotEmpty()) {
+                e.text.delete(e.text.length - 1, e.text.length)
+                e.setSelection(e.text.length)
+            }
+        }
+
+        override fun enter() {
+            val e = ed ?: return
+            if ((e.inputType and android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0) type("\n")
+            else {
+                e.onEditorAction(EditorInfo.IME_ACTION_GO)
+                osk.hide()
+            }
+        }
+
+        override fun copy() {
+            val r = selRange(tv)
+            val t = if (r != null) tv.text.substring(r.first, r.last + 1) else tv.text.toString()
+            if (t.isBlank()) toast("Tidak ada teks") else copyText(t)
+        }
+
+        override fun paste() {
+            if (ed == null) {
+                toast("Kolom ini tidak bisa ditempel")
+                return
+            }
+            val t = clipText()
+            if (t.isBlank()) toast("Belum ada teks") else type(t)
+        }
+    }
+
+    /** Halaman web: ketikan dan tempel masuk ke kolom yang aktif di halaman lewat skrip. */
+    private inner class WebTarget(val w: WebView) : OskTarget {
+        private fun js(code: String, cb: ((String?) -> Unit)? = null) = w.evaluateJavascript(code, cb)
+
+        override fun type(s: String) {
+            js("document.execCommand('insertText',false," + org.json.JSONObject.quote(s) + ")")
+        }
+
+        override fun backspace() {
+            js("document.execCommand('delete')")
+        }
+
+        override fun enter() {
+            js(
+                "(function(){var e=document.activeElement;if(!e)return;var o={key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true};" +
+                    "var d=!e.dispatchEvent(new KeyboardEvent('keydown',o));e.dispatchEvent(new KeyboardEvent('keypress',o));e.dispatchEvent(new KeyboardEvent('keyup',o));" +
+                    "if(d)return;if(e.tagName=='TEXTAREA'||e.isContentEditable)document.execCommand('insertLineBreak');" +
+                    "else if(e.form){if(e.form.requestSubmit)e.form.requestSubmit();else e.form.submit();}})()"
+            )
+        }
+
+        override fun copy() {
+            js(
+                "(function(){var t=String(window.getSelection());var a=document.activeElement;" +
+                    "if(!t&&a&&a.value!==undefined){t=a.value.substring(a.selectionStart,a.selectionEnd)||a.value;}return t;})()"
+            ) { r ->
+                val t = try {
+                    org.json.JSONTokener(r ?: "\"\"").nextValue() as? String ?: ""
+                } catch (e: Exception) {
+                    ""
+                }
+                ui.post { if (t.isBlank()) toast("Tidak ada teks dipilih") else copyText(t) }
+            }
+        }
+
+        override fun paste() {
+            val t = clipText()
+            if (t.isBlank()) toast("Belum ada teks") else type(t)
+        }
+    }
+
+    /** Jembatan dari halaman web: kolom ketik fokus atau teks diblok, maka keyboard flooww muncul. */
+    inner class OskBridge {
+        @android.webkit.JavascriptInterface
+        fun show() {
+            ui.post { web?.let { if (kbBlocked()) osk.show(WebTarget(it)) } }
+        }
+    }
+
+    private val WEB_SEL_JS = (
+        "(function(){if(window.__fsel)return;window.__fsel=1;var t=null,sx=0,sy=0,act=false;" +
+            "function ed(el){return el&&(/^(INPUT|TEXTAREA)\$/.test(el.tagName)||el.isContentEditable);}" +
+            "function rangeAt(x,y){if(document.caretRangeFromPoint)return document.caretRangeFromPoint(x,y);" +
+            "var p=document.caretPositionFromPoint&&document.caretPositionFromPoint(x,y);if(!p)return null;" +
+            "var r=document.createRange();r.setStart(p.offsetNode,p.offset);return r;}" +
+            "document.addEventListener('touchstart',function(e){var q=e.touches[0];sx=q.clientX;sy=q.clientY;act=false;clearTimeout(t);" +
+            "t=setTimeout(function(){var el=document.elementFromPoint(sx,sy);if(ed(el))return;var r=rangeAt(sx,sy);if(!r)return;" +
+            "var s=window.getSelection();s.removeAllRanges();s.addRange(r);s.modify('move','backward','word');s.modify('extend','forward','word');" +
+            "act=true;if(window.floowwOsk)floowwOsk.show();},450);},{passive:true});" +
+            "document.addEventListener('touchmove',function(e){var q=e.touches[0];" +
+            "if(!act){if(Math.abs(q.clientX-sx)>10||Math.abs(q.clientY-sy)>10)clearTimeout(t);return;}" +
+            "e.preventDefault();var r=rangeAt(q.clientX,q.clientY);if(r)window.getSelection().extend(r.startContainer,r.startOffset);},{passive:false});" +
+            "document.addEventListener('touchend',function(){clearTimeout(t);act=false;},{passive:true});" +
+            "document.addEventListener('focusin',function(e){if(ed(e.target)&&window.floowwOsk)floowwOsk.show();});})();"
+        )
+
+    private fun resultText() = TextView(c).apply {
+        textSize = 14f
+        setTextColor(P.on)
+        setPadding(dp(12), dp(10), dp(12), dp(10))
+        background = Ui.dent(c, P.field, dp(14))
+        selectable(this)
+    }
+
+    private fun note(t: String) = TextView(c).apply {
+        text = t
+        textSize = 12f
+        setTextColor(P.muted)
+        setPadding(dp(2), dp(3), dp(2), dp(2))
+    }
+
+    private fun vbox() = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }
+
+    private fun row(vararg v: View) = LinearLayout(c).apply {
+        orientation = LinearLayout.HORIZONTAL
+        v.forEach { addView(it, lay(0, WRAP, 1f, 1)) }
+    }
+
+    /** Kotak hasil yang mengisi sisa tinggi jendela, jadi ikut berubah saat jendela diubah ukurannya. */
+    private fun addOut(col: LinearLayout, out: TextView, weight: Float = 1f) {
+        col.addView(ScrollView(c).apply { addView(out) }, lay(MATCH, 0, weight, 3))
+    }
+
+    /** Isi alat yang panjang dibungkus ScrollView supaya tetap terpakai di jendela kecil. */
+    private fun scrolled(col: LinearLayout): View =
+        ScrollView(c).apply { addView(col, MATCH, WRAP) }
+
+    private val HOLD_MS = 300L
+
+    private fun toast(t: String) = Toast.makeText(c, t, Toast.LENGTH_SHORT).show()
+
+    private fun makeDraggable(
+        handle: View,
+        moving: View,
+        lp: WindowManager.LayoutParams,
+        onTap: (() -> Unit)? = null,
+        onDouble: (() -> Unit)? = null,
+        onLong: (() -> Unit)? = null,
+        holdDrag: Boolean = false,
+        onSwipe: ((Int) -> Unit)? = null,
+        onDrop: (() -> Unit)? = null
+    ) {
+        handle.setOnTouchListener(object : View.OnTouchListener {
+            var sx = 0
+            var sy = 0
+            var tx = 0f
+            var ty = 0f
+            var moved = false      // sudah menggeser bubble
+            var armed = !holdDrag  // siap digeser (setelah ditahan sebentar)
+            var swiping = false    // jari bergerak sebelum siap: dihitung sapuan
+            var longDone = false
+            var pendingTap: Runnable? = null
+            // gestur hanya berlaku bila dipilih di pengaturan dan tidak sedang ada mode aktif
+            fun busy() = clicking || menu != null
+            fun longOn() = onLong != null && !busy() && Prefs.gesture(c, 2) != 0
+            fun dblOn() = onDouble != null && !busy() && Prefs.gesture(c, 1) != 0
+            val longRun = Runnable {
+                if (!moved) {
+                    longDone = true
+                    handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    onLong?.invoke()
+                }
+            }
+            // ditahan sebentar: bubble "terangkat" dan sesudah itu bisa digeser
+            val armRun = Runnable {
+                if (!swiping) {
+                    armed = true
+                    handle.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    moving.animate().scaleX(1.12f).scaleY(1.12f).setDuration(90).start()
+                }
+            }
+
+            override fun onTouch(v: View, e: MotionEvent): Boolean {
+                when (e.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        sx = lp.x; sy = lp.y; tx = e.rawX; ty = e.rawY
+                        moved = false; longDone = false; swiping = false
+                        armed = !holdDrag
+                        if (holdDrag) ui.postDelayed(armRun, HOLD_MS)
+                        if (longOn()) ui.postDelayed(longRun, pref(Setting.LONG_MS).toLong())
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = (e.rawX - tx).toInt()
+                        val dy = (e.rawY - ty).toInt()
+                        val far = abs(dx) > dp(6) || abs(dy) > dp(6)
+                        if (far && !armed) {
+                            // bergerak sebelum ditahan: bukan geser bubble, mungkin sapuan
+                            swiping = true
+                            ui.removeCallbacks(armRun)
+                            ui.removeCallbacks(longRun)
+                        }
+                        if (far && armed) {
+                            moved = true
+                            ui.removeCallbacks(longRun)
+                        }
+                        if (moved) {
+                            lp.x = sx + dx
+                            lp.y = sy + dy
+                            wm.updateViewLayout(moving, lp)
+                        }
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        ui.removeCallbacks(longRun)
+                        ui.removeCallbacks(armRun)
+                        moving.animate().scaleX(1f).scaleY(1f).setDuration(90).start()
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        ui.removeCallbacks(longRun)
+                        ui.removeCallbacks(armRun)
+                        if (holdDrag) moving.animate().scaleX(1f).scaleY(1f).setDuration(90).start()
+                        if (moved) {
+                            onDrop?.invoke()
+                        } else if (swiping && !longDone) {
+                            val dx = e.rawX - tx
+                            val dy = e.rawY - ty
+                            val th = dp(36)
+                            // 3 atas, 4 bawah, 5 menuju tengah layar
+                            val dir = when {
+                                abs(dy) > abs(dx) && dy < -th -> 3
+                                abs(dy) > abs(dx) && dy > th -> 4
+                                abs(dx) >= abs(dy) && abs(dx) > th -> {
+                                    val (sw, _) = realSize()
+                                    val onLeft = lp.x + lp.width / 2 < sw / 2
+                                    if ((dx > 0) == onLeft) 5 else -1
+                                }
+                                else -> -1
+                            }
+                            if (dir > 0) onSwipe?.invoke(dir)
+                        } else if (!longDone) {
+                            val waiting = pendingTap
+                            if (waiting != null && dblOn()) {
+                                // ketukan kedua dalam jeda: dihitung ketuk dua kali
+                                ui.removeCallbacks(waiting)
+                                pendingTap = null
+                                onDouble?.invoke()
+                            } else if (dblOn()) {
+                                val r = Runnable { pendingTap = null; onTap?.invoke() }
+                                pendingTap = r
+                                ui.postDelayed(r, 280)
+                            } else {
+                                onTap?.invoke()
+                            }
+                        }
+                    }
+                }
+                return true
+            }
+        })
+    }
+
+    /** Pegangan ◢ di pojok kanan bawah untuk mengubah ukuran jendela dengan jari. */
+    private fun makeResizable(grip: View, root: View, lp: WindowManager.LayoutParams) {
+        grip.setOnTouchListener(object : View.OnTouchListener {
+            var sw = 0
+            var sh = 0
+            var tx = 0f
+            var ty = 0f
+
+            override fun onTouch(v: View, e: MotionEvent): Boolean {
+                when (e.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        sw = lp.width; sh = lp.height; tx = e.rawX; ty = e.rawY
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dm = resources.displayMetrics
+                        lp.width = (sw + (e.rawX - tx)).toInt()
+                            .coerceIn(dp(Setting.WIN_W.min), minOf(dp(Setting.WIN_W.max), dm.widthPixels))
+                        lp.height = (sh + (e.rawY - ty)).toInt()
+                            .coerceIn(dp(Setting.WIN_H.min), minOf(dp(Setting.WIN_H.max), dm.heightPixels))
+                        wm.updateViewLayout(root, lp)
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        val d = resources.displayMetrics.density
+                        Prefs.set(c, Setting.WIN_W, (lp.width / d).toInt())
+                        Prefs.set(c, Setting.WIN_H, (lp.height / d).toInt())
+                    }
+                }
+                return true
+            }
+        })
+    }
+
+    private var rsx = 0
+    private var rsy = 0
+    private var rsw = 0
+    private var rsh = 0
+
+    /**
+     * Ubah ukuran dari tepi mana pun. Tepi kanan/kiri mengubah lebar, atas/bawah mengubah tinggi,
+     * pojok mengubah keduanya. Tepi kiri dan atas juga menggeser jendela supaya sisi seberangnya diam.
+     */
+    private fun resizeEdge(root: View, lp: WindowManager.LayoutParams, mask: Int, phase: Int, dx: Float, dy: Float) {
+        val dm = resources.displayMetrics
+        val minW = dp(Setting.WIN_W.min)
+        val minH = dp(Setting.WIN_H.min)
+        val maxW = minOf(dp(Setting.WIN_W.max), dm.widthPixels)
+        val maxH = minOf(dp(Setting.WIN_H.max), dm.heightPixels)
+        when (phase) {
+            0 -> { rsx = lp.x; rsy = lp.y; rsw = lp.width; rsh = lp.height }
+            1 -> {
+                var x = rsx
+                var y = rsy
+                var w = rsw
+                var h = rsh
+                if (mask and EDGE_R != 0) w = (rsw + dx).toInt().coerceIn(minW, maxW)
+                if (mask and EDGE_B != 0) h = (rsh + dy).toInt().coerceIn(minH, maxH)
+                if (mask and EDGE_L != 0) {
+                    w = (rsw - dx).toInt().coerceIn(minW, maxW)
+                    x = rsx + rsw - w
+                }
+                if (mask and EDGE_T != 0) {
+                    h = (rsh - dy).toInt().coerceIn(minH, maxH)
+                    y = rsy + rsh - h
+                }
+                lp.x = x; lp.y = y; lp.width = w; lp.height = h
+                try {
+                    wm.updateViewLayout(root, lp)
+                } catch (e: Exception) {
+                }
+            }
+            2 -> {
+                val d = dm.density
+                Prefs.set(c, Setting.WIN_W, (lp.width / d).toInt())
+                Prefs.set(c, Setting.WIN_H, (lp.height / d).toInt())
+            }
+        }
+    }
+
+    private fun toJpegB64(src: Bitmap): String {
+        val scale = minOf(1f, 1280f / maxOf(src.width, src.height))
+        val bmp = if (scale < 1f) {
+            Bitmap.createScaledBitmap(
+                src, (src.width * scale).toInt(), (src.height * scale).toInt(), true
+            )
+        } else src
+        val bos = ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 75, bos)
+        return Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
+    }
+
+    private fun copyText(t: String) {
+        val cm = getSystemService(ClipboardManager::class.java)
+        cm.setPrimaryClip(ClipData.newPlainText("flooww", t))
+        lastCopied = t
+        toast("Teks disalin")
+    }
+
+    // ---------- bubble ----------
+
+    private fun showBubble() {
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(accent)
+            setStroke(dp(2), 0x80FFFFFF.toInt())
+        }
+        val b = TextView(c).apply {
+            text = ""
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = bg
+            elevation = dp(4).toFloat()
+        }
+        val size = dp(pref(Setting.BUBBLE_SIZE))
+        val lp = WindowManager.LayoutParams(
+            size, size,
+            ovType,
+            OVERLAY_FLAGS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = dp(8)
+            y = dp(200)
+        }
+        makeDraggable(b, b, lp,
+            onTap = { onBubbleTap() },
+            onDouble = { onBubbleGesture(1) },
+            onLong = { onBubbleGesture(2) },
+            holdDrag = true,
+            onSwipe = { onBubbleGesture(it) },
+            onDrop = { snapBubble() }
+        )
+        try {
+            wm.addView(b, lp)
+        } catch (e: Exception) {
+            // token aksesibilitas ditolak: kembali ke overlay biasa
+            wm = getSystemService(WINDOW_SERVICE) as WindowManager
+            ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            lp.type = ovType
+            try {
+                wm.addView(b, lp)
+            } catch (e2: Exception) {
+                // ROM atau izin menolak semua jenis overlay
+                Toast.makeText(c, RomHint.overlayBlocked(), Toast.LENGTH_LONG).show()
+                stopSelf()
+                return
+            }
+        }
+        bubble = b
+        bubbleBg = bg
+        bubbleLp = lp
+        applyBubble()
+    }
+
+    /**
+     * Layanan aksesibilitas mati saat bubble masih jalan: sistem ikut menghapus semua jendela
+     * bertipe TYPE_ACCESSIBILITY_OVERLAY. Pindah ke overlay biasa dan bangun ulang bubble.
+     */
+    private fun onA11yLost() {
+        if (ovType != WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) return
+        ClickService.onLost = null
+        if (clicking) stopClicking()
+        hideMenu()
+        osk.hide()
+        listOf<View?>(bubble, selector, target, lockView, panel).forEach { v ->
+            v?.let {
+                try {
+                    wm.removeView(it)
+                } catch (e: Exception) {
+                }
+            }
+        }
+        panelAttached = false
+        bubble = null
+        selector = null
+        target = null
+        lockView = null
+        wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        panelLp?.type = ovType
+        targetLp?.type = ovType
+        osk.wm = wm
+        osk.type = ovType
+        if (Settings.canDrawOverlays(this)) {
+            showBubble()
+            toast("Layanan aksesibilitas mati, memakai overlay biasa")
+        } else {
+            Toast.makeText(c, "Layanan aksesibilitas mati dan izin tampil di atas aplikasi lain belum aktif. " + RomHint.overlayBlocked(), Toast.LENGTH_LONG).show()
+            stopSelf()
+        }
+    }
+
+    private fun onBubbleTap() {
+        when {
+            clicking -> stopClicking()
+            menu != null -> hideMenu()
+            else -> runGesture(Prefs.gesture(c, 0))
+        }
+    }
+
+    /** Ketuk dua kali (1) atau tekan lama (2). Saat auto clicker aktif, gestur ini mematikannya. */
+    private fun onBubbleGesture(g: Int) {
+        when {
+            clicking -> stopClicking()
+            else -> {
+                hideMenu()
+                runGesture(Prefs.gesture(c, g))
+            }
+        }
+    }
+
+    /** Pilihan 0 tidak ada, 1 buka menu, 2..11 alat menu (id = pilihan - 2). */
+    private fun runGesture(choice: Int) {
+        when {
+            choice == 0 -> {}
+            choice == 1 -> if (menu != null) hideMenu() else showMenu()
+            else -> onMenuPick(choice - 2)
+        }
+    }
+
+    /** Bentuk yang tampil: saat Auto Jawab atau auto clicker aktif selalu bulat supaya tombol berhenti jelas. */
+    private fun shapeNow() = if (clicking) 0 else Prefs.shape(c)
+
+    /** Semua bentuk (bulat, panah, garis) menempel di sisi layar terdekat, seperti bola asisten. */
+    private fun snapBubble() {
+        val b = bubble ?: return
+        val lp = bubbleLp ?: return
+        val (sw, sh) = realSize()
+        lp.y = lp.y.coerceIn(0, sh - lp.height)
+        lp.x = if (lp.x + lp.width / 2 < sw / 2) 0 else sw - lp.width
+        try {
+            wm.updateViewLayout(b, lp)
+        } catch (e: Exception) {
+        }
+        applyBubble(false)
+    }
+
+    /** Bubble polos. Hanya saat Auto Jawab menyala tampil ✕, dan saat auto clicker berjalan tampil ■. */
+    private fun applyBubble(snap: Boolean = true) {
+        val b = bubble ?: return
+        val lp = bubbleLp ?: return
+        val sizeDp = pref(Setting.BUBBLE_SIZE)
+        val shape = shapeNow()
+        val (sw, _) = realSize()
+        val onLeft = lp.x + lp.width / 2 < sw / 2
+        val col = if (clicking) 0xFFDC2626.toInt() else accent
+        // 0 bulat, 1 panah kecil di tepi, 2 garis tepi
+        when (shape) {
+            1 -> { lp.width = dpf(sizeDp * 0.55f); lp.height = dp(sizeDp) }
+            2 -> { lp.width = dp(18); lp.height = dpf(sizeDp * 1.3f) }
+            else -> { lp.width = dp(sizeDp); lp.height = dp(sizeDp) }
+        }
+        val d = GradientDrawable().apply {
+            setColor(col)
+            when (shape) {
+                0 -> { this.shape = GradientDrawable.OVAL; setStroke(dp(2), 0x99FFFFFF.toInt()) }
+                1 -> {
+                    val r = dpf(sizeDp * 0.3f).toFloat()
+                    // sisi yang menghadap tengah layar membulat penuh, sisi tepi rata
+                    cornerRadii = if (onLeft) floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+                    else floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
+                }
+                else -> cornerRadius = dp(3).toFloat()
+            }
+        }
+        b.background = if (shape == 2) {
+            // batang tipis di tepi, area sentuh tetap lebih lebar
+            val gap = dp(12)
+            android.graphics.drawable.InsetDrawable(
+                d, if (onLeft) 0 else gap, 0, if (onLeft) gap else 0, 0
+            )
+        } else d
+        b.alpha = pref(Setting.BUBBLE_ALPHA) / 100f
+        b.text = when {
+            clicking -> "■"
+            shape == 1 -> if (onLeft) "›" else "‹"
+            else -> ""
+        }
+        // warna terang (putih/abu): tanda di bubble dibuat gelap supaya tetap terbaca
+        b.setTextColor(Ui.onAccent(col))
+        b.setTextSize(TypedValue.COMPLEX_UNIT_DIP, if (shape == 1) sizeDp * 0.5f else sizeDp * 0.4f)
+        if (snap) lp.x = if (onLeft) 0 else sw - lp.width
+        try {
+            wm.updateViewLayout(b, lp)
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun setOverlayVisible(v: Boolean) {
+        val vis = if (v) View.VISIBLE else View.INVISIBLE
+        bubble?.visibility = vis
+        panel?.visibility = vis
+        target?.visibility = vis
+    }
+
+    // ---------- menu kotak (muncul di samping bubble saat diketuk) ----------
+
+    private fun showMenu() {
+        if (menu != null) return
+        val b = bubble ?: return
+        val root = FrameLayout(c).apply {
+            setBackgroundColor(0x22000000)
+            setOnClickListener { hideMenu() }
+        }
+        val lp = WindowManager.LayoutParams(
+            MATCH, MATCH,
+            ovType,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                OVERLAY_FLAGS,
+            PixelFormat.TRANSLUCENT
+        )
+        if (Build.VERSION.SDK_INT >= 28) {
+            lp.layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
+        wm.addView(root, lp)
+        menu = root
+        // posisi bubble di layar baru bisa dibaca setelah jendela menu terukur
+        root.post { if (menu === root) layoutMenu(root, b) }
+    }
+
+    private fun layoutMenu(root: FrameLayout, b: View) {
+        val sc = pref(Setting.MENU_SIZE) / 100f
+        val tile = dpf(48f * sc)
+        val gap = dpf(8f * sc)
+        val pad = dpf(12f * sc)
+        val cell = tile + gap
+        val cols = if (5 * cell + 2 * pad + b.width + dp(24) <= root.width) 5 else 4
+
+        val card = LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.clay(c, P.surface, dpf(24f * sc), 5f)
+            setPadding(pad, pad, pad, pad - gap / 2 + dp(5))
+            elevation = dp(12).toFloat()
+        }
+        NAMES.indices.chunked(cols).forEach { chunk ->
+            val line = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
+            chunk.forEach { i ->
+                // tombol Live disorot (warna aksen penuh) selama terjemahan langsung menyala, normal bila mati
+                val liveOn = i == M_LIVE && ClickService.liveActive()
+                val icon = ImageView(c).apply {
+                    setImageResource(ICONS[i])
+                    setColorFilter(if (liveOn) Ui.onAccent(accent) else accent)
+                    val padIc = (tile * 0.27f).toInt()
+                    setPadding(padIc, padIc, padIc, padIc)
+                    background = Ui.ripple(
+                        Ui.clay(c, if (liveOn) accent else Ui.mix(P.surface, accent, 0.22f), dpf(16f * sc), 3f), P.night
+                    )
+                }
+                val name = TextView(c).apply {
+                    text = if (liveOn) "Live aktif" else NAMES[i]
+                    gravity = Gravity.CENTER
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    setTextColor(if (liveOn) Ui.accentText(P, accent) else P.on)
+                    if (liveOn) typeface = Typeface.DEFAULT_BOLD
+                    setTextSize(TypedValue.COMPLEX_UNIT_DIP, 10f * sc)
+                }
+                val item = LinearLayout(c).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    isClickable = true
+                    setOnClickListener { onMenuPick(i) }
+                    addView(icon, LinearLayout.LayoutParams(tile, tile))
+                    addView(name, LinearLayout.LayoutParams(cell, WRAP).apply { topMargin = dp(3) })
+                }
+                line.addView(item, LinearLayout.LayoutParams(cell, WRAP).apply { bottomMargin = gap / 2 })
+            }
+            card.addView(line)
+        }
+
+        card.measure(
+            View.MeasureSpec.makeMeasureSpec(root.width, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(root.height, View.MeasureSpec.AT_MOST)
+        )
+        val cw = card.measuredWidth
+        val ch = card.measuredHeight
+        val bl = IntArray(2)
+        val rl = IntArray(2)
+        b.getLocationOnScreen(bl)
+        root.getLocationOnScreen(rl)
+        val bx = bl[0] - rl[0]
+        val by = bl[1] - rl[1]
+        val edge = dp(8)
+        var left = bx + b.width + edge
+        if (left + cw > root.width - edge) left = bx - edge - cw
+        if (left < edge) left = ((root.width - cw) / 2).coerceAtLeast(edge)
+        val top = (by + b.height / 2 - ch / 2)
+            .coerceIn(dp(24), maxOf(dp(24), root.height - ch - dp(24)))
+
+        val finalAlpha = pref(Setting.MENU_ALPHA) / 100f
+        card.alpha = 0f
+        card.translationY = dp(8).toFloat()
+        root.addView(card, FrameLayout.LayoutParams(cw, ch).apply {
+            leftMargin = left
+            topMargin = top
+        })
+        card.animate().alpha(finalAlpha).translationY(0f).setDuration(140).start()
+    }
+
+    private fun hideMenu() {
+        menu?.let {
+            try {
+                wm.removeView(it)
+            } catch (e: Exception) {
+            }
+        }
+        menu = null
+    }
+
+    /** Terjemah Langsung: baca teks layar lewat aksesibilitas, timpa dengan terjemahan, layar tetap bisa digulir. */
+    private fun toggleLive() {
+        val on = !ClickService.liveActive()
+        val ok = ClickService.setLive(on) { m -> ui.post { toast(m) } }
+        if (!ok) toast("Aktifkan layanan aksesibilitas flooww dulu di Pengaturan")
+        else if (!on) toast("Live translate mati")
+    }
+
+    // ---------- Baca: kotak seleksi, teks dalam kotak dibaca lewat aksesibilitas lalu dikirim ke AI ----------
+
+    private var readBox: FrameLayout? = null
+    private var readLp: WindowManager.LayoutParams? = null
+
+    private fun hideReadBox() {
+        readBox?.let {
+            try {
+                wm.removeView(it)
+            } catch (e: Exception) {
+            }
+        }
+        readBox = null
+        readLp = null
+    }
+
+    /**
+     * Kotak mengambang tipis dengan tombol centang dan silang. Seret di dalam kotak untuk memindah, seret tepi atau
+     * sudut untuk mengubah panjang dan lebar. Centang: semua teks di dalam kotak dibaca dari pohon tampilan
+     * (bukan tangkap layar) dan dikirim ke AI seperti Tanya AI.
+     */
+    private fun showReadBox() {
+        if (ClickService.instance == null) {
+            toast("Aktifkan layanan aksesibilitas flooww dulu di Pengaturan")
+            return
+        }
+        if (readBox != null) return
+        val dm = resources.displayMetrics
+        val minW = dp(140)
+        val minH = dp(72)
+        val lp = WindowManager.LayoutParams(
+            minOf(dm.widthPixels - dp(32), dp(300)), dp(170), ovType,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or OVERLAY_FLAGS,
+            PixelFormat.TRANSLUCENT
+        )
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.x = (dm.widthPixels - lp.width) / 2
+        lp.y = dm.heightPixels / 3
+
+        val acc = accent
+        val box = object : FrameLayout(c) {
+            private var mode = 0 // 0 pindah, bit EDGE_* untuk ubah ukuran
+            private var dx = 0f
+            private var dy = 0f
+            private var sx = 0
+            private var sy = 0
+            private var sw = 0
+            private var sh = 0
+
+            override fun onTouchEvent(e: MotionEvent): Boolean {
+                val band = dp(22)
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        dx = e.rawX
+                        dy = e.rawY
+                        sx = lp.x
+                        sy = lp.y
+                        sw = lp.width
+                        sh = lp.height
+                        mode = (if (e.x < band) EDGE_L else 0) or (if (e.x > width - band) EDGE_R else 0) or
+                            (if (e.y < band / 2) EDGE_T else 0) or (if (e.y > height - band) EDGE_B else 0)
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val mx = (e.rawX - dx).toInt()
+                        val my = (e.rawY - dy).toInt()
+                        if (mode == 0) {
+                            lp.x = (sx + mx).coerceIn(0, dm.widthPixels - lp.width)
+                            lp.y = (sy + my).coerceIn(0, dm.heightPixels - lp.height)
+                        } else {
+                            var l = sx
+                            var t = sy
+                            var r = sx + sw
+                            var b = sy + sh
+                            if (mode and EDGE_L != 0) l = (sx + mx).coerceIn(0, r - minW)
+                            if (mode and EDGE_R != 0) r = (sx + sw + mx).coerceIn(l + minW, dm.widthPixels)
+                            if (mode and EDGE_T != 0) t = (sy + my).coerceIn(0, b - minH)
+                            if (mode and EDGE_B != 0) b = (sy + sh + my).coerceIn(t + minH, dm.heightPixels)
+                            lp.x = l
+                            lp.y = t
+                            lp.width = r - l
+                            lp.height = b - t
+                        }
+                        try {
+                            wm.updateViewLayout(this, lp)
+                        } catch (ex: Exception) {
+                        }
+                    }
+                }
+                return true
+            }
+        }
+        box.background = GradientDrawable().apply {
+            setColor((acc and 0x00FFFFFF) or 0x22000000)
+            setStroke(dp(2), acc)
+            cornerRadius = dp(8).toFloat()
+        }
+        fun chip(label: String, color: Int, onTap: () -> Unit) = TextView(c).apply {
+            text = label
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = dp(12).toFloat()
+            }
+            setOnClickListener { onTap() }
+        }
         val bar = LinearLayout(c).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1546,8 +2532,7 @@ class FloatService : Service() {
         val box = readBox ?: return
         val loc = IntArray(2)
         box.getLocationOnScreen(loc)
-        // area teks: di bawah bilah tombol
-        val r = Rect(loc[0], loc[1] + dp(32), loc[0] + box.width, loc[1] + box.height)
+        val r = Rect(loc[0], loc[1], loc[0] + box.width, loc[1] + box.height)
         hideReadBox()
         val text = ClickService.readBox(r)
         when {
