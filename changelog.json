@@ -26,5 +26,9 @@
   {
     "v": 22,
     "n": "Pengaturan: pilih tile yang tampil di menu bubble"
+  },
+  {
+    "v": 23,
+    "n": "Klik otomatis Pasang lebih kuat: paket pemasang ROM kustom, pengaman nama/paket atau pembaruan, cadangan ketuk gestur, nyalakan ulang layanan bila izin ada, pesan bila layanan mati"
   }
 ]
