@@ -2,6 +2,9 @@ package com.example.floatstudy
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -59,6 +62,9 @@ class LiveTranslator(private val svc: AccessibilityService) {
     private var ocrAgain = false
     private var lastShot = 0L
     private var lastOcrHash = 0
+    private var bigImage = false // layar punya gambar besar: kemungkinan ada teks di dalam gambar (layar campuran)
+    private var nodeRects: List<Rect> = emptyList()
+    private var screenArea = 1L
 
     private val refreshRun = Runnable { refresh() }
     private var firstPending = 0L // kapan permintaan refresh pertama yang belum jalan masuk
@@ -84,7 +90,10 @@ class LiveTranslator(private val svc: AccessibilityService) {
         var finished = false
         // pemberitahuan unduh hanya muncul bila unduhan benar-benar butuh waktu (model belum ada di HP)
         val downloadingNotice = Runnable {
-            if (!finished && active) say("Mengunduh model terjemahan Inggris ke Indonesia (sekitar 30 MB). Mohon tunggu, butuh internet…")
+            if (!finished && active) {
+                say("Mengunduh model terjemahan Inggris ke Indonesia (sekitar 30 MB). Mohon tunggu, butuh internet…")
+                modelNotice(true) // status tetap di notifikasi sampai unduhan selesai
+            }
         }
         main.postDelayed(downloadingNotice, 700)
         val t0 = android.os.SystemClock.elapsedRealtime()
@@ -92,6 +101,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
             .addOnSuccessListener {
                 finished = true
                 main.removeCallbacks(downloadingNotice)
+                modelNotice(false)
                 if (!active) return@addOnSuccessListener
                 ready = true
                 val downloaded = android.os.SystemClock.elapsedRealtime() - t0 > 700
@@ -104,12 +114,36 @@ class LiveTranslator(private val svc: AccessibilityService) {
             .addOnFailureListener {
                 finished = true
                 main.removeCallbacks(downloadingNotice)
+                modelNotice(false)
                 say("Gagal mengunduh model terjemahan. Periksa koneksi internet lalu nyalakan Live lagi.")
                 stop()
             }
     }
 
+    /** Notifikasi tetap selama model diunduh, supaya status terlihat walau toast sudah hilang. */
+    private fun modelNotice(on: Boolean) {
+        try {
+            val nm = svc.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (!on) {
+                nm.cancel(7301)
+                return
+            }
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(NotificationChannel("live", "Live translate", NotificationManager.IMPORTANCE_LOW))
+            }
+            val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(svc, "live") else Notification.Builder(svc)
+            b.setSmallIcon(R.drawable.ic_live)
+                .setContentTitle("Mengunduh model terjemahan")
+                .setContentText("Inggris ke Indonesia, sekitar 30 MB. Butuh internet.")
+                .setOngoing(true)
+                .setProgress(0, 0, true)
+            nm.notify(7301, b.build())
+        } catch (e: Exception) {
+        }
+    }
+
     fun stop() {
+        modelNotice(false)
         active = false
         gen++
         ocrGen++
@@ -173,6 +207,9 @@ class LiveTranslator(private val svc: AccessibilityService) {
         if (!active || !ready) return
         val root = svc.rootInActiveWindow ?: return
         val items = ArrayList<Box>()
+        bigImage = false
+        val dm = svc.resources.displayMetrics
+        screenArea = dm.widthPixels.toLong() * dm.heightPixels
         try {
             if (root.packageName?.toString() == svc.packageName) return
             collect(root, items)
@@ -185,7 +222,8 @@ class LiveTranslator(private val svc: AccessibilityService) {
         if (sig == lastSig && sig != 0) return
         val myGen = ++gen
         // layar hampir tanpa teks node (gambar, game, WebView tertentu): baca lewat tangkapan layar + OCR (Android 11+)
-        if (items.size < 4) maybeOcr() else if (ocrBoxes.isNotEmpty()) push(o = emptyList())
+        nodeRects = items.map { it.r }
+        if (items.size < 4 || bigImage) maybeOcr() else if (ocrBoxes.isNotEmpty()) push(o = emptyList())
         val shown = ArrayList<Box>()
         val pending = ArrayList<Box>()
         for (b in items) {
@@ -200,8 +238,11 @@ class LiveTranslator(private val svc: AccessibilityService) {
         // teks yang sama di beberapa tempat hanya diterjemahkan sekali; yang paling atas di layar dikerjakan dulu
         val byText = LinkedHashMap<String, MutableList<Box>>()
         for (b in pending.sortedBy { it.r.top }) byText.getOrPut(b.text) { ArrayList() }.add(b)
-        var left = byText.size
-        for ((text, boxes) in byText) {
+        // HP lambat: paling banyak 30 teks baru per putaran (dari atas layar), sisanya menyusul di putaran berikutnya
+        val batch = byText.entries.take(30)
+        if (byText.size > 30) schedule(250)
+        var left = batch.size
+        for ((text, boxes) in batch) {
             tr.translate(text).addOnSuccessListener { out ->
                 cache[text] = out
                 if (gen == myGen && active) {
@@ -293,7 +334,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
                 r.width() > dp(24) && r.height() > dp(12)
         }.sortedBy { it.first.top }.take(40)
         // kotak yang sudah ada dari node tidak diulang
-        val fresh = items.filter { (r, _) -> nodeBoxes.none { Rect.intersects(it.r, r) } }
+        val fresh = items.filter { (r, _) -> nodeRects.none { Rect.intersects(it, r) } }
         if (tr == null || fresh.isEmpty()) {
             push(o = emptyList())
             return ocrDone()
@@ -330,8 +371,13 @@ class LiveTranslator(private val svc: AccessibilityService) {
         if (!n.isVisibleToUser) return
         // kolom sandi dan isian pengguna tidak dibaca sama sekali
         if (n.isPassword || n.isEditable) return
+        if (!bigImage && n.className?.toString() == "android.widget.ImageView") {
+            val ir = Rect()
+            n.getBoundsInScreen(ir)
+            if (ir.width().toLong() * ir.height() * 100 >= screenArea * 12) bigImage = true
+        }
         val t = n.text?.toString()?.trim()
-        if (!t.isNullOrEmpty() && t.length in 2..500 && hasLetter.containsMatchIn(t) && !idWords.containsMatchIn(t)) {
+        if (!t.isNullOrEmpty() && t.length in 2..400 && hasLetter.containsMatchIn(t) && !idWords.containsMatchIn(t)) {
             val r = Rect()
             n.getBoundsInScreen(r)
             if (r.width() > dp(24) && r.height() > dp(12)) out.add(Box(r, t))

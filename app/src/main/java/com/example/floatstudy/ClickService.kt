@@ -69,6 +69,35 @@ class ClickService : AccessibilityService() {
                 .map { it.third }.filter { seen.add(it) }.joinToString("\n")
         }
 
+        /** Tangkap layar penuh lewat aksesibilitas (Android 11+). Hasil null bila gagal atau tidak didukung. */
+        fun screenshot(cb: (android.graphics.Bitmap?) -> Unit) {
+            val s = instance
+            if (s == null || android.os.Build.VERSION.SDK_INT < 30) {
+                cb(null)
+                return
+            }
+            try {
+                s.takeScreenshot(android.view.Display.DEFAULT_DISPLAY, s.mainExecutor, object : TakeScreenshotCallback {
+                    override fun onSuccess(r: ScreenshotResult) {
+                        val bmp = try {
+                            val hb = r.hardwareBuffer
+                            val b = android.graphics.Bitmap.wrapHardwareBuffer(hb, r.colorSpace)
+                                ?.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+                            hb.close()
+                            b
+                        } catch (e: Exception) {
+                            null
+                        }
+                        cb(bmp)
+                    }
+
+                    override fun onFailure(errorCode: Int) = cb(null)
+                })
+            } catch (e: Exception) {
+                cb(null)
+            }
+        }
+
         /** Batas waktu (uptime ms) klik otomatis tombol Pasang. 0 = tidak aktif. */
         @Volatile
         private var autoInstallUntil = 0L
