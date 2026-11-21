@@ -2,6 +2,7 @@ package com.example.floatstudy
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -14,6 +15,7 @@ import android.os.Looper
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.view.Display
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
@@ -49,6 +51,14 @@ class LiveTranslator(private val svc: AccessibilityService) {
     @Volatile
     var active = false
         private set
+
+    private var nodeBoxes: List<Box> = emptyList() // terjemahan dari teks yang dibaca lewat node aksesibilitas
+    private var ocrBoxes: List<Box> = emptyList() // terjemahan dari OCR tangkapan layar (layar tanpa teks node)
+    private var ocrGen = 0
+    private var ocrBusy = false
+    private var ocrAgain = false
+    private var lastShot = 0L
+    private var lastOcrHash = 0
 
     private val refreshRun = Runnable { refresh() }
     private var firstPending = 0L // kapan permintaan refresh pertama yang belum jalan masuk
@@ -102,6 +112,9 @@ class LiveTranslator(private val svc: AccessibilityService) {
     fun stop() {
         active = false
         gen++
+        ocrGen++
+        nodeBoxes = emptyList()
+        ocrBoxes = emptyList()
         main.removeCallbacks(refreshRun)
         removeOverlay()
         translator?.close()
@@ -116,15 +129,11 @@ class LiveTranslator(private val svc: AccessibilityService) {
         when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
                 // layar sedang digulir: sembunyikan terjemahan lama, tampilkan lagi begitu layar diam
-                view?.setBoxes(emptyList())
-                lastSig = 0
-                gen++
+                clearAll()
                 schedule(160)
             }
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
-                view?.setBoxes(emptyList())
-                lastSig = 0
-                gen++
+                clearAll()
                 schedule(200)
             }
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> schedule(220)
@@ -135,6 +144,22 @@ class LiveTranslator(private val svc: AccessibilityService) {
      * Jalankan refresh setelah layar diam sebentar. Bila layar terus berubah (animasi, video), refresh tetap dipaksa
      * jalan setelah 600 ms supaya terjemahan tidak tertunda terus.
      */
+    private fun clearAll() {
+        nodeBoxes = emptyList()
+        ocrBoxes = emptyList()
+        lastSig = 0
+        lastOcrHash = 0
+        gen++
+        ocrGen++
+        view?.setBoxes(emptyList())
+    }
+
+    private fun push(n: List<Box>? = null, o: List<Box>? = null) {
+        if (n != null) nodeBoxes = n
+        if (o != null) ocrBoxes = o
+        view?.setBoxes(nodeBoxes + ocrBoxes)
+    }
+
     private fun schedule(ms: Long) {
         val now = android.os.SystemClock.uptimeMillis()
         if (firstPending == 0L) firstPending = now
@@ -159,13 +184,15 @@ class LiveTranslator(private val svc: AccessibilityService) {
         for (b in items) sig = 31 * sig + b.text.hashCode() + 17 * b.r.top + b.r.left
         if (sig == lastSig && sig != 0) return
         val myGen = ++gen
+        // layar hampir tanpa teks node (gambar, game, WebView tertentu): baca lewat tangkapan layar + OCR (Android 11+)
+        if (items.size < 4) maybeOcr() else if (ocrBoxes.isNotEmpty()) push(o = emptyList())
         val shown = ArrayList<Box>()
         val pending = ArrayList<Box>()
         for (b in items) {
             val hit = cache[b.text]
             if (hit != null) shown.add(Box(b.r, hit)) else pending.add(b)
         }
-        view?.setBoxes(shown.toList())
+        push(n = shown.toList())
         if (pending.isEmpty()) {
             lastSig = sig
             return
@@ -179,11 +206,118 @@ class LiveTranslator(private val svc: AccessibilityService) {
                 cache[text] = out
                 if (gen == myGen && active) {
                     for (b in boxes) shown.add(Box(b.r, out))
-                    view?.setBoxes(shown.toList())
+                    push(n = shown.toList())
                 }
             }.addOnCompleteListener {
                 left--
                 if (left == 0 && gen == myGen && active && shown.size == items.size) lastSig = sig
+            }
+        }
+    }
+
+    /** Tangkap layar lewat layanan aksesibilitas lalu OCR. Dibatasi 1 kali per detik (batas sistem). */
+    private fun maybeOcr() {
+        if (Build.VERSION.SDK_INT < 30) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (ocrBusy) {
+            ocrAgain = true
+            return
+        }
+        if (now - lastShot < 1000L) {
+            main.removeCallbacks(refreshRun)
+            main.postDelayed(refreshRun, 1000L - (now - lastShot) + 30L)
+            return
+        }
+        ocrBusy = true
+        lastShot = now
+        val g = ocrGen
+        // sembunyikan overlay sebentar supaya terjemahan sendiri tidak ikut terbaca OCR
+        val hadBoxes = (nodeBoxes.isNotEmpty() || ocrBoxes.isNotEmpty())
+        if (hadBoxes) view?.visibility = View.INVISIBLE
+        main.postDelayed({
+            try {
+                svc.takeScreenshot(Display.DEFAULT_DISPLAY, svc.mainExecutor, object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(r: AccessibilityService.ScreenshotResult) {
+                        view?.visibility = View.VISIBLE
+                        val bmp = try {
+                            val hb = r.hardwareBuffer
+                            val b = Bitmap.wrapHardwareBuffer(hb, r.colorSpace)?.copy(Bitmap.Config.ARGB_8888, false)
+                            hb.close()
+                            b
+                        } catch (e: Exception) {
+                            null
+                        }
+                        if (bmp == null || g != ocrGen || !active) return ocrDone()
+                        // layar sama dengan OCR sebelumnya: pakai hasil lama
+                        val small = Bitmap.createScaledBitmap(bmp, 24, 40, false)
+                        var h = 7
+                        for (y in 0 until 40) for (x in 0 until 24) h = 31 * h + small.getPixel(x, y)
+                        small.recycle()
+                        if (h == lastOcrHash) {
+                            bmp.recycle()
+                            return ocrDone()
+                        }
+                        lastOcrHash = h
+                        Ocr.blocks(bmp) { res ->
+                            bmp.recycle()
+                            val list = res.getOrNull()
+                            if (list == null || g != ocrGen || !active) return@blocks ocrDone()
+                            translateOcr(list, g)
+                        }
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        view?.visibility = View.VISIBLE
+                        ocrDone()
+                    }
+                })
+            } catch (e: Exception) {
+                view?.visibility = View.VISIBLE
+                ocrDone()
+            }
+        }, if (hadBoxes) 90L else 0L)
+    }
+
+    private fun ocrDone() {
+        ocrBusy = false
+        if (ocrAgain) {
+            ocrAgain = false
+            schedule(300)
+        }
+    }
+
+    private fun translateOcr(list: List<Pair<Rect, String>>, g: Int) {
+        val tr = translator
+        val items = list.filter { (r, t) ->
+            t.length in 2..500 && hasLetter.containsMatchIn(t) && !idWords.containsMatchIn(t) &&
+                r.width() > dp(24) && r.height() > dp(12)
+        }.sortedBy { it.first.top }.take(40)
+        // kotak yang sudah ada dari node tidak diulang
+        val fresh = items.filter { (r, _) -> nodeBoxes.none { Rect.intersects(it.r, r) } }
+        if (tr == null || fresh.isEmpty()) {
+            push(o = emptyList())
+            return ocrDone()
+        }
+        val out = ArrayList<Box>()
+        var left = fresh.size
+        for ((r, t) in fresh) {
+            val hit = cache[t]
+            val finish = {
+                left--
+                if (left == 0) ocrDone()
+            }
+            if (hit != null) {
+                out.add(Box(r, hit))
+                push(o = out.toList())
+                finish()
+            } else {
+                tr.translate(t).addOnSuccessListener { o ->
+                    cache[t] = o
+                    if (g == ocrGen && active) {
+                        out.add(Box(r, o))
+                        push(o = out.toList())
+                    }
+                }.addOnCompleteListener { finish() }
             }
         }
     }

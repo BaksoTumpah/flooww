@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Teks layar hanya dibaca saat Terjemah Langsung dinyalakan, atau saat flooww memperbarui dirinya (jendela pemasang).
+<!-- Teks layar (dan tangkapan layar untuk OCR bila layar tanpa teks) hanya dibaca saat Terjemah Langsung dinyalakan, atau saat flooww memperbarui dirinya (jendela pemasang).
      Saat keduanya mati, layanan tidak membaca apa pun. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged|typeViewScrolled"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:canPerformGestures="true"
+    android:canTakeScreenshot="true"
     android:canRetrieveWindowContent="true"
     android:description="@string/click_desc"
     android:notificationTimeout="100" />
