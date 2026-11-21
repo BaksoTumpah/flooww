@@ -30,5 +30,9 @@
   {
     "v": 23,
     "n": "Klik otomatis Pasang lebih kuat: paket pemasang ROM kustom, pengaman nama/paket atau pembaruan, cadangan ketuk gestur, nyalakan ulang layanan bila izin ada, pesan bila layanan mati"
+  },
+  {
+    "v": 24,
+    "n": "Realme: laporan masalah (log diagnostik), Tanya AI mode teks OCR (bawaan di HP RAM kecil), penjagaan WebView lama dan proses browser mati, izin overlay wajib untuk buka Apps"
   }
 ]
