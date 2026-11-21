@@ -1324,7 +1324,8 @@ class FloatService : Service() {
             setPadding(pad, pad, pad, pad - gap / 2 + dp(5))
             elevation = dp(12).toFloat()
         }
-        NAMES.indices.chunked(cols).forEach { chunk ->
+        val hidden = Prefs.menuHidden(c)
+        NAMES.indices.filter { it == M_OFF || it !in hidden }.chunked(cols).forEach { chunk ->
             val line = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
             chunk.forEach { i ->
                 // tombol Live disorot (warna aksen penuh) selama terjemahan langsung menyala, normal bila mati

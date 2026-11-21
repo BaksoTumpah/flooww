@@ -177,6 +177,21 @@ object Prefs {
         sp(c).edit().putBoolean("kbBlock", v).apply()
     }
 
+    /** Nama semua tile menu bubble, urutannya sama dengan indeks di FloatService. */
+    val MENU_NAMES = listOf(
+        "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
+        "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Live", "Baca", "Matikan"
+    )
+
+    /** Tile yang disembunyikan pengguna dari menu bubble. Tile Matikan (terakhir) selalu tampil. */
+    fun menuHidden(c: Context): Set<Int> =
+        (sp(c).getString("menuHidden", "") ?: "").split(',').mapNotNull { it.toIntOrNull() }
+            .filter { it in 0 until MENU_NAMES.size - 1 }.toSet()
+
+    fun setMenuHidden(c: Context, s: Set<Int>) {
+        sp(c).edit().putString("menuHidden", s.sorted().joinToString(",")).apply()
+    }
+
     fun pinned(c: Context): List<String> =
         (sp(c).getString("pinned", "") ?: "").split(',').filter { it.isNotBlank() }
 

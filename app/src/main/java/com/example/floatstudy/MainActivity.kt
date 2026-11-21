@@ -155,9 +155,38 @@ class MainActivity : Activity() {
             label("Warna (juga dipakai menu)"),
             swatches()
         ))
+        val menuInfo = note("")
+        fun showMenuInfo() {
+            val h = Prefs.menuHidden(this).size
+            menuInfo.text = if (h == 0) "Semua tile tampil di menu bubble." else "${Prefs.MENU_NAMES.size - 1 - h} dari ${Prefs.MENU_NAMES.size - 1} tile tampil. Matikan selalu tampil."
+        }
+        showMenuInfo()
         gLook.add(sec("Menu",
             slider("Ukuran", Setting.MENU_SIZE, "%"),
             slider("Opasitas", Setting.MENU_ALPHA, "%")
+        ))
+        gLook.add(sec("Isi menu bubble",
+            menuInfo,
+            spaced(Ui.button(this, "Pilih tile menu", true) {
+                val names = Prefs.MENU_NAMES.dropLast(1).toTypedArray()
+                val hidden = Prefs.menuHidden(this).toMutableSet()
+                val checked = BooleanArray(names.size) { it !in hidden }
+                android.app.AlertDialog.Builder(this)
+                    .setTitle("Tile di menu bubble")
+                    .setMultiChoiceItems(names, checked) { _, i, on ->
+                        if (on) hidden.remove(i) else hidden.add(i)
+                    }
+                    .setPositiveButton("Simpan") { _, _ ->
+                        Prefs.setMenuHidden(this, hidden)
+                        showMenuInfo()
+                    }
+                    .setNegativeButton("Batal", null)
+                    .setNeutralButton("Tampilkan semua") { _, _ ->
+                        Prefs.setMenuHidden(this, emptySet())
+                        showMenuInfo()
+                    }
+                    .show()
+            })
         ))
         gApps.add(sec("Pilih aplikasi",
             appsInfo,
