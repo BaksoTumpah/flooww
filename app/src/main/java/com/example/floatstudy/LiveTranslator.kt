@@ -72,6 +72,8 @@ class LiveTranslator(private val svc: AccessibilityService) {
 
     private var srcCode = TranslateLanguage.ENGLISH
     private var srcName = "Inggris"
+    private var dstCode = TranslateLanguage.INDONESIAN
+    private var dstName = "Indonesia"
     private var hasLetter = Regex("[\\p{L}]{2,}")
     private var ocrOk = true // OCR bawaan hanya untuk huruf Latin
 
@@ -81,13 +83,16 @@ class LiveTranslator(private val svc: AccessibilityService) {
         val si = Prefs.liveSrc(svc)
         srcCode = Prefs.LANG_CODES[si]
         srcName = Prefs.LANGS[si]
+        val di = Prefs.liveDst(svc)
+        dstCode = Prefs.LANG_CODES[di]
+        dstName = Prefs.LANGS[di]
         val cjkAr = srcCode in listOf("ar", "ja", "zh", "ko")
         hasLetter = if (cjkAr) Regex("\\p{L}") else Regex("[\\p{L}]{2,}")
         ocrOk = !cjkAr
         val tr = Translation.getClient(
             TranslatorOptions.Builder()
                 .setSourceLanguage(srcCode)
-                .setTargetLanguage(TranslateLanguage.INDONESIAN)
+                .setTargetLanguage(dstCode)
                 .build()
         )
         translator = tr
@@ -102,7 +107,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
         // pemberitahuan unduh hanya muncul bila unduhan benar-benar butuh waktu (model belum ada di HP)
         val downloadingNotice = Runnable {
             if (!finished && active) {
-                say("Mengunduh model terjemahan $srcName ke Indonesia (sekitar 30 MB). Mohon tunggu, butuh internet…")
+                say("Mengunduh model terjemahan $srcName ke $dstName (sekitar 30 MB per bahasa). Mohon tunggu, butuh internet…")
                 modelNotice(true) // status tetap di notifikasi sampai unduhan selesai
             }
         }
@@ -145,7 +150,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
             val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(svc, "live") else Notification.Builder(svc)
             b.setSmallIcon(R.drawable.ic_live)
                 .setContentTitle("Mengunduh model terjemahan")
-                .setContentText("$srcName ke Indonesia, sekitar 30 MB. Butuh internet.")
+                .setContentText("$srcName ke $dstName, sekitar 30 MB per bahasa. Butuh internet.")
                 .setOngoing(true)
                 .setProgress(0, 0, true)
             nm.notify(7301, b.build())
@@ -173,8 +178,16 @@ class LiveTranslator(private val svc: AccessibilityService) {
         if (pkg == svc.packageName || pkg == "com.android.systemui") return
         when (e.eventType) {
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                // layar sedang digulir: sembunyikan terjemahan lama, tampilkan lagi begitu layar diam
-                clearAll()
+                // geser vertikal: terjemahan ikut bergeser bersama isi layar (tidak berkedip kosong); selisih dikoreksi setelah layar diam
+                val dy = if (Build.VERSION.SDK_INT >= 28) e.scrollDeltaY else 0
+                val dx = if (Build.VERSION.SDK_INT >= 28) e.scrollDeltaX else 0
+                val cls = e.className?.toString() ?: ""
+                val vertical = cls.contains("ScrollView") || cls.contains("RecyclerView") || cls.contains("ListView") || cls.contains("WebView")
+                if (vertical && dx == 0 && dy != 0 && (nodeBoxes.isNotEmpty() || ocrBoxes.isNotEmpty())) {
+                    shift(-dy)
+                } else {
+                    clearAll()
+                }
                 schedule(160)
             }
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
@@ -189,6 +202,22 @@ class LiveTranslator(private val svc: AccessibilityService) {
      * Jalankan refresh setelah layar diam sebentar. Bila layar terus berubah (animasi, video), refresh tetap dipaksa
      * jalan setelah 600 ms supaya terjemahan tidak tertunda terus.
      */
+    private fun shift(dy: Int) {
+        val h = svc.resources.displayMetrics.heightPixels
+        fun mv(l: List<Box>) = l.mapNotNull { b ->
+            val r = Rect(b.r)
+            r.offset(0, dy)
+            if (r.bottom < 0 || r.top > h) null else Box(r, b.text)
+        }
+        nodeBoxes = mv(nodeBoxes)
+        ocrBoxes = mv(ocrBoxes)
+        lastSig = 0
+        lastOcrHash = 0
+        gen++
+        ocrGen++
+        view?.setBoxes(nodeBoxes + ocrBoxes)
+    }
+
     private fun clearAll() {
         nodeBoxes = emptyList()
         ocrBoxes = emptyList()
@@ -233,6 +262,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
         if (sig == lastSig && sig != 0) return
         val myGen = ++gen
         // layar hampir tanpa teks node (gambar, game, WebView tertentu): baca lewat tangkapan layar + OCR (Android 11+)
+        dedupe(items)
         nodeRects = items.map { it.r }
         if (ocrOk && (items.size < 4 || bigImage)) maybeOcr() else if (ocrBoxes.isNotEmpty()) push(o = emptyList())
         val shown = ArrayList<Box>()
@@ -341,7 +371,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
     private fun translateOcr(list: List<Pair<Rect, String>>, g: Int) {
         val tr = translator
         val items = list.filter { (r, t) ->
-            t.length in 2..500 && hasLetter.containsMatchIn(t) && !idWords.containsMatchIn(t) &&
+            t.length in 2..500 && hasLetter.containsMatchIn(t) && !isTargetText(t) &&
                 r.width() > dp(24) && r.height() > dp(12)
         }.sortedBy { it.first.top }.take(40)
         // kotak yang sudah ada dari node tidak diulang
@@ -374,7 +404,25 @@ class LiveTranslator(private val svc: AccessibilityService) {
         }
     }
 
+    /** Teks yang sudah berbahasa Indonesia tidak diterjemahkan lagi (hanya bila tujuan Indonesia dan sumber bukan Indonesia). */
+    private fun isTargetText(t: String) = dstCode == "id" && srcCode != "id" && idWords.containsMatchIn(t)
+
     private val idWords = Regex("\\b(yang|dan|di|ke|dari|untuk|dengan|ini|itu|adalah|tidak|atau|pada)\\b", RegexOption.IGNORE_CASE)
+
+    /** Buang kotak yang menumpuk di atas kotak lain (induk dan anak sama-sama bertuliskan teks); yang teksnya lebih panjang dipertahankan. */
+    private fun dedupe(items: MutableList<Box>) {
+        val keep = ArrayList<Box>()
+        for (b in items.sortedByDescending { it.text.length }) {
+            val area = b.r.width().toLong() * b.r.height()
+            val overlap = keep.any { k ->
+                val i = Rect()
+                i.setIntersect(b.r, k.r) && i.width().toLong() * i.height() * 2 > area
+            }
+            if (!overlap) keep.add(b)
+        }
+        items.clear()
+        items.addAll(keep)
+    }
 
     private fun collect(n: AccessibilityNodeInfo, out: MutableList<Box>) {
         if (out.size >= 120) return
@@ -387,7 +435,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
             if (ir.width().toLong() * ir.height() * 100 >= screenArea * 12) bigImage = true
         }
         val t = n.text?.toString()?.trim()
-        if (!t.isNullOrEmpty() && t.length in 2..400 && hasLetter.containsMatchIn(t) && !idWords.containsMatchIn(t)) {
+        if (!t.isNullOrEmpty() && t.length in 2..400 && hasLetter.containsMatchIn(t) && !isTargetText(t)) {
             val r = Rect()
             n.getBoundsInScreen(r)
             if (r.width() > dp(24) && r.height() > dp(12)) out.add(Box(r, t))

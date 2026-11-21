@@ -159,27 +159,64 @@ class MainActivity : Activity() {
                 .addOnFailureListener { modelInfo.text = "Daftar model tidak bisa dibaca." }
         }
         showModelInfo()
-        val liveSrcBtn = Ui.button(this, "", false) {}
-        fun showLiveSrc() {
-            liveSrcBtn.text = "Bahasa sumber Live Translate: ${Prefs.LANGS[Prefs.liveSrc(this)]}"
+        // Live Translate: dua kolom kiri (dari bahasa) dan kanan (ke bahasa), tombol tengah menukar
+        val fromBtn = Ui.button(this, "", false) {}
+        val toBtn = Ui.button(this, "", false) {}
+        val swapBtn = Ui.button(this, "⇄", false) {}
+        fun showPair() {
+            fromBtn.text = "Dari\n${Prefs.LANGS[Prefs.liveSrc(this)]}"
+            toBtn.text = "Ke\n${Prefs.LANGS[Prefs.liveDst(this)]}"
         }
-        liveSrcBtn.setOnClickListener {
-            val ids = Prefs.LANGS.indices.filter { it != 0 }
+        fun pickLang(title: String, current: Int, set: (Int) -> Unit) {
             android.app.AlertDialog.Builder(this)
-                .setTitle("Bahasa sumber Live Translate")
-                .setItems(ids.map { Prefs.LANGS[it] }.toTypedArray()) { _, i ->
-                    Prefs.setLiveSrc(this, ids[i])
-                    showLiveSrc()
+                .setTitle(title)
+                .setSingleChoiceItems(Prefs.LANGS.toTypedArray(), current) { d, i ->
+                    set(i)
+                    showPair()
                     android.widget.Toast.makeText(this, "Berlaku saat Live dinyalakan lagi", android.widget.Toast.LENGTH_SHORT).show()
+                    d.dismiss()
                 }
                 .show()
         }
-        showLiveSrc()
+        fromBtn.setOnClickListener {
+            pickLang("Terjemahkan dari bahasa", Prefs.liveSrc(this)) { i ->
+                // bila sama dengan tujuan, tujuan ditukar ke bahasa sumber lama
+                val old = Prefs.liveSrc(this)
+                if (i == Prefs.liveDst(this)) Prefs.setLiveDst(this, old)
+                Prefs.setLiveSrc(this, i)
+            }
+        }
+        toBtn.setOnClickListener {
+            pickLang("Terjemahkan ke bahasa", Prefs.liveDst(this)) { i ->
+                val old = Prefs.liveDst(this)
+                if (i == Prefs.liveSrc(this)) Prefs.setLiveSrc(this, old)
+                Prefs.setLiveDst(this, i)
+            }
+        }
+        swapBtn.setOnClickListener {
+            val a = Prefs.liveSrc(this)
+            val b = Prefs.liveDst(this)
+            Prefs.setLiveSrc(this, b)
+            Prefs.setLiveDst(this, a)
+            showPair()
+        }
+        showPair()
+        val pairRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            addView(fromBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(swapBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = dp(6)
+                rightMargin = dp(6)
+            })
+            addView(toBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
         gAi.add(sec("Model bahasa terjemah",
             note("Berlaku untuk Terjemah dan Live Translate. Unduh lebih dulu lewat Wi-Fi supaya nanti langsung siap dan bisa dipakai tanpa internet. Hapus model yang tidak dipakai untuk menghemat ruang."),
             modelInfo,
             spaced(Ui.button(this, "Kelola model bahasa", true) { pickModels { showModelInfo() } }),
-            spaced(liveSrcBtn)
+            label("Live Translate: terjemahkan layar"),
+            spaced(pairRow)
         ))
 
         // ---- tampilan ----

@@ -22,6 +22,8 @@ enum class Setting(val key: String, val def: Int, val min: Int, val max: Int) {
 
 object Prefs {
     const val DEFAULT_COLOR = 0xFF7C6CF0.toInt()
+    /** Warna bawaan bubble baru: abu-abu seperti sidebar bawaan HP. */
+    const val GRAY_COLOR = 0xFFB8BCC4.toInt()
     const val DEFAULT_PROMPT = "Jawab soal pada gambar ini. Jelaskan langkah singkat, lalu tulis jawaban akhir."
 
     val COLORS = intArrayOf(
@@ -84,8 +86,18 @@ object Prefs {
         sp(c).edit().putString("userName", n.trim()).apply()
     }
 
-    /** Bahasa sumber Live Translate (indeks LANGS). Tujuannya selalu Indonesia, jadi Indonesia tidak boleh jadi sumber. */
-    fun liveSrc(c: Context): Int = sp(c).getInt("liveSrc", 1).coerceIn(1, LANGS.size - 1)
+    /** Bahasa sumber Live Translate (indeks LANGS). */
+    fun liveSrc(c: Context): Int = sp(c).getInt("liveSrc", 1).coerceIn(0, LANGS.size - 1)
+
+    /** Bahasa tujuan Live Translate (indeks LANGS), bawaan Indonesia. Selalu berbeda dari bahasa sumber. */
+    fun liveDst(c: Context): Int {
+        val d = sp(c).getInt("liveDst", 0).coerceIn(0, LANGS.size - 1)
+        return if (d == liveSrc(c)) (if (d == 0) 1 else 0) else d
+    }
+
+    fun setLiveDst(c: Context, i: Int) {
+        sp(c).edit().putInt("liveDst", i).apply()
+    }
 
     fun setLiveSrc(c: Context, i: Int) {
         sp(c).edit().putInt("liveSrc", i).apply()
@@ -113,7 +125,7 @@ object Prefs {
     }
 
     fun bubbleColor(c: Context): Int =
-        sp(c).getInt("bubbleColor", DEFAULT_COLOR).let { if (it == 0xFF2563EB.toInt()) DEFAULT_COLOR else it }
+        sp(c).getInt("bubbleColor", GRAY_COLOR).let { if (it == 0xFF2563EB.toInt()) DEFAULT_COLOR else it }
 
     fun setBubbleColor(c: Context, color: Int) {
         sp(c).edit().putInt("bubbleColor", color).apply()
