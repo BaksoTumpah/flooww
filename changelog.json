@@ -34,5 +34,9 @@
   {
     "v": 24,
     "n": "Realme: laporan masalah (log diagnostik), Tanya AI mode teks OCR (bawaan di HP RAM kecil), penjagaan WebView lama dan proses browser mati, izin overlay wajib untuk buka Apps"
+  },
+  {
+    "v": 25,
+    "n": "Tanya AI hanya kirim gambar, OCR dan Kalkulator ganti nama, urutan tile menu bisa diatur, kotak OCR ingat ukuran"
   }
 ]
