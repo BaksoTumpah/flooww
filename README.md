@@ -15,12 +15,16 @@ Alat yang mengambil soal dari layar (Tanya AI, Salin, Terjemah, Gambar) langsung
 | Terjemah | Lingkari teks, terjemah di HP (Inggris atau Jepang ke Indonesia, bisa dibalik) |
 | Screenshot | Ambil layar penuh, simpan ke galeri (Pictures/flooww) |
 | Browser | Browser mini di jendela mengambang |
-| Hitung | Kalkulator: + - × ÷ ^ % √ π |
+| Kalkulator | Kalkulator: + - × ÷ ^ % √ π |
 | Klik | Auto clicker: pasang target, atur jeda dan jumlah ketukan |
 | Apps | Tambah aplikasi dari HP, buka sebagai jendela mengambang |
 | Matikan | Hentikan bubble |
 
 Tombol ✕ di jendela hanya menyembunyikan. Riwayat browser dan isian tetap ada sampai bubble dihentikan. Jendela digeser lewat header dan diubah ukurannya lewat ◢ di pojok kanan bawah.
+
+## Urutan tile menu
+
+Di aplikasi, bagian **Letak tile menu**, atur urutan tile dengan tombol ▲ ▼ (dibaca dari kiri atas). Urutan bawaan: Tanya AI, OCR, Live, Terjemah, Salin, Browser, Kalkulator, Catatan, Galeri, Screenshot, Apps, Klik, Matikan. Tanya AI selalu mengirim gambar soal; menu **OCR** (dulu Baca) membaca teks di kotak lalu mengirimnya ke AI.
 
 ## Gestur bubble
 

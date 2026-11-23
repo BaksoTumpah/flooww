@@ -103,27 +103,6 @@ object Prefs {
         sp(c).edit().putInt("liveSrc", i).apply()
     }
 
-    /**
-     * Tanya AI mengirim teks hasil OCR (bukan gambar). Jauh lebih ringan dan stabil di HP lambat atau WebView lama,
-     * jadi bawaannya aktif di HP dengan RAM kurang dari sekitar 3,5 GB.
-     */
-    fun askText(c: Context): Boolean {
-        val sp = sp(c)
-        if (sp.contains("askText")) return sp.getBoolean("askText", false)
-        return try {
-            val am = c.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-            val mi = android.app.ActivityManager.MemoryInfo()
-            am.getMemoryInfo(mi)
-            mi.totalMem < 3_500L * 1024 * 1024
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    fun setAskText(c: Context, on: Boolean) {
-        sp(c).edit().putBoolean("askText", on).apply()
-    }
-
     fun lang(c: Context): Int = sp(c).getInt("lang", 1).coerceIn(0, LANGS.size - 1)
 
     fun setLang(c: Context, i: Int) {
@@ -172,7 +151,7 @@ object Prefs {
     /** Aksi gestur bubble. Indeks 0 = tidak ada, 1 = buka menu, 2..11 = alat menu (id alat = indeks - 2). */
     val GESTURE_NAMES = listOf(
         "Tidak ada", "Buka menu", "Tanya AI", "Salin", "Terjemah", "Screenshot",
-        "Browser", "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Matikan bubble"
+        "Browser", "Kalkulator", "Klik", "Apps", "Catatan", "Galeri", "Matikan bubble"
     )
     private val gestureKeys = listOf("gTap", "gDouble", "gLong", "gUp", "gDown", "gSide")
     private val gestureDefs = intArrayOf(1, 2, 0, 0, 0, 0)
@@ -220,8 +199,32 @@ object Prefs {
     /** Nama semua tile menu bubble, urutannya sama dengan indeks di FloatService. */
     val MENU_NAMES = listOf(
         "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
-        "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Live", "Baca", "Matikan"
+        "Kalkulator", "Klik", "Apps", "Catatan", "Galeri", "Live", "OCR", "Matikan"
     )
+
+    /** Urutan bawaan tile di menu bubble (id tile = indeks MENU_NAMES), dari kiri atas: Tanya AI, OCR, Live, Terjemah, Salin, Browser, Kalkulator, Catatan, Galeri, Screenshot, Apps, Klik, Matikan. */
+    val MENU_DEF_ORDER = listOf(0, 11, 10, 2, 1, 4, 5, 8, 9, 3, 7, 6, 12)
+
+    /** Urutan tile yang dipilih pengguna. Id tidak dikenal dibuang, tile yang belum tercatat ditambahkan di akhir sesuai urutan bawaan. */
+    fun menuOrder(c: Context): List<Int> {
+        val saved = (sp(c).getString("menuOrder", "") ?: "").split(',').mapNotNull { it.toIntOrNull() }
+            .filter { it in MENU_NAMES.indices }.distinct()
+        return saved + MENU_DEF_ORDER.filter { it !in saved }
+    }
+
+    /** Posisi dan ukuran terakhir kotak OCR: x, y, lebar, tinggi dalam piksel. Null bila belum pernah diatur. */
+    fun readBoxRect(c: Context): IntArray? {
+        val p = (sp(c).getString("readBox", "") ?: "").split(',').mapNotNull { it.toIntOrNull() }
+        return if (p.size == 4 && p[2] > 0 && p[3] > 0) p.toIntArray() else null
+    }
+
+    fun setReadBoxRect(c: Context, x: Int, y: Int, w: Int, h: Int) {
+        sp(c).edit().putString("readBox", "$x,$y,$w,$h").apply()
+    }
+
+    fun setMenuOrder(c: Context, l: List<Int>) {
+        sp(c).edit().putString("menuOrder", l.joinToString(",")).apply()
+    }
 
     /** Tile yang disembunyikan pengguna dari menu bubble. Tile Matikan (terakhir) selalu tampil. */
     fun menuHidden(c: Context): Set<Int> =

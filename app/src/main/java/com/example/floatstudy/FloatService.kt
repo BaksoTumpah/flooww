@@ -80,7 +80,7 @@ class FloatService : Service() {
 
         private val NAMES = listOf(
             "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
-            "Hitung", "Klik", "Apps", "Catatan", "Galeri", "Live", "Baca", "Matikan"
+            "Kalkulator", "Klik", "Apps", "Catatan", "Galeri", "Live", "OCR", "Matikan"
         )
         private val ICONS = intArrayOf(
             R.drawable.ic_ask, R.drawable.ic_copy, R.drawable.ic_translate, R.drawable.ic_shot,
@@ -1325,7 +1325,7 @@ class FloatService : Service() {
             elevation = dp(12).toFloat()
         }
         val hidden = Prefs.menuHidden(c)
-        NAMES.indices.filter { it == M_OFF || it !in hidden }.chunked(cols).forEach { chunk ->
+        Prefs.menuOrder(c).filter { it == M_OFF || it !in hidden }.chunked(cols).forEach { chunk ->
             val line = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
             chunk.forEach { i ->
                 // tombol Live disorot (warna aksen penuh) selama terjemahan langsung menyala, normal bila mati
@@ -1469,6 +1469,13 @@ class FloatService : Service() {
         lp.gravity = Gravity.TOP or Gravity.START
         lp.x = (dm.widthPixels - lp.width) / 2
         lp.y = dm.heightPixels / 3
+        // ingat bentuk dan letak kotak terakhir dipakai (dijepit agar tetap muat di layar)
+        Prefs.readBoxRect(c)?.let { r ->
+            lp.width = r[2].coerceIn(minW, dm.widthPixels)
+            lp.height = r[3].coerceIn(minH, dm.heightPixels)
+            lp.x = r[0].coerceIn(0, dm.widthPixels - lp.width)
+            lp.y = r[1].coerceIn(0, dm.heightPixels - lp.height)
+        }
 
         val acc = accent
         val box = object : FrameLayout(c) {
@@ -1519,6 +1526,7 @@ class FloatService : Service() {
                         }
                         placeReadCtl()
                     }
+                    MotionEvent.ACTION_UP -> Prefs.setReadBoxRect(c, lp.x, lp.y, lp.width, lp.height)
                 }
                 return true
             }
@@ -1668,19 +1676,7 @@ class FloatService : Service() {
                 return@pickRegion
             }
             when (id) {
-                M_ASK -> if (Prefs.askText(c)) {
-                    toast("Membaca soal…")
-                    Ocr.read(bmp) { res ->
-                        ui.post {
-                            val t = res.getOrNull()
-                            if (t.isNullOrBlank()) toast("Tidak ada teks terbaca. Coba mode Kirim gambar di Pengaturan.")
-                            else {
-                                Diag.add(c, "Tanya AI teks: ${t.length} huruf")
-                                sendReadText(t)
-                            }
-                        }
-                    }
-                } else askWeb(bmp, Prefs.prompt(c))
+                M_ASK -> askWeb(bmp, Prefs.prompt(c))
                 M_TR -> {
                     openTool(M_TR)
                     runTranslate(bmp)

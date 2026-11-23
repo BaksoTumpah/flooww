@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="click_desc">flooww memakai layanan ini untuk: (1) mengetuk titik yang Anda atur sendiri (Auto Clicker), (2) membaca teks layar hanya saat Live Translate atau kotak Baca dipakai, dengan tangkapan layar sementara bila bagian layar berupa gambar, dan (3) menekan tombol Pasang saat Anda memperbarui flooww. Di luar itu layanan tidak membaca apa pun.</string>
+    <string name="click_desc">flooww memakai layanan ini untuk: (1) mengetuk titik yang Anda atur sendiri (Auto Clicker), (2) membaca teks layar hanya saat Live Translate atau kotak OCR dipakai, dengan tangkapan layar sementara bila bagian layar berupa gambar, dan (3) menekan tombol Pasang saat Anda memperbarui flooww. Di luar itu layanan tidak membaca apa pun.</string>
 </resources>

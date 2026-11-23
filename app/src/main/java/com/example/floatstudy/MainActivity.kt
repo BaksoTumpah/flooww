@@ -142,9 +142,7 @@ class MainActivity : Activity() {
         gAi.add(sec("Tujuan Tanya AI",
             note("Direkomendasikan: ChatGPT (bawaan). Gambar soal paling stabil terlampir. Google AI Mode juga tersedia, tanpa login. Bila jendela AI masih terbuka, soal berikutnya melanjutkan chat yang sama sehingga lebih cepat."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
-            label("Isi yang dikirim"),
-            note("Kirim teks (OCR): soal dibaca di HP lalu dikirim sebagai teks. Lebih cepat dan stabil di HP lambat, tapi gambar atau grafik tidak ikut. Kirim gambar: gambar soal dilampirkan ke AI. Bawaan mengikuti kemampuan HP."),
-            segmented(listOf("Kirim gambar", "Kirim teks (OCR)"), { if (Prefs.askText(this)) 1 else 0 }) { Prefs.setAskText(this, it == 1) },
+            note("Tanya AI mengirim gambar soal yang dilingkari."),
             spaced(promptIn)
         ))
 
@@ -262,6 +260,14 @@ class MainActivity : Activity() {
                         showMenuInfo()
                     }
                     .show()
+            })
+        ))
+        gLook.add(sec("Letak tile menu",
+            note("Urutan tile di menu bubble, dibaca dari kiri atas ke kanan lalu ke bawah."),
+            spaced(Ui.button(this, "Atur urutan tile", true) { showOrderDialog() }),
+            spaced(Ui.button(this, "Kembalikan urutan bawaan", false) {
+                Prefs.setMenuOrder(this, Prefs.MENU_DEF_ORDER)
+                android.widget.Toast.makeText(this, "Urutan dikembalikan", android.widget.Toast.LENGTH_SHORT).show()
             })
         ))
         gApps.add(sec("Pilih aplikasi",
@@ -527,7 +533,7 @@ class MainActivity : Activity() {
     private fun buildSteps(): List<Step> {
         val l = mutableListOf<Step>()
         l += Step("Aksesibilitas (jendela aman)",
-            "Wajib. Agar jendela flooww terbuka aman di atas aplikasi lain dan tidak mudah diblokir HP. Dipakai juga oleh Auto Clicker, Live Translate, dan Baca. Layar hanya dibaca saat Anda memakai fitur itu.",
+            "Wajib. Agar jendela flooww terbuka aman di atas aplikasi lain dan tidak mudah diblokir HP. Dipakai juga oleh Auto Clicker, Live Translate, dan OCR. Layar hanya dibaca saat Anda memakai fitur itu.",
             { a11yOn() }, {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             })
@@ -899,6 +905,32 @@ class MainActivity : Activity() {
     }
 
     /** Satu bagian di dalam kelompok: judul kecil lalu isinya. */
+    /** Dialog atur urutan tile menu bubble: tombol naik/turun per tile, tersimpan saat Simpan. */
+    private fun showOrderDialog() {
+        val order = Prefs.menuOrder(this).toMutableList()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(8)) }
+        fun render() {
+            box.removeAllViews()
+            order.forEachIndexed { pos, id ->
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+                row.addView(TextView(this).apply { text = "${pos + 1}. ${Prefs.MENU_NAMES[id]}"; textSize = 16f }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                val up = android.widget.Button(this).apply { text = "▲"; isEnabled = pos > 0; setOnClickListener { java.util.Collections.swap(order, pos, pos - 1); render() } }
+                val dn = android.widget.Button(this).apply { text = "▼"; isEnabled = pos < order.size - 1; setOnClickListener { java.util.Collections.swap(order, pos, pos + 1); render() } }
+                row.addView(up, LinearLayout.LayoutParams(dp(52), dp(44)))
+                row.addView(dn, LinearLayout.LayoutParams(dp(52), dp(44)))
+                box.addView(row)
+            }
+        }
+        render()
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Urutan tile menu bubble")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Simpan") { _, _ -> Prefs.setMenuOrder(this, order) }
+            .setNegativeButton("Batal", null)
+            .setNeutralButton("Bawaan") { _, _ -> Prefs.setMenuOrder(this, Prefs.MENU_DEF_ORDER) }
+            .show()
+    }
+
     private fun sec(title: String, vararg kids: View): LinearLayout {
         val c = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
