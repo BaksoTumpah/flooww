@@ -117,6 +117,22 @@ jobs:
           SHAU=$(sha256sum "$APKU" | cut -d' ' -f1)
           SHA64=$(sha256sum "$APK64" | cut -d' ' -f1)
           SHA32=$(sha256sum "$APK32" | cut -d' ' -f1)
+          # cek keabsahan ketiga APK sebelum dirilis; gagal di sini = rilis dibatalkan
+          APKSIGNER=$(ls "${ANDROID_HOME:-/usr/local/lib/android/sdk}"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$APKSIGNER" ]; then echo "::error::apksigner tidak ditemukan di runner"; exit 1; fi
+          CERT_REF=""
+          for f in "$APK64" "$APK32" "$APKU"; do
+            echo "== $f"
+            "$APKSIGNER" verify --verbose --print-certs "$f" | tee "$RUNNER_TEMP/verify.txt"
+            grep -q "Verifies" "$RUNNER_TEMP/verify.txt" || { echo "::error::Tanda tangan tidak valid: $f"; exit 1; }
+            CERT=$(grep -m1 "certificate SHA-256 digest" "$RUNNER_TEMP/verify.txt" | awk '{print $NF}' || true)
+            [ -n "$CERT" ] || { echo "::error::Sidik jari sertifikat tidak terbaca: $f"; exit 1; }
+            if [ -z "$CERT_REF" ]; then CERT_REF="$CERT"; elif [ "$CERT" != "$CERT_REF" ]; then echo "::error::Sertifikat beda antar APK: $f"; exit 1; fi
+            echo "lib di $f:"; unzip -l "$f" | grep -oE 'lib/[a-z0-9_-]+/' | sort -u || true
+            unzip -tq "$f" >/dev/null || { echo "::error::Zip rusak: $f"; exit 1; }
+          done
+          if [ "$(unzip -l "$APK64" | grep -c 'lib/armeabi-v7a/' || true)" -gt 0 ]; then echo "::error::APK 64-bit berisi pustaka 32-bit"; exit 1; fi
+          if [ "$(unzip -l "$APK32" | grep -c 'lib/arm64-v8a/' || true)" -gt 0 ]; then echo "::error::APK 32-bit berisi pustaka 64-bit"; exit 1; fi
           NOTES=$(jq -r --argjson v "$VER" 'map(select(.v == $v)) | .[0].n // empty' changelog.json 2>/dev/null || true)
           if [ -z "$NOTES" ]; then NOTES=$(git log -1 --pretty=%s | tr -d '"\\'); fi
           mkdir -p rel

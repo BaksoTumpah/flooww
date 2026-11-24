@@ -12,6 +12,8 @@ android {
     defaultConfig {
         // APK jembatan (-Puniversal) hanya memuat arm64 dan arm 32-bit, tanpa x86 supaya tidak membengkak
         if (project.hasProperty("universal")) ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        // penanda jenis APK: pembaruan di dalam aplikasi memakai jenis yang sama dengan yang terpasang
+        buildConfigField("String", "APK_VARIANT", if (project.hasProperty("universal")) "\"universal\"" else "\"split\"")
         applicationId = "com.example.floatstudy"
         setProperty("archivesBaseName", "flooww")
         minSdk = 26

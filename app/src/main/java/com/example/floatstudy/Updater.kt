@@ -20,7 +20,28 @@ import java.security.MessageDigest
  * Lisensi membatasi versi tertinggi yang boleh dipasang.
  */
 object Updater {
-    class Info(val version: Int, val url: String, val notes: String, val sha256: String)
+    class Info(val version: Int, val url: String, val notes: String, val sha256: String, val split: Boolean = false)
+
+    /** APK yang terpasang adalah APK universal (flooww.apk, memuat 64 dan 32-bit). */
+    private fun isUniversal() = BuildConfig.APK_VARIANT == "universal"
+
+    private fun prefs(c: Context) = c.getSharedPreferences("updater", Context.MODE_PRIVATE)
+
+    /**
+     * Pemasangan APK terpisah (64/32-bit) yang gagal tidak bisa dideteksi langsung (pemasang sistem yang menampilkan errornya).
+     * Jejaknya: percobaan terakhir memakai APK terpisah untuk versi V, tapi aplikasi masih di bawah V beberapa saat kemudian.
+     * Bila begitu, pembaruan berikutnya memakai APK universal flooww.apk.
+     */
+    private fun splitFailedBefore(c: Context, ver: Int): Boolean {
+        val p = prefs(c)
+        return p.getBoolean("try_split", false) && p.getInt("try_ver", 0) == ver &&
+            BuildConfig.VERSION_CODE < ver && System.currentTimeMillis() - p.getLong("try_at", 0L) > 60_000L
+    }
+
+    private fun recordTry(c: Context, info: Info) {
+        prefs(c).edit().putInt("try_ver", info.version).putBoolean("try_split", info.split)
+            .putLong("try_at", System.currentTimeMillis()).apply()
+    }
 
     /** Repo rilis publik (hanya berisi APK). */
     private const val RELEASE_REPO = "BaksoTumpah/flooww-rilis"
@@ -72,26 +93,40 @@ object Updater {
     }
 
     /** Ambil info pembaruan (thread latar). Melempar Exception bila gagal. */
-    fun fetch(): Info {
+    fun fetch(c: Context): Info {
         val custom = BuildConfig.UPDATE_URL.trim()
         val first = if (custom.startsWith("https://")) custom else DEFAULT_INFO_URL
         try {
             val o = JSONObject(get(first))
             var u = o.getString("url")
             var sha = o.optString("sha256")
+            val uniUrl = u
+            val uniSha = sha
+            var split = false
             // rilis punya dua APK (64-bit dan 32-bit): pilih yang cocok dengan arsitektur sistem HP ini
             val abis = o.optJSONObject("abis")
-            if (abis != null) {
-                for (abi in android.os.Build.SUPPORTED_ABIS) {
+            // jenis yang terpasang menentukan berkas pembaruan: universal tetap universal, 64-bit tetap 64-bit, 32-bit tetap 32-bit
+            if (abis != null && !isUniversal()) {
+                val mine = if (android.os.Process.is64Bit()) "arm64-v8a" else "armeabi-v7a"
+                val order = listOf(mine) + android.os.Build.SUPPORTED_ABIS.toList()
+                for (abi in order) {
                     val e = abis.optJSONObject(abi) ?: continue
                     u = e.getString("url")
                     sha = e.optString("sha256")
+                    split = true
                     break
                 }
             }
+            val ver0 = o.getInt("version")
+            // APK terpisah sudah pernah dicoba untuk versi ini tapi tidak terpasang: pakai APK universal
+            if (split && uniUrl.isNotEmpty() && splitFailedBefore(c, ver0)) {
+                u = uniUrl
+                sha = uniSha
+                split = false
+            }
             if (!Regex("/flooww(-(32|64)bit)?\\.apk$").containsMatchIn(u)) error("Bukan berkas flooww.")
             val ver = o.getInt("version")
-            return Info(ver, u, composeNotes(o, ver), sha.lowercase())
+            return Info(ver, u, composeNotes(o, ver), sha.lowercase(), split)
         } catch (e: Exception) {
             // update.json belum ada di rilis: baca langsung dari API rilis GitHub
         }
@@ -101,18 +136,23 @@ object Updater {
         val ver = Regex("^v(\\d+)$").find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: error("Rilis terbaru bukan rilis flooww.")
         val assets = o.optJSONArray("assets")
         var url = ""
-        val bit = if (android.os.Build.SUPPORTED_ABIS.contains("arm64-v8a")) "64bit" else "32bit"
+        var split = false
+        val bit = if (android.os.Process.is64Bit()) "64bit" else "32bit"
+        val skipSplit = isUniversal() || splitFailedBefore(c, ver)
         if (assets != null) {
+            var uni = ""
+            var spl = ""
             for (i in 0 until assets.length()) {
                 val a = assets.getJSONObject(i)
-                if (a.optString("name") == "flooww-$bit.apk" || a.optString("name") == "flooww.apk") {
-                    url = a.optString("browser_download_url")
-                    break
-                }
+                if (a.optString("name") == "flooww-$bit.apk") spl = a.optString("browser_download_url")
+                if (a.optString("name") == "flooww.apk") uni = a.optString("browser_download_url")
             }
+            if (spl.isNotEmpty() && !skipSplit) { url = spl; split = true }
+            else if (uni.isNotEmpty()) url = uni
+            else if (spl.isNotEmpty()) { url = spl; split = true }
         }
         if (url.isEmpty()) error("Rilis terbaru belum berisi APK flooww untuk HP ini.")
-        return Info(ver, url, o.optString("body").trim(), "")
+        return Info(ver, url, o.optString("body").trim(), "", split)
     }
 
     /**
@@ -156,6 +196,7 @@ object Updater {
             }
         }
         if (!part.renameTo(f)) error("Gagal menyimpan berkas unduhan.")
+        recordTry(c, info)
         return f
     }
 

@@ -470,7 +470,7 @@ class MainActivity : Activity() {
         if (!auto) msg.text = "Memeriksa pembaruan..."
         Thread {
             try {
-                val info = Updater.fetch()
+                val info = Updater.fetch(this)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     val li = License.info(this)
