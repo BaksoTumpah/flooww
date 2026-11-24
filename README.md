@@ -81,8 +81,8 @@ Aplikasi terbuka sebagai jendela mengambang hanya bila HP mendukung mode jendela
    - `FLOOWW_ADMIN_GOOGLE_CLIENT_ID` = ID klien OAuth jenis Web (opsional; kosong = admin hanya pakai PIN)
 
 ### Unduhan publik otomatis (repo rilis terpisah)
-Setiap build di `main`, workflow mengunggah `flooww.apk` dan `update.json` sebagai GitHub Release di repo publik terpisah (hanya berisi APK, tanpa kode). Langkah sekali saja:
+Setiap build di `main`, workflow mengunggah `flooww-64bit.apk`, `flooww-32bit.apk`, dan `update.json` sebagai GitHub Release di repo publik terpisah (hanya berisi APK, tanpa kode). Langkah sekali saja:
 1. Buat repo publik baru, mis. `flooww-rilis`, centang "Add a README file".
 2. GitHub > Settings > Developer settings > Personal access tokens > Fine-grained tokens: akses hanya ke repo `flooww-rilis`, izin Contents: Read and write.
 3. Di repo flooww > Settings > Secrets and variables > Actions: secret `RELEASE_TOKEN` (token tadi); variables `RELEASE_REPO` (`NAMA/flooww-rilis`) dan `FLOOWW_UPDATE_URL` = `https://github.com/NAMA/flooww-rilis/releases/latest/download/update.json`.
-Tombol download di web: `https://github.com/NAMA/flooww-rilis/releases/latest/download/flooww.apk`.
+Tombol download di web: `https://github.com/NAMA/flooww-rilis/releases/latest/download/flooww-64bit.apk` dan `.../flooww-32bit.apk`.

@@ -77,10 +77,21 @@ object Updater {
         val first = if (custom.startsWith("https://")) custom else DEFAULT_INFO_URL
         try {
             val o = JSONObject(get(first))
-            val u = o.getString("url")
-            if (!u.endsWith("/flooww.apk")) error("Bukan berkas flooww.apk.")
+            var u = o.getString("url")
+            var sha = o.optString("sha256")
+            // rilis punya dua APK (64-bit dan 32-bit): pilih yang cocok dengan arsitektur sistem HP ini
+            val abis = o.optJSONObject("abis")
+            if (abis != null) {
+                for (abi in android.os.Build.SUPPORTED_ABIS) {
+                    val e = abis.optJSONObject(abi) ?: continue
+                    u = e.getString("url")
+                    sha = e.optString("sha256")
+                    break
+                }
+            }
+            if (!Regex("/flooww(-(32|64)bit)?\\.apk$").containsMatchIn(u)) error("Bukan berkas flooww.")
             val ver = o.getInt("version")
-            return Info(ver, u, composeNotes(o, ver), o.optString("sha256").lowercase())
+            return Info(ver, u, composeNotes(o, ver), sha.lowercase())
         } catch (e: Exception) {
             // update.json belum ada di rilis: baca langsung dari API rilis GitHub
         }
@@ -90,16 +101,17 @@ object Updater {
         val ver = Regex("^v(\\d+)$").find(tag)?.groupValues?.get(1)?.toIntOrNull() ?: error("Rilis terbaru bukan rilis flooww.")
         val assets = o.optJSONArray("assets")
         var url = ""
+        val bit = if (android.os.Build.SUPPORTED_ABIS.contains("arm64-v8a")) "64bit" else "32bit"
         if (assets != null) {
             for (i in 0 until assets.length()) {
                 val a = assets.getJSONObject(i)
-                if (a.optString("name") == "flooww.apk") {
+                if (a.optString("name") == "flooww-$bit.apk" || a.optString("name") == "flooww.apk") {
                     url = a.optString("browser_download_url")
                     break
                 }
             }
         }
-        if (url.isEmpty()) error("Rilis terbaru belum berisi flooww.apk.")
+        if (url.isEmpty()) error("Rilis terbaru belum berisi APK flooww untuk HP ini.")
         return Info(ver, url, o.optString("body").trim(), "")
     }
 

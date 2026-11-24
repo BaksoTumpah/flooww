@@ -104,22 +104,28 @@ jobs:
         run: |
           set -euo pipefail
           VER=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts | head -1)
-          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
-          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          # dua APK: 64-bit (arm64-v8a) dan 32-bit (armeabi-v7a)
+          APK64=$(ls app/build/outputs/apk/release/*arm64-v8a*.apk | head -1)
+          APK32=$(ls app/build/outputs/apk/release/*armeabi-v7a*.apk | head -1)
+          SHA64=$(sha256sum "$APK64" | cut -d' ' -f1)
+          SHA32=$(sha256sum "$APK32" | cut -d' ' -f1)
           NOTES=$(jq -r --argjson v "$VER" 'map(select(.v == $v)) | .[0].n // empty' changelog.json 2>/dev/null || true)
           if [ -z "$NOTES" ]; then NOTES=$(git log -1 --pretty=%s | tr -d '"\\'); fi
           mkdir -p rel
-          cp "$APK" rel/flooww.apk
+          cp "$APK64" rel/flooww-64bit.apk
+          cp "$APK32" rel/flooww-32bit.apk
           # changelog: 40 versi terakhir. Aplikasi memilih sendiri versi yang lebih baru dari yang terpasang.
           [ -f changelog.json ] || echo '[]' > changelog.json
-          jq -n --argjson version "$VER" --arg url "https://github.com/$RELEASE_REPO/releases/download/v$VER/flooww.apk" \
-            --arg notes "$NOTES" --arg sha "$SHA" --slurpfile cl changelog.json \
-            '{version:$version,url:$url,notes:$notes,sha256:$sha,changelog:($cl[0] | sort_by(.v) | .[-40:])}' > rel/update.json
+          # url dan sha256 di tingkat atas menunjuk ke APK 64-bit (kompatibel dengan aplikasi lama); aplikasi baru memilih lewat "abis"
+          B="https://github.com/$RELEASE_REPO/releases/download/v$VER"
+          jq -n --argjson version "$VER" --arg u64 "$B/flooww-64bit.apk" --arg u32 "$B/flooww-32bit.apk" \
+            --arg notes "$NOTES" --arg s64 "$SHA64" --arg s32 "$SHA32" --slurpfile cl changelog.json \
+            '{version:$version,url:$u64,notes:$notes,sha256:$s64,abis:{"arm64-v8a":{url:$u64,sha256:$s64},"armeabi-v7a":{url:$u32,sha256:$s32}},changelog:($cl[0] | sort_by(.v) | .[-40:])}' > rel/update.json
           cat rel/update.json
           if gh release view "v$VER" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
-            gh release upload "v$VER" rel/flooww.apk rel/update.json --clobber --repo "$RELEASE_REPO"
+            gh release upload "v$VER" rel/flooww-64bit.apk rel/flooww-32bit.apk rel/update.json --clobber --repo "$RELEASE_REPO"
           else
-            gh release create "v$VER" rel/flooww.apk rel/update.json --repo "$RELEASE_REPO" --title "flooww versi $VER" --notes "$NOTES" --latest
+            gh release create "v$VER" rel/flooww-64bit.apk rel/flooww-32bit.apk rel/update.json --repo "$RELEASE_REPO" --title "flooww versi $VER" --notes "$NOTES" --latest
           fi
 
       # APK flow admin: rilis bernama tetap "admin" di repo rilis yang sama, TIDAK ditandai latest.

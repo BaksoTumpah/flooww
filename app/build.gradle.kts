@@ -19,9 +19,6 @@ android {
         // alamat Firebase Realtime Database (data trial) dan berkas info pembaruan; bisa diisi lewat env CI
         buildConfigField("String", "TRIAL_DB_URL", "\"" + (System.getenv("FLOOWW_DB_URL") ?: "") + "\"")
         buildConfigField("String", "UPDATE_URL", "\"" + (System.getenv("FLOOWW_UPDATE_URL") ?: "") + "\"")
-        // arm64 dan arm 32-bit. Banyak HP murah (mis. Vivo Y20 V2029) berprosesor 64-bit tetapi sistemnya 32-bit,
-        // sehingga APK arm64 saja ditolak saat dipasang. x86 tidak disertakan agar ukuran tetap wajar.
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     // Tanda tangan tetap supaya APK baru bisa memperbarui yang lama (tanpa copot pasang).
@@ -49,6 +46,17 @@ android {
 
     buildFeatures {
         buildConfig = true
+    }
+
+    // Dua APK terpisah: 64-bit (arm64-v8a) dan 32-bit (armeabi-v7a). Banyak HP murah (mis. Vivo Y20 V2029) berprosesor
+    // 64-bit tetapi sistemnya 32-bit, sehingga APK arm64 saja ditolak. Tiap HP cukup mengunduh satu yang cocok (lebih kecil).
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
+        }
     }
 
     buildTypes {

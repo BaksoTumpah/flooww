@@ -4,9 +4,10 @@
     "version": "9",
     "waNumber": "6285137756077",
     "waText": "Info harga lisensi kak",
-    "apkUrl": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk",
+    "apkUrl": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-64bit.apk",
     "siteTitle": "flooww asisten belajar",
-    "description": "flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit."
+    "description": "flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit.",
+    "apkUrl32": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-32bit.apk"
   },
   "brand": {
     "name": "flooww",
@@ -46,7 +47,7 @@
         "label": "Izin dijelaskan satu per satu"
       }
     ],
-    "fine": "Untuk Android 8.0 ke atas dengan prosesor arm64.",
+    "fine": "Untuk Android 8.0 ke atas. Tersedia untuk HP 64-bit dan 32-bit, pilihannya ada di bagian Unduh.",
     "caption": "Ilustrasi. Ketuk bubble untuk membuka menu, lalu pilih alat.",
     "bubbleAria": "Bubble flooww. Ketuk untuk membuka atau menutup menu",
     "menuAria": "Alat flooww"
@@ -150,7 +151,7 @@
   "unduh": {
     "title": "Unduh flooww",
     "lead": "Paket APK untuk dipasang langsung di HP Android.",
-    "btn": "Unduh APK V{versi}",
+    "btn": "Unduh 64-bit V{versi}",
     "spec": [
       {
         "label": "Versi",
@@ -158,7 +159,7 @@
       },
       {
         "label": "Ukuran",
-        "value": "{ukuran}"
+        "value": "{ukuran} (64-bit), {ukuran32} (32-bit)"
       },
       {
         "label": "Dirilis",
@@ -170,7 +171,7 @@
       },
       {
         "label": "Prosesor",
-        "value": "arm64-v8a"
+        "value": "arm64-v8a (64-bit) atau armeabi-v7a (32-bit)"
       },
       {
         "label": "Pembaruan",
@@ -213,7 +214,9 @@
         "title": "Ketuk Pasang",
         "desc": "Pasang di atas versi lama, lalu buka flooww lagi. Bila gagal, unduh APK dari tombol di atas dan pasang manual."
       }
-    ]
+    ],
+    "btn32": "Unduh 32-bit V{versi}",
+    "which": "Tidak tahu pilih yang mana? Pakai 64-bit, cocok untuk hampir semua HP. Bila gagal terpasang atau muncul pesan tidak kompatibel, pakai 32-bit."
   },
   "lisensi": {
     "title": "Lisensi",

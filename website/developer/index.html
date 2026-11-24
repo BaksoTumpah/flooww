@@ -328,7 +328,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 <noscript><main style="padding:1rem;max-width:46rem;margin:auto;font-family:system-ui,sans-serif">
 <h1>flooww</h1><p>Bubble mengambang untuk belajar di Android. Lingkari soal di layar, lalu tanya AI, salin teksnya, atau terjemahkan Inggris dan Jepang ke Indonesia. Ada juga screenshot, browser mini, kalkulator, auto clicker, catatan cepat, dan galeri mengambang.</p>
 <p>Trial gratis 10 menit, lalu lisensi dibeli lewat WhatsApp. Untuk Android 8.0 ke atas dengan prosesor arm64.</p>
-<p><a href="https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk">Unduh APK</a></p>
+<p><a href="https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-64bit.apk">Unduh APK 64-bit</a> <a href="https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-32bit.apk">Unduh APK 32-bit</a></p>
 <p><a href="/panduan/">Panduan</a> · <a href="/faq/">FAQ</a> · <a href="/privasi/">Privasi</a> · <a href="/syarat/">Syarat</a></p>
 <p>Beranda ini memerlukan JavaScript untuk tampilan lengkap.</p></main></noscript>
 
@@ -364,7 +364,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       version: '9',
       waNumber: '62XXXXXXXXXX',
       waText: 'Halo, saya mau beli lisensi flooww. Mohon info paket dan harganya.',
-      apkUrl: 'https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk'
+      apkUrl: 'https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-64bit.apk',
+      apkUrl32: 'https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-32bit.apk'
     },
     brand: { name: 'flooww', aria: 'flooww, ke atas' },
     nav: { aria: 'Menu halaman', items: [{ label: 'Aman' }, { label: 'Unduh' }, { label: 'Lisensi' }, { label: 'Kontak' }] },
@@ -375,7 +376,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       btnApk: 'Unduh APK {versi}',
       btnWa: 'Beli lisensi lewat WhatsApp',
       pills: [{ label: 'Tanpa iklan dan pelacak' }, { label: 'Isi layar tidak dikirim ke pengembang' }, { label: 'Izin dijelaskan satu per satu' }],
-      fine: 'Untuk Android 8.0 ke atas dengan prosesor arm64.',
+      fine: 'Untuk Android 8.0 ke atas. Tersedia untuk HP 64-bit dan 32-bit, pilihannya ada di bagian Unduh.',
       caption: 'Ilustrasi. Ketuk bubble untuk membuka menu, lalu pilih alat.',
       bubbleAria: 'Bubble flooww. Ketuk untuk membuka atau menutup menu',
       menuAria: 'Alat flooww'
@@ -419,13 +420,15 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     unduh: {
       title: 'Unduh flooww',
       lead: 'Paket APK untuk dipasang langsung di HP Android.',
-      btn: 'Unduh APK {versi}',
+      btn: 'Unduh 64-bit {versi}',
+      btn32: 'Unduh 32-bit {versi}',
+      which: 'Tidak tahu pilih yang mana? Pakai 64-bit, cocok untuk hampir semua HP. Bila gagal terpasang atau muncul pesan tidak kompatibel, pakai 32-bit.',
       spec: [
         { label: 'Versi', value: '{versi}' },
-        { label: 'Ukuran', value: '{ukuran}' },
+        { label: 'Ukuran', value: '{ukuran} (64-bit), {ukuran32} (32-bit)' },
         { label: 'Dirilis', value: '{tanggal}' },
         { label: 'Android', value: '8.0 (API 26) ke atas' },
-        { label: 'Prosesor', value: 'arm64-v8a' },
+        { label: 'Prosesor', value: 'arm64-v8a (64-bit) atau armeabi-v7a (32-bit)' },
         { label: 'Pembaruan', value: 'Pasang di atas versi lama' },
         { label: 'Nama paket', value: 'com.example.floatstudy' }
       ],
@@ -475,7 +478,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   /* rilis terbaru dibaca otomatis dari GitHub Releases: versi, ukuran APK, dan tanggal rilis */
   var RELEASE = null;
   function releaseVersion(c) { return RELEASE && RELEASE.version ? RELEASE.version : c.meta.version; }
-  function releaseSize() { return RELEASE && RELEASE.size ? (RELEASE.size / 1048576).toFixed(1).replace('.', ',') + ' MB' : '-'; }
+  function mb(n) { return n ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : '-'; }
+  function releaseSize() { return RELEASE ? mb(RELEASE.size) : '-'; }
+  function releaseSize32() { return RELEASE ? mb(RELEASE.size32) : '-'; }
   function releaseDate() {
     if (!RELEASE || !RELEASE.date) return '-';
     var d = new Date(RELEASE.date);
@@ -485,6 +490,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   function fill(s, c) {
     return String(s == null ? '' : s)
       .replace(/\{versi\}/g, releaseVersion(c))
+      .replace(/\{ukuran32\}/g, releaseSize32())
       .replace(/\{ukuran\}/g, releaseSize())
       .replace(/\{tanggal\}/g, releaseDate())
       .replace(/\{kode\}/g, c.lisensi.receipt.groups.map(function (g) { return g.v; }).join(' '));
@@ -590,7 +596,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
   function siteHTML(c) {
     var F = function (s) { return esc(fill(s, c)); };
-    var wa = esc(waLink(c)), apk = esc(c.meta.apkUrl), h = [];
+    var wa = esc(waLink(c)), apk = esc(c.meta.apkUrl), apk32 = esc(c.meta.apkUrl32 || ''), h = [];
     var waBtn = function (label) { return '<a class="btn btn-wa" href="' + wa + '" target="_blank" rel="noopener">' + icon('chat') + F(label) + '</a>'; };
 
     if (draft) {
@@ -624,7 +630,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       var mono = /^[a-z0-9_]+(\.[a-z0-9_]+)+$/i.test(fill(s.value, c));
       return '<div><dt>' + F(s.label) + '</dt><dd' + (mono ? ' class="mono"' : '') + '>' + F(s.value) + '</dd></div>';
     }).join('') + '</dl>');
-    h.push('<div class="cta dl-cta"><a class="btn btn-primary" href="' + apk + '" target="_blank" rel="noopener">' + icon('i-dl') + F(c.unduh.btn) + '</a></div></div>' + '<div>' + stepsHTML(c.unduh.steps, F) + '<h3 class="up-h">' + F(c.unduh.upTitle) + '</h3>' + stepsHTML(c.unduh.upSteps, F) + '</div></div></div></section>');
+    h.push('<div class="cta dl-cta"><a class="btn btn-primary" href="' + apk + '" target="_blank" rel="noopener">' + icon('i-dl') + F(c.unduh.btn) + '</a>' + (apk32 ? '<a class="btn btn-ghost" href="' + apk32 + '" target="_blank" rel="noopener">' + icon('i-dl') + F(c.unduh.btn32) + '</a>' : '') + '</div>' + (c.unduh.which ? '<p class="fine">' + F(c.unduh.which) + '</p>' : '') + '</div>' + '<div>' + stepsHTML(c.unduh.steps, F) + '<h3 class="up-h">' + F(c.unduh.upTitle) + '</h3>' + stepsHTML(c.unduh.upSteps, F) + '</div></div></div></section>');
 
     var r = c.lisensi.receipt;
     h.push('<section class="sec" id="lisensi" style="--c: var(--amber)"><div class="in">' + shHTML('i-ticket', c.lisensi.title, F) + '<p class="lead-in">' + F(c.lisensi.lead) + '</p><div class="lic-grid">' + stepsHTML(c.lisensi.steps, F));
@@ -697,13 +703,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   function F(path, label, kind, hint) { return { t: 'f', path: path, label: label, kind: kind || 'text', hint: hint || '' }; }
   function G(title, fields, hint) { return { t: 'g', title: title, fields: fields, hint: hint || '' }; }
   function L(title, path, o) { return { t: 'l', title: title, path: path, fixed: !!o.fixed, fields: o.fields, name: o.name, titleKey: o.titleKey, blank: o.blank, hint: o.hint || '' }; }
-  var VERSI_HINT = 'Tulis {versi}, {ukuran}, atau {tanggal} untuk memasukkan data rilis terbaru otomatis dari GitHub.';
+  var VERSI_HINT = 'Tulis {versi}, {ukuran}, {ukuran32}, atau {tanggal} untuk memasukkan data rilis terbaru otomatis dari GitHub.';
   var SECTIONS = [
     { id: 'tayang', label: 'Tayangkan', desc: 'Simpan, ekspor, dan impor seluruh teks situs.' },
     { id: 'umum', label: 'Umum', desc: 'Judul tab, merek, versi, nomor WhatsApp, dan tautan.', blocks: [
       G('Situs', [F('meta.title', 'Judul tab browser'), F('brand.name', 'Nama merek di pojok kiri atas'), F('brand.aria', 'Label pembaca layar untuk merek')]),
       G('Mesin pencari (Google)', [F('meta.siteTitle', 'Judul yang tampil di Google dan tab', 'text', 'Mis. "flooww asisten belajar". Google membaca judul setelah situs dirender; judul di HTML statis tidak ikut berubah.'), F('meta.description', 'Deskripsi di Google', 'area', 'Sekitar 120 sampai 160 karakter.')]),
-      G('Aplikasi', [F('meta.version', 'Nomor versi cadangan', 'text', 'Terisi otomatis dari rilis terbaru di GitHub. Angka ini hanya dipakai bila GitHub tidak terjangkau.'), F('meta.apkUrl', 'Tautan unduh APK', 'url', 'Dipakai oleh semua tombol Unduh APK.')]),
+      G('Aplikasi', [F('meta.version', 'Nomor versi cadangan', 'text', 'Terisi otomatis dari rilis terbaru di GitHub. Angka ini hanya dipakai bila GitHub tidak terjangkau.'), F('meta.apkUrl', 'Tautan unduh APK 64-bit', 'url', 'Dipakai oleh tombol Unduh 64-bit dan tombol di bagian atas.'), F('meta.apkUrl32', 'Tautan unduh APK 32-bit', 'url', 'Dipakai oleh tombol Unduh 32-bit.')]),
       G('WhatsApp', [F('meta.waNumber', 'Nomor WhatsApp', 'tel', 'Format internasional tanpa tanda plus. Contoh: 6281234567890.'), F('meta.waText', 'Pesan awal saat chat dibuka', 'area')])
     ] },
     { id: 'menu', label: 'Menu atas', desc: 'Teks tautan di bagian atas halaman. Tujuan tautan tetap.', blocks: [
@@ -727,7 +733,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       G('Kotak catatan', [F('aman.honest.title', 'Judul'), F('aman.honest.p1', 'Paragraf pertama', 'area'), F('aman.honest.p2', 'Paragraf kedua', 'area')])
     ] },
     { id: 'unduh', label: 'Unduh', desc: 'Spesifikasi dan langkah pemasangan.', blocks: [
-      G('Judul bagian', [F('unduh.title', 'Judul'), F('unduh.lead', 'Pengantar', 'area'), F('unduh.btn', 'Tombol unduh', 'text', VERSI_HINT)]),
+      G('Judul bagian', [F('unduh.title', 'Judul'), F('unduh.lead', 'Pengantar', 'area'), F('unduh.btn', 'Tombol unduh 64-bit', 'text', VERSI_HINT), F('unduh.btn32', 'Tombol unduh 32-bit', 'text', VERSI_HINT), F('unduh.which', 'Petunjuk memilih 32 atau 64-bit', 'area')]),
       L('Spesifikasi', 'unduh.spec', { name: 'Baris', titleKey: 'label', blank: { label: '', value: '' }, fields: [{ key: 'label', label: 'Nama' }, { key: 'value', label: 'Nilai', hint: VERSI_HINT }] }),
       L('Langkah pemasangan', 'unduh.steps', { name: 'Langkah', titleKey: 'title', blank: { title: '', desc: '' }, fields: [{ key: 'title', label: 'Judul langkah' }, { key: 'desc', label: 'Penjelasan', kind: 'area' }] }),
       G('Cara memperbarui', [F('unduh.upTitle', 'Judul')]),
@@ -938,7 +944,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   }
   try {
     var cached = null;
-    try { cached = JSON.parse(sessionStorage.getItem('flooww.release.v1') || 'null'); } catch (e) { }
+    try { cached = JSON.parse(sessionStorage.getItem('flooww.release.v2') || 'null'); } catch (e) { }
     if (cached && cached.at && Date.now() - cached.at < 600000) {
       RELEASE = cached.r;
       renderSiteIfReady();
@@ -948,9 +954,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
         .then(function (j) {
           if (!isObj(j)) return;
           var m = /\d+/.exec(String(j.tag_name || ''));
-          var a = (j.assets || []).filter(function (x) { return /\.apk$/i.test(x.name || ''); })[0];
-          var r = { version: m ? m[0] : '', size: a ? a.size : 0, date: j.published_at || '' };
-          try { sessionStorage.setItem('flooww.release.v1', JSON.stringify({ at: Date.now(), r: r })); } catch (e) { }
+          var apks = (j.assets || []).filter(function (x) { return /\.apk$/i.test(x.name || ''); });
+          var a = apks.filter(function (x) { return /64/.test(x.name); })[0] || apks[0];
+          var a32 = apks.filter(function (x) { return /32/.test(x.name); })[0];
+          var r = { version: m ? m[0] : '', size: a ? a.size : 0, size32: a32 ? a32.size : 0, date: j.published_at || '' };
+          try { sessionStorage.setItem('flooww.release.v2', JSON.stringify({ at: Date.now(), r: r })); } catch (e) { }
           applyRelease(r);
         }, function () { });
     }
