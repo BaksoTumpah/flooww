@@ -58,5 +58,9 @@
   {
     "v": 30,
     "n": "Website: tombol unduh universal (flooww.apk)"
+  },
+  {
+    "v": 31,
+    "n": "Updater ikut jenis APK terpasang (universal/64/32-bit), cadangan universal, cek apksigner di CI"
   }
 ]
