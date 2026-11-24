@@ -55,7 +55,8 @@ android {
             isEnable = true
             reset()
             include("arm64-v8a", "armeabi-v7a")
-            isUniversalApk = false
+            // APK universal hanya jembatan untuk aplikasi lama yang membaca flooww.apk; aplikasi baru memilih per arsitektur
+            isUniversalApk = true
         }
     }
 
