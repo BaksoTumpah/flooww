@@ -38,5 +38,9 @@
   {
     "v": 25,
     "n": "Tanya AI hanya kirim gambar, OCR dan Kalkulator ganti nama, urutan tile menu bisa diatur, kotak OCR ingat ukuran"
+  },
+  {
+    "v": 26,
+    "n": "Model terjemah: hanya Indonesia dan Inggris diunduh otomatis, bahasa lain wajib diunduh di Pengaturan; terjemah manual dan Live memberi petunjuk bila model belum ada"
   }
 ]
