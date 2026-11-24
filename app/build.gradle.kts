@@ -10,6 +10,8 @@ android {
     compileSdk = 34
 
     defaultConfig {
+        // APK jembatan (-Puniversal) hanya memuat arm64 dan arm 32-bit, tanpa x86 supaya tidak membengkak
+        if (project.hasProperty("universal")) ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         applicationId = "com.example.floatstudy"
         setProperty("archivesBaseName", "flooww")
         minSdk = 26
@@ -52,11 +54,11 @@ android {
     // 64-bit tetapi sistemnya 32-bit, sehingga APK arm64 saja ditolak. Tiap HP cukup mengunduh satu yang cocok (lebih kecil).
     splits {
         abi {
-            isEnable = true
+            // -Puniversal: satu APK berisi arm64 + arm 32-bit (jembatan untuk aplikasi lama), tanpa pemisahan
+            isEnable = !project.hasProperty("universal")
             reset()
             include("arm64-v8a", "armeabi-v7a")
-            // APK universal hanya jembatan untuk aplikasi lama yang membaca flooww.apk; aplikasi baru memilih per arsitektur
-            isUniversalApk = true
+            isUniversalApk = false
         }
     }
 

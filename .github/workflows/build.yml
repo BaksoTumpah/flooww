@@ -69,7 +69,13 @@ jobs:
           FLOOWW_DB_URL: ${{ vars.FLOOWW_DB_URL }}
           FLOOWW_UPDATE_URL: ${{ vars.FLOOWW_UPDATE_URL }}
           FLOOWW_ADMIN_GOOGLE_CLIENT_ID: ${{ vars.FLOOWW_ADMIN_GOOGLE_CLIENT_ID }}
-        run: gradle :app:assembleDebug :app:assembleRelease :admin:assembleDebug :admin:assembleRelease --no-daemon
+        run: |
+          # 1) APK jembatan: satu berkas arm64 + arm 32-bit untuk aplikasi lama yang hanya mengenal flooww.apk
+          gradle :app:assembleRelease -Puniversal --no-daemon
+          cp "$(ls app/build/outputs/apk/release/*.apk | head -1)" "$RUNNER_TEMP/flooww-bridge.apk"
+          rm -f app/build/outputs/apk/release/*.apk
+          # 2) build utama: APK terpisah 64-bit dan 32-bit
+          gradle :app:assembleDebug :app:assembleRelease :admin:assembleDebug :admin:assembleRelease --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -107,7 +113,7 @@ jobs:
           # dua APK: 64-bit (arm64-v8a) dan 32-bit (armeabi-v7a)
           APK64=$(ls app/build/outputs/apk/release/*arm64-v8a*.apk | head -1)
           APK32=$(ls app/build/outputs/apk/release/*armeabi-v7a*.apk | head -1)
-          APKU=$(ls app/build/outputs/apk/release/*universal*.apk | head -1)
+          APKU="$RUNNER_TEMP/flooww-bridge.apk"
           SHAU=$(sha256sum "$APKU" | cut -d' ' -f1)
           SHA64=$(sha256sum "$APK64" | cut -d' ' -f1)
           SHA32=$(sha256sum "$APK32" | cut -d' ' -f1)
