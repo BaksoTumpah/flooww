@@ -945,19 +945,22 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   try {
     var cached = null;
     try { cached = JSON.parse(sessionStorage.getItem('flooww.release.v2') || 'null'); } catch (e) { }
-    if (cached && cached.at && Date.now() - cached.at < 600000) {
+    if (cached && cached.at && Date.now() - cached.at < 60000) {
       RELEASE = cached.r;
       renderSiteIfReady();
     } else {
-      fetch('https://api.github.com/repos/BaksoTumpah/flooww-rilis/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+      fetch('https://api.github.com/repos/BaksoTumpah/flooww-rilis/releases?per_page=10', { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
-          if (!isObj(j)) return;
-          var m = /\d+/.exec(String(j.tag_name || ''));
-          var apks = (j.assets || []).filter(function (x) { return /\.apk$/i.test(x.name || ''); });
+          if (!Array.isArray(j)) return;
+          // rilis flooww terbaru = tag v10, v11, ... (rilis aplikasi admin bertag lain diabaikan)
+          var rel = j.filter(function (x) { return /^v\d+$/.test(String(x.tag_name || '')) && !x.draft && !x.prerelease; })[0];
+          if (!rel) return;
+          var m = /\d+/.exec(String(rel.tag_name));
+          var apks = (rel.assets || []).filter(function (x) { return /\.apk$/i.test(x.name || ''); });
           var a = apks.filter(function (x) { return /64/.test(x.name); })[0] || apks[0];
           var a32 = apks.filter(function (x) { return /32/.test(x.name); })[0];
-          var r = { version: m ? m[0] : '', size: a ? a.size : 0, size32: a32 ? a32.size : 0, date: j.published_at || '' };
+          var r = { version: m ? m[0] : '', size: a ? a.size : 0, size32: a32 ? a32.size : 0, date: rel.published_at || '' };
           try { sessionStorage.setItem('flooww.release.v2', JSON.stringify({ at: Date.now(), r: r })); } catch (e) { }
           applyRelease(r);
         }, function () { });

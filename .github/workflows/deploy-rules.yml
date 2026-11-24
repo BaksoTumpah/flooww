@@ -1,0 +1,50 @@
+name: Deploy Rules Realtime Database
+on:
+  push:
+    branches: [main]
+    # hanya jalan bila berkas aturan database berubah
+    paths:
+      - "firebase/database.rules.json"
+      - ".github/workflows/deploy-rules.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# satu deploy pada satu waktu supaya tidak saling menimpa
+concurrency:
+  group: deploy-rules-live
+  cancel-in-progress: false
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Deploy aturan database
+        env:
+          PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          DB_URL: ${{ vars.FLOOWW_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PROJECT_ID" ] || [ -z "$SERVICE_ACCOUNT" ]; then
+            echo "::error::FIREBASE_PROJECT_ID (variable) atau FIREBASE_SERVICE_ACCOUNT (secret) belum diisi."
+            exit 1
+          fi
+          # validasi JSON dulu supaya aturan yang rusak tidak pernah terkirim
+          node -e 'JSON.parse(require("fs").readFileSync("firebase/database.rules.json","utf8"))'
+          # nama instance database diambil dari FLOOWW_DB_URL (mis. https://NAMA-default-rtdb.region.firebasedatabase.app)
+          if [ -n "$DB_URL" ]; then
+            INSTANCE=$(node -e 'console.log(new URL(process.env.DB_URL).hostname.split(".")[0])')
+            node -e 'const fs=require("fs");const c=JSON.parse(fs.readFileSync("firebase.json","utf8"));c.database={instance:process.argv[1],rules:"firebase/database.rules.json"};fs.writeFileSync("firebase.json",JSON.stringify(c,null,2))' "$INSTANCE"
+            echo "Instance database: $INSTANCE"
+          fi
+          printf '%s' "$SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx --yes firebase-tools@13 deploy --only database --project "$PROJECT_ID" --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"
