@@ -54,6 +54,7 @@ object Diag {
         val head = "flooww ${BuildConfig.VERSION_NAME}\n" +
             "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n" +
             "RAM ${mi.totalMem / 1048576} MB, sisa ${mi.availMem / 1048576} MB, RAM rendah: ${am.isLowRamDevice}\n" +
+            "ABI HP: ${Build.SUPPORTED_ABIS.joinToString()}\n" +
             "WebView: ${webViewInfo()}\n" +
             "Tampil di atas aplikasi lain: ${android.provider.Settings.canDrawOverlays(c)}, aksesibilitas aktif: ${ClickService.instance != null}\n" +
             "Jendela bebas: ${android.provider.Settings.Global.getInt(c.contentResolver, "enable_freeform_support", 0)}\n---\n"
