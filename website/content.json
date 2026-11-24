@@ -7,7 +7,8 @@
     "apkUrl": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-64bit.apk",
     "siteTitle": "flooww asisten belajar",
     "description": "flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit.",
-    "apkUrl32": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-32bit.apk"
+    "apkUrl32": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-32bit.apk",
+    "apkUrlU": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk"
   },
   "brand": {
     "name": "flooww",
@@ -159,7 +160,7 @@
       },
       {
         "label": "Ukuran",
-        "value": "{ukuran} (64-bit), {ukuran32} (32-bit)"
+        "value": "{ukuran} (64-bit), {ukuran32} (32-bit), {ukuranU} (universal)"
       },
       {
         "label": "Dirilis",
@@ -216,7 +217,8 @@
       }
     ],
     "btn32": "Unduh 32-bit V{versi}",
-    "which": "Tidak tahu pilih yang mana? Pakai 64-bit, cocok untuk hampir semua HP. Bila gagal terpasang atau muncul pesan tidak kompatibel, pakai 32-bit."
+    "btnU": "Unduh universal V{versi}",
+    "which": "Tidak tahu pilih yang mana? Pakai 64-bit, cocok untuk hampir semua HP. Bila gagal terpasang atau muncul pesan tidak kompatibel, pakai 32-bit. Universal memuat kedua versi sekaligus, ukurannya lebih besar."
   },
   "lisensi": {
     "title": "Lisensi",
