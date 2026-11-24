@@ -50,5 +50,9 @@
   {
     "v": 28,
     "n": "Website: tombol hero jadi Unduh flooww dan menggulir mulus ke bagian Unduh"
+  },
+  {
+    "v": 29,
+    "n": "Website: versi dan ukuran dibaca segar dari rilis (daftar rilis, abaikan rilis admin, cache 1 menit); workflow deploy rules database otomatis tiap berkas rules berubah"
   }
 ]
