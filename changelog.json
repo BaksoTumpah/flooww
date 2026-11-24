@@ -42,5 +42,9 @@
   {
     "v": 26,
     "n": "Model terjemah: hanya Indonesia dan Inggris diunduh otomatis, bahasa lain wajib diunduh di Pengaturan; terjemah manual dan Live memberi petunjuk bila model belum ada"
+  },
+  {
+    "v": 27,
+    "n": "Rilis juga memuat flooww.apk universal sebagai jembatan pembaruan untuk aplikasi lama"
   }
 ]
