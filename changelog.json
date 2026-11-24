@@ -54,5 +54,9 @@
   {
     "v": 29,
     "n": "Website: versi dan ukuran dibaca segar dari rilis (daftar rilis, abaikan rilis admin, cache 1 menit); workflow deploy rules database otomatis tiap berkas rules berubah"
+  },
+  {
+    "v": 30,
+    "n": "Website: tombol unduh universal (flooww.apk)"
   }
 ]
