@@ -89,6 +89,18 @@ class LiveTranslator(private val svc: AccessibilityService) {
         val cjkAr = srcCode in listOf("ar", "ja", "zh", "ko")
         hasLetter = if (cjkAr) Regex("\\p{L}") else Regex("[\\p{L}]{2,}")
         ocrOk = !cjkAr
+        Models.missing(listOf(srcCode, dstCode)) { miss ->
+            main.post {
+                if (!active) return@post
+                if (miss.isNotEmpty()) {
+                    active = false
+                    say(Models.hint(miss))
+                } else begin(say)
+            }
+        }
+    }
+
+    private fun begin(say: (String) -> Unit) {
         val tr = Translation.getClient(
             TranslatorOptions.Builder()
                 .setSourceLanguage(srcCode)

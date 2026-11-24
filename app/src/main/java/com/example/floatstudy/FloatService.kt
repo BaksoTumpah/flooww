@@ -205,6 +205,7 @@ class FloatService : Service() {
     override fun onCreate() {
         super.onCreate()
         P = Ui.pal(this)
+        Models.ensureBase(this)
         // buka akses ke API tersembunyi (setLaunchWindowingMode) agar jendela bebas bisa dipakai
         try {
             if (Build.VERSION.SDK_INT >= 28) org.lsposed.hiddenapibypass.HiddenApiBypass.addHiddenApiExemptions("L")
@@ -2460,6 +2461,17 @@ class FloatService : Service() {
     }
 
     private fun translateText(src: String, from: String, to: String, out: TextView) {
+        Models.missing(listOf(from, to)) { miss ->
+            ui.post {
+                if (miss.isNotEmpty()) {
+                    out.text = Models.hint(miss)
+                    toast(Models.hint(miss))
+                } else translateTextGo(src, from, to, out)
+            }
+        }
+    }
+
+    private fun translateTextGo(src: String, from: String, to: String, out: TextView) {
         val tr = com.google.mlkit.nl.translate.Translation.getClient(
             com.google.mlkit.nl.translate.TranslatorOptions.Builder()
                 .setSourceLanguage(from)

@@ -47,6 +47,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Models.ensureBase(this)
         p = Ui.pal(this)
         // trial habis, atau lisensi tersimpan tidak sah: bubble dimatikan dan semua fitur terkunci sampai lisensi sah
         if (Trial.mustLock(this)) {
@@ -153,9 +154,9 @@ class MainActivity : Activity() {
                 .getDownloadedModels(com.google.mlkit.nl.translate.TranslateRemoteModel::class.java)
                 .addOnSuccessListener { set ->
                     val codes = set.map { it.language }.toSet()
-                    val names = Prefs.LANG_CODES.indices.filter { Prefs.LANG_CODES[it] == "en" || Prefs.LANG_CODES[it] in codes }
+                    val names = Prefs.LANG_CODES.indices.filter { Prefs.LANG_CODES[it] in Models.BASE || Prefs.LANG_CODES[it] in codes }
                         .joinToString { Prefs.LANGS[it] }
-                    modelInfo.text = "Terunduh: $names. Model berukuran sekitar 30 MB per bahasa dan dipakai tanpa internet."
+                    modelInfo.text = "Terunduh: $names. Indonesia dan Inggris bawaan, bahasa lain diunduh di sini. Model berukuran sekitar 30 MB per bahasa dan dipakai tanpa internet."
                 }
                 .addOnFailureListener { modelInfo.text = "Daftar model tidak bisa dibaca." }
         }
@@ -1065,11 +1066,12 @@ class MainActivity : Activity() {
 
     /** Dialog centang model bahasa: centang = unduh, hapus centang = hapus dari HP. Inggris selalu ada (dipakai sebagai perantara). */
     private fun pickModels(done: () -> Unit) {
+        Models.ensureBase(this)
         val mgr = com.google.mlkit.common.model.RemoteModelManager.getInstance()
         mgr.getDownloadedModels(com.google.mlkit.nl.translate.TranslateRemoteModel::class.java)
             .addOnSuccessListener { set ->
                 val have = set.map { it.language }.toSet()
-                val ids = Prefs.LANG_CODES.indices.filter { Prefs.LANG_CODES[it] != "en" }
+                val ids = Prefs.LANG_CODES.indices.filter { Prefs.LANG_CODES[it] !in Models.BASE }
                 val checked = BooleanArray(ids.size) { Prefs.LANG_CODES[ids[it]] in have }
                 val now = checked.copyOf()
                 android.app.AlertDialog.Builder(this)
