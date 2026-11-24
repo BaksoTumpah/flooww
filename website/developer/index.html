@@ -373,7 +373,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       title: 'flooww',
       tagline: 'Bubble mengambang untuk belajar.',
       sub: 'Lingkari soal di layar, lalu tanya AI, salin teksnya, atau terjemahkan. Semua dari satu bubble di atas aplikasi apa pun.',
-      btnApk: 'Unduh APK {versi}',
+      btnApk: 'Unduh flooww',
       btnWa: 'Beli lisensi lewat WhatsApp',
       pills: [{ label: 'Tanpa iklan dan pelacak' }, { label: 'Isi layar tidak dikirim ke pengembang' }, { label: 'Izin dijelaskan satu per satu' }],
       fine: 'Untuk Android 8.0 ke atas. Tersedia untuk HP 64-bit dan 32-bit, pilihannya ada di bagian Unduh.',
@@ -606,7 +606,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     h.push('<nav class="nav" aria-label="' + F(c.nav.aria) + '">' + c.nav.items.map(function (n, i) { return '<a href="' + (NAVHREF[i] || '#atas') + '">' + F(n.label) + '</a>'; }).join('') + '</nav></header>');
     h.push('<main id="atas"><section class="in hero"><div>');
     h.push('<h1 class="wordmark">' + F(c.hero.title) + '</h1><p class="tagline">' + F(c.hero.tagline) + '</p><p class="sub">' + F(c.hero.sub) + '</p>');
-    h.push('<div class="cta"><a class="btn btn-primary" href="' + apk + '" target="_blank" rel="noopener">' + icon('i-dl') + F(c.hero.btnApk) + '</a>' + waBtn(c.hero.btnWa) + '</div>');
+    h.push('<div class="cta"><a class="btn btn-primary" href="#unduh">' + icon('i-dl') + F(c.hero.btnApk) + '</a>' + waBtn(c.hero.btnWa) + '</div>');
     h.push('<div class="pills">' + c.hero.pills.map(function (p, i) { return '<a class="pill" href="#aman" style="--c: var(' + PILL_COLORS[i % PILL_COLORS.length] + ')"><i></i>' + F(p.label) + '</a>'; }).join('') + '</div>');
     h.push('<p class="fine">' + F(c.hero.fine) + '</p></div>');
     h.push('<figure class="demo"><div class="screen"><div class="fake" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><b></b></div>');
