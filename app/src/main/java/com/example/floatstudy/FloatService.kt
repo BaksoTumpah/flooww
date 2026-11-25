@@ -396,8 +396,9 @@ class FloatService : Service() {
         }
     }
 
-    /** Trial habis: matikan semua fitur dan tampilkan popup yang hanya bisa ditutup dengan lisensi sah. */
+    /** Trial habis: matikan semua fitur lalu buka aplikasi di halaman lisensi (popup hanya sebagai cadangan bila gagal). */
     private fun lockAll() {
+        if (locked) return
         ui.removeCallbacks(trialTick)
         locked = true
         // ingat di perangkat: layar aplikasi terkunci di halaman lisensi sampai lisensi sah
@@ -419,7 +420,17 @@ class FloatService : Service() {
         bubble = null
         grab?.release()
         grab = null
-        showLock()
+        // tanpa popup: langsung buka aplikasi flooww layar penuh di halaman isi lisensi (MainActivity mengunci dirinya sendiri)
+        try {
+            c.startActivity(
+                Intent(c, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
+            stopSelf()
+        } catch (e: Exception) {
+            // gagal membuka aplikasi (mis. dibatasi sistem): pakai popup lama sebagai cadangan
+            showLock()
+        }
     }
 
     private fun unlock() {
@@ -454,6 +465,7 @@ class FloatService : Service() {
 
     private fun showLock() {
         if (lockView != null) return
+        License.refreshAdminWa(c)
         val p = Ui.pal(c)
         val code = License.deviceCode(c)
         val msg = TextView(c).apply {
@@ -510,6 +522,9 @@ class FloatService : Service() {
                 val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("ID HP", code))
                 msg.text = "ID HP disalin. Kirim ke admin."
+            }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) })
+            addView(Ui.button(c, "Beli lisensi lewat WhatsApp", true) {
+                if (!License.openAdminWa(c, code)) msg.text = "WhatsApp tidak bisa dibuka. Salin ID HP lalu kirim manual ke admin."
             }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) })
             addView(input, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(10) })
             addView(LinearLayout(c).apply {

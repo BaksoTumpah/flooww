@@ -764,6 +764,7 @@ class MainActivity : Activity() {
             addView(chip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         })
         refreshChip()
+        License.refreshAdminWa(this)
         val code = License.deviceCode(this)
         val msg = TextView(this).apply {
             text = msgOverride ?: License.message(License.state(this@MainActivity))
@@ -800,6 +801,11 @@ class MainActivity : Activity() {
                     startActivity(Intent.createChooser(
                         Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, "Kode perangkat flooww: $code"), "Kirim kode"
                     ))
+                }
+            ),
+            row(
+                Ui.button(this, "Beli lisensi lewat WhatsApp", true) {
+                    if (!License.openAdminWa(this, code)) msg.text = "WhatsApp tidak bisa dibuka. Salin kode perangkat lalu kirim manual ke admin."
                 }
             )
         ))

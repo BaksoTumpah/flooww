@@ -3,6 +3,16 @@ name: Build APK
 on:
   push:
     branches: [main]
+    # build APK dan kenaikan versi hanya bila ada perubahan yang menyangkut aplikasi.
+    # Perubahan yang hanya menyentuh website, aturan database, dokumentasi, atau workflow lain tidak memicu build.
+    paths-ignore:
+      - "website/**"
+      - "firebase/**"
+      - "firebase.json"
+      - "**/*.md"
+      - ".github/workflows/deploy-web.yml"
+      - ".github/workflows/deploy-rules.yml"
+      - ".github/workflows/notify-telegram.yml"
   workflow_dispatch:
 
 # izin tulis diperlukan agar workflow bisa mengirim commit kenaikan versi dan changelog

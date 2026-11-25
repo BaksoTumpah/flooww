@@ -15,6 +15,53 @@ import java.security.spec.X509EncodedKeySpec
  * Lisensi terikat pada kode perangkat, sehingga tidak bisa dipakai di HP lain.
  */
 object License {
+    /** Nomor WhatsApp admin (sama dengan nomor di website flooww, format internasional tanpa tanda +). */
+    const val ADMIN_WA = "6285137756077"
+
+    /** Nomor admin terbaru: dibaca dari website flooww (meta.waNumber) dan disimpan; bila belum pernah terbaca, pakai ADMIN_WA. */
+    fun adminWa(c: Context): String =
+        (Prefs.sp(c).getString("admin_wa", "") ?: "").filter { it.isDigit() }.takeIf { it.length in 8..16 } ?: ADMIN_WA
+
+    /** Segarkan nomor admin dari website (thread latar, gagal diam-diam). */
+    fun refreshAdminWa(c: Context) {
+        Thread {
+            try {
+                val h = java.net.URL("https://flooww.web.app/content.json").openConnection() as java.net.HttpURLConnection
+                h.connectTimeout = 8000
+                h.readTimeout = 8000
+                h.useCaches = false
+                try {
+                    if (h.responseCode != 200) return@Thread
+                    val n = org.json.JSONObject(h.inputStream.bufferedReader().use { it.readText() })
+                        .getJSONObject("meta").optString("waNumber").filter { it.isDigit() }
+                    if (n.length in 8..16) Prefs.sp(c).edit().putString("admin_wa", n).apply()
+                } finally {
+                    h.disconnect()
+                }
+            } catch (e: Exception) {
+            }
+        }.start()
+    }
+
+    /** Buka WhatsApp ke admin dengan pesan terisi (kode perangkat sudah ada di pesan). false bila tidak ada yang bisa membuka. */
+    fun openAdminWa(c: Context, code: String): Boolean {
+        val text = "Halo admin, $code saya mau membeli lisensi resmi aplikasi flooww."
+        val uri = android.net.Uri.parse("https://wa.me/${adminWa(c)}?text=" + android.net.Uri.encode(text))
+        // utamakan aplikasi WhatsApp (biasa lalu Business), terakhir apa pun yang bisa membuka tautan
+        for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b", null)) {
+            try {
+                c.startActivity(
+                    android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        .apply { if (pkg != null) setPackage(pkg) }
+                )
+                return true
+            } catch (e: Exception) {
+            }
+        }
+        return false
+    }
+
     /** Kunci publik admin (X.509, base64). Pasangannya hanya ada di aplikasi flow admin. */
     /** Kunci publik yang diterima: kunci pertama (lama) dan kunci kedua (baru, kunci pendek). Lisensi dari salah satunya sah. */
     private val PUBS = listOf(
