@@ -62,5 +62,9 @@
   {
     "v": 31,
     "n": "Updater ikut jenis APK terpasang (universal/64/32-bit), cadangan universal, cek apksigner di CI"
+  },
+  {
+    "v": 32,
+    "n": "Trial habis langsung ke halaman lisensi, tombol WhatsApp admin, build hanya bila perlu"
   }
 ]
