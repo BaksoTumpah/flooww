@@ -66,5 +66,9 @@
   {
     "v": 32,
     "n": "Trial habis langsung ke halaman lisensi, tombol WhatsApp admin, build hanya bila perlu"
+  },
+  {
+    "v": 33,
+    "n": "Jendela mengambang selalu TYPE_ACCESSIBILITY_OVERLAY, tanpa cadangan overlay biasa"
   }
 ]
