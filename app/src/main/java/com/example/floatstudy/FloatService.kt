@@ -110,22 +110,16 @@ class FloatService : Service() {
 
     private lateinit var wm: WindowManager
 
-    // Tipe jendela overlay. Bila layanan aksesibilitas aktif, pakai TYPE_ACCESSIBILITY_OVERLAY
-    // (tidak butuh izin "tampil di atas aplikasi lain", tetap tampil di atas aplikasi lain).
-    // Jika tidak, pakai TYPE_APPLICATION_OVERLAY biasa.
-    private var ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    // Semua jendela mengambang SELALU bertipe TYPE_ACCESSIBILITY_OVERLAY (tidak pernah TYPE_APPLICATION_OVERLAY).
+    // Tanpa layanan aksesibilitas flooww yang aktif, bubble tidak dijalankan.
+    private val ovType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+    private var a11yWait = 0
 
     private fun pickWindowManager() {
-        val a11y = ClickService.instance
-        if (a11y != null) {
-            // WindowManager dari layanan aksesibilitas membawa token yang disyaratkan
-            // TYPE_ACCESSIBILITY_OVERLAY. WindowManager dari Service biasa akan melempar BadTokenException.
-            wm = a11y.getSystemService(WINDOW_SERVICE) as WindowManager
-            ovType = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-        } else {
-            wm = getSystemService(WINDOW_SERVICE) as WindowManager
-            ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        }
+        // WindowManager dari layanan aksesibilitas membawa token yang disyaratkan
+        // TYPE_ACCESSIBILITY_OVERLAY. WindowManager dari Service biasa akan melempar BadTokenException.
+        val a11y = ClickService.instance ?: return
+        wm = a11y.getSystemService(WINDOW_SERVICE) as WindowManager
     }
     private var grab: ScreenGrabber? = null
 
@@ -220,10 +214,22 @@ class FloatService : Service() {
         }
         // wm harus siap sebelum dipakai (realSize, bubble)
         // tipe overlay dipilih sekali saat bubble dibuat, supaya semua jendela memakai tipe yang sama
+        // sistem mulai ulang layanan ini bersamaan dengan layanan aksesibilitas: beri waktu sampai 6 detik
+        if (ClickService.instance == null) {
+            startAsForeground(false)
+            if (a11yWait < 12) {
+                a11yWait++
+                ui.postDelayed({ onStartCommand(intent, flags, startId) }, 500)
+                return START_STICKY
+            }
+            a11yWait = 0
+            toast("Layanan aksesibilitas flooww belum aktif. Nyalakan di Pengaturan > Aksesibilitas, lalu mulai bubble lagi.")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        a11yWait = 0
         if (!::wm.isInitialized || bubble == null) pickWindowManager()
-        ClickService.onLost = if (ovType == WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) {
-            { ui.post { onA11yLost() } }
-        } else null
+        ClickService.onLost = { ui.post { onA11yLost() } }
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
         @Suppress("DEPRECATION")
         val data = intent?.getParcelableExtra<Intent>(EXTRA_DATA)
@@ -1139,18 +1145,11 @@ class FloatService : Service() {
         try {
             wm.addView(b, lp)
         } catch (e: Exception) {
-            // token aksesibilitas ditolak: kembali ke overlay biasa
-            wm = getSystemService(WINDOW_SERVICE) as WindowManager
-            ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            lp.type = ovType
-            try {
-                wm.addView(b, lp)
-            } catch (e2: Exception) {
-                // ROM atau izin menolak semua jenis overlay
-                Toast.makeText(c, RomHint.overlayBlocked(), Toast.LENGTH_LONG).show()
-                stopSelf()
-                return
-            }
+            // token aksesibilitas ditolak: tidak ada cadangan ke overlay biasa
+            Diag.add(c, "addView bubble gagal: ${e.javaClass.simpleName} ${e.message}")
+            Toast.makeText(c, "Jendela mengambang ditolak. Matikan lalu nyalakan lagi layanan aksesibilitas flooww. " + RomHint.overlayBlocked(), Toast.LENGTH_LONG).show()
+            stopSelf()
+            return
         }
         bubble = b
         bubbleBg = bg
@@ -1160,10 +1159,9 @@ class FloatService : Service() {
 
     /**
      * Layanan aksesibilitas mati saat bubble masih jalan: sistem ikut menghapus semua jendela
-     * bertipe TYPE_ACCESSIBILITY_OVERLAY. Pindah ke overlay biasa dan bangun ulang bubble.
+     * bertipe TYPE_ACCESSIBILITY_OVERLAY, dan tidak ada cadangan overlay biasa. Hentikan layanan.
      */
     private fun onA11yLost() {
-        if (ovType != WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) return
         ClickService.onLost = null
         if (clicking) stopClicking()
         hideMenu()
@@ -1181,19 +1179,8 @@ class FloatService : Service() {
         selector = null
         target = null
         lockView = null
-        wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        ovType = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        panelLp?.type = ovType
-        targetLp?.type = ovType
-        osk.wm = wm
-        osk.type = ovType
-        if (Settings.canDrawOverlays(this)) {
-            showBubble()
-            toast("Layanan aksesibilitas mati, memakai overlay biasa")
-        } else {
-            Toast.makeText(c, "Layanan aksesibilitas mati dan izin tampil di atas aplikasi lain belum aktif. " + RomHint.overlayBlocked(), Toast.LENGTH_LONG).show()
-            stopSelf()
-        }
+        Toast.makeText(c, "Aksesibilitas mati, bubble dinonaktifkan.", Toast.LENGTH_SHORT).show()
+        stopSelf()
     }
 
     private fun onBubbleTap() {

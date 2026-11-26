@@ -1241,12 +1241,13 @@ class MainActivity : Activity() {
     // ---------- mulai ----------
 
     private fun startFlow() {
-        if (!Settings.canDrawOverlays(this) && ClickService.instance == null) {
-            status.text = "Aktifkan izin 'tampil di atas aplikasi lain', lalu tekan Mulai lagi. " + RomHint.overlayBlocked()
-            startActivityForResult(
-                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")),
-                reqOverlay
-            )
+        // jendela mengambang hanya bertipe TYPE_ACCESSIBILITY_OVERLAY: layanan aksesibilitas wajib aktif
+        if (ClickService.instance == null) {
+            status.text = "Nyalakan layanan aksesibilitas flooww dulu, lalu tekan Mulai lagi."
+            try {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            } catch (e: Exception) {
+            }
             return
         }
         val mpm = getSystemService(MediaProjectionManager::class.java)

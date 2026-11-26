@@ -26,7 +26,7 @@ interface OskTarget {
  * Keyboard layar buatan flooww. Berupa jendela overlay sendiri di dasar layar yang tidak pernah menerima fokus,
  * jadi aplikasi di bawahnya tetap fokus. Mengetik langsung mengubah teks di EditText target.
  */
-class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY) {
+class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) {
     private val ui = Handler(Looper.getMainLooper())
     private val pal get() = Ui.pal(c)
     private var view: LinearLayout? = null
