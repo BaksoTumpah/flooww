@@ -36,6 +36,14 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
     private var attached = false
     private var hideJob: Runnable? = null
 
+    /** Satu tuts yang bisa ditekan: tampilan, tulisan pratinjau, apakah pratinjau muncul, dan aksinya. */
+    private class KeyDef(val view: TextView, val label: String, val preview: Boolean, val click: () -> Unit)
+
+    private val keyDefs = mutableListOf<KeyDef>()
+    private var active: KeyDef? = null
+    private var pv: TextView? = null
+    private var pvAttached = false
+
     /** Dipanggil dengan tinggi keyboard (px) saat tampil, dan 0 saat disembunyikan. */
     var onHeight: ((Int) -> Unit)? = null
 
@@ -87,6 +95,8 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
         }
         val was = attached
         attached = false
+        active = null
+        dropPreview()
         target = null
         onHeight?.invoke(0)
         if (was) onHidden?.invoke()
@@ -104,6 +114,8 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
     private val S3 = listOf("*", "\"", "'", ":", ";", "!", "?", "=", "^")
 
     private fun rebuild() {
+        keyDefs.clear()
+        active = null
         val scale = Prefs.get(c, Setting.OSK_H) / 100f
         val keyH = (dp(46) * scale).toInt()
         val root = LinearLayout(c).apply {
@@ -130,6 +142,8 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
             keys.forEach { addView(it) }
         }
         if (!symbols) {
+            // baris angka di atas huruf, seperti keyboard HP
+            root.addView(row(*S1.map { ch -> plain(ch.toString(), keyH) }.toTypedArray()))
             root.addView(row(*L1.map { ch -> letter(ch, keyH) }.toTypedArray()))
             root.addView(row(*(listOf(spacer(0.5f)) + L2.map { ch -> letter(ch, keyH) } + listOf(spacer(0.5f))).toTypedArray()))
             root.addView(
@@ -164,6 +178,7 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
         val was = attached
         if (!was) return
         val old = view
+        dropPreview()
         rebuild()
         try {
             wm.removeView(old)
@@ -185,7 +200,7 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
 
     private fun letter(ch: Char, h: Int): View {
         val s = if (shift) ch.uppercaseChar().toString() else ch.toString()
-        return key(s, 1f, h) {
+        return key(s, 1f, h, preview = true) {
             type(s)
             if (shift) {
                 shift = false
@@ -194,7 +209,7 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
         }
     }
 
-    private fun plain(s: String, h: Int) = key(s, 1f, h) { type(s) }
+    private fun plain(s: String, h: Int) = key(s, 1f, h, preview = true) { type(s) }
 
     /** Tahan ⌫: hapus berulang, makin lama makin cepat (setelah sekitar 1 detik menghapus 2 sampai 3 huruf per langkah). */
     private fun delKey(w: Float, h: Int): View = key("⌫", w, h, special = true).also { k ->
@@ -227,10 +242,12 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
     }
 
     /** Efek ketik seperti keyboard sistem: getar singkat dan tuts sedikit mengecil saat ditekan. */
-    private fun pressFx(v: View, down: Boolean) {
+    private fun pressFx(v: View, down: Boolean, scale: Boolean = true) {
         if (down) {
-            v.animate().cancel()
-            v.animate().scaleX(0.93f).scaleY(0.93f).setDuration(40).start()
+            if (scale) {
+                v.animate().cancel()
+                v.animate().scaleX(0.93f).scaleY(0.93f).setDuration(40).start()
+            }
             try {
                 v.performHapticFeedback(
                     HapticFeedbackConstants.KEYBOARD_TAP,
@@ -238,18 +255,123 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
                 )
             } catch (e: Exception) {
             }
-        } else {
+        } else if (scale) {
             v.animate().cancel()
             v.animate().scaleX(1f).scaleY(1f).setDuration(90).start()
         }
     }
 
+    // ---------- sentuhan tuts: pratinjau huruf seperti keyboard HP, geser jari pindah tuts, tanpa suara ----------
+
+    private fun keyAt(rx: Float, ry: Float): KeyDef? {
+        val loc = IntArray(2)
+        for (d in keyDefs) {
+            d.view.getLocationOnScreen(loc)
+            if (rx >= loc[0] && rx < loc[0] + d.view.width && ry >= loc[1] && ry < loc[1] + d.view.height) return d
+        }
+        return null
+    }
+
+    private fun pressKey(d: KeyDef) {
+        releaseKey()
+        active = d
+        d.view.isPressed = true
+        pressFx(d.view, true, !d.preview)
+        if (d.preview) showPreview(d) else hidePreview()
+    }
+
+    private fun releaseKey() {
+        val a = active ?: return
+        a.view.isPressed = false
+        pressFx(a.view, false, !a.preview)
+        hidePreview()
+        active = null
+    }
+
+    private fun onKeyTouch(own: KeyDef, ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> pressKey(own)
+            MotionEvent.ACTION_MOVE -> {
+                val hit = keyAt(ev.rawX, ev.rawY)
+                if (hit !== active) {
+                    if (hit == null) releaseKey() else pressKey(hit)
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                val a = active
+                releaseKey()
+                a?.click?.invoke()
+            }
+            MotionEvent.ACTION_CANCEL -> releaseKey()
+        }
+        return true
+    }
+
+    /** Gelembung huruf di atas tuts yang ditekan (jendela overlay sendiri, tidak bisa disentuh dan tidak mengambil fokus). */
+    private fun showPreview(d: KeyDef) {
+        val root = view ?: return
+        try {
+            val v = pv ?: TextView(c).also { pv = it }
+            val kw = d.view.width
+            val kh = d.view.height
+            val pw = (kw * 1.35f).toInt().coerceAtLeast(dp(44))
+            val ph = (kh * 1.55f).toInt().coerceAtLeast(dp(60))
+            v.text = d.label
+            v.gravity = Gravity.CENTER
+            v.textSize = 30f
+            v.typeface = Typeface.DEFAULT_BOLD
+            v.setTextColor(pal.on)
+            v.isSoundEffectsEnabled = false
+            v.background = Ui.round(if (pal.night) 0xFF4A4568.toInt() else 0xFFFFFFFF.toInt(), dp(14), pal.outline, dp(1))
+            val kl = IntArray(2)
+            d.view.getLocationOnScreen(kl)
+            val rl = IntArray(2)
+            root.getLocationOnScreen(rl)
+            val sw = c.resources.displayMetrics.widthPixels
+            val x = (kl[0] + kw / 2 - pw / 2).coerceIn(0, (sw - pw).coerceAtLeast(0))
+            // dasar gelembung sedikit menutupi tepi atas tuts; jendela berjangkar di dasar layar seperti keyboard
+            val y = rl[1] + root.height - kl[1] - (kh * 0.2f).toInt()
+            val lp = WindowManager.LayoutParams(
+                pw, ph, type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.START
+                this.x = x
+                this.y = y
+            }
+            if (pvAttached) wm.updateViewLayout(v, lp) else {
+                wm.addView(v, lp)
+                pvAttached = true
+            }
+            v.visibility = View.VISIBLE
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun hidePreview() {
+        pv?.visibility = View.INVISIBLE
+    }
+
+    private fun dropPreview() {
+        val v = pv
+        if (pvAttached && v != null) {
+            try {
+                wm.removeView(v)
+            } catch (e: Exception) {
+            }
+        }
+        pvAttached = false
+    }
+
     private fun key(
         label: String, w: Float, h: Int,
         special: Boolean = false, on: Boolean = false, primary: Boolean = false,
-        click: (() -> Unit)? = null
+        preview: Boolean = false, click: (() -> Unit)? = null
     ): TextView = TextView(c).apply {
         text = label
+        isSoundEffectsEnabled = false
         gravity = Gravity.CENTER
         textSize = if (label.length > 1 && label != "▼") 13f else 18f
         typeface = Typeface.DEFAULT_BOLD
@@ -264,24 +386,9 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
             setMargins(dp(2), dp(2), dp(2), dp(2))
         }
         if (click != null) {
-            setOnTouchListener { v, ev ->
-                when (ev.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        v.isPressed = true
-                        pressFx(v, true)
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        v.isPressed = false
-                        pressFx(v, false)
-                        click()
-                    }
-                    MotionEvent.ACTION_CANCEL -> {
-                        v.isPressed = false
-                        pressFx(v, false)
-                    }
-                }
-                true
-            }
+            val def = KeyDef(this, label, preview, click)
+            keyDefs.add(def)
+            setOnTouchListener { _, ev -> onKeyTouch(def, ev) }
         }
     }
 

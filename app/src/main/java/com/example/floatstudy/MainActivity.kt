@@ -24,19 +24,14 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 
 /** Layar pengaturan. Semua pengaturan bubble, menu, jendela, AI, dan API key ada di sini. */
 class MainActivity : Activity() {
 
-    private companion object {
-        /** Sudah menekan "Lanjut ke flooww" pada halaman izin (berlaku selama proses aplikasi hidup). */
-        @Volatile var permSkipped = false
-    }
-
     private val reqOverlay = 1
     private val reqProjection = 2
     private val reqNotif = 3
-    private val reqMedia = 4
 
     private lateinit var p: Pal
     private lateinit var status: TextView
@@ -48,6 +43,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Models.ensureBase(this)
+        Diag.installCrashLog(this)
         p = Ui.pal(this)
         // trial habis, atau lisensi tersimpan tidak sah: bubble dimatikan dan semua fitur terkunci sampai lisensi sah
         if (Trial.mustLock(this)) {
@@ -60,8 +56,8 @@ class MainActivity : Activity() {
             return
         }
 
-        // izin wajib belum lengkap: tampilkan daftar izin dulu (tanpa melompat ke pengaturan sistem)
-        if (!permSkipped && buildSteps().any { !it.optional && !it.ok() }) {
+        // izin wajib belum lengkap: pengaturan flooww tidak bisa dibuka, hanya daftar izin yang tampil
+        if (buildSteps().any { !it.optional && !it.ok() }) {
             showPermPage()
             return
         }
@@ -123,6 +119,18 @@ class MainActivity : Activity() {
 
         col.addView(permCard())
 
+        // lapor admin: WhatsApp terbuka dengan pesan berisi info perangkat yang sama dengan "Lihat laporan"
+        col.addView(card("Lapor ke admin",
+            note("Ada masalah? Info perangkat (sama dengan Laporan masalah) langsung terisi di pesan WhatsApp."),
+            row(
+                Ui.colorButton(this, "Lapor admin", Ui.WA_RED, R.drawable.ic_wa) {
+                    val body = Diag.report(this).let { if (it.length > 3000) it.take(1200) + "\n...\n" + it.takeLast(1700) else it }
+                    if (!License.openAdminWaText(this, "Halo admin, saya mau melaporkan masalah aplikasi flooww.\n\n" + body))
+                        android.widget.Toast.makeText(this, "WhatsApp tidak bisa dibuka. Salin laporan lewat Laporan masalah lalu kirim manual.", android.widget.Toast.LENGTH_LONG).show()
+                }
+            )
+        ))
+
         val gAi = Group("Tanya AI dan terjemah", "Tujuan Tanya AI, pertanyaan", true)
         val gLook = Group("Tampilan", "Bubble, menu, jendela", false)
         val gCtl = Group("Kontrol", "Gestur bubble, keyboard", false)
@@ -141,7 +149,7 @@ class MainActivity : Activity() {
             })
         }
         gAi.add(sec("Tujuan Tanya AI",
-            note("Direkomendasikan: ChatGPT (bawaan). Gambar soal paling stabil terlampir. Google AI Mode juga tersedia, tanpa login. Bila jendela AI masih terbuka, soal berikutnya melanjutkan chat yang sama sehingga lebih cepat."),
+            note("Bawaan: Google AI Mode. Duck.ai juga tanpa login (anonim), tapi belum teruji di HP dan punya batas pemakaian harian dari DuckDuckGo. Bila salah satu menolak karena batas habis, soal otomatis dikirim ke yang satunya dan yang habis dilewati sampai batasnya reset. Bila jendela AI masih terbuka, soal berikutnya melanjutkan chat yang sama sehingga lebih cepat."),
             segmented(Prefs.AI_NAMES, { Prefs.aiTarget(this) }) { Prefs.setAiTarget(this, it) },
             note("Tanya AI mengirim gambar soal yang dilingkari."),
             spaced(promptIn)
@@ -296,13 +304,21 @@ class MainActivity : Activity() {
             slider("Lama tekan", Setting.LONG_MS, " ms"),
         ))
         gCtl.add(sec("Keyboard di jendela mengambang",
-            note("Direkomendasikan: Keyboard flooww (bawaan). Muncul di dasar layar dan tidak mengambil fokus aplikasi di bawahnya, jadi aman dipakai saat ujian. Keyboard HP memakai keyboard bawaan, tapi fokus berpindah ke jendela."),
-            segmented(listOf("Keyboard flooww", "Keyboard HP"), { if (Prefs.kbBlock(this)) 0 else 1 }) { Prefs.setKbBlock(this, it == 0) },
+            note("Jendela mengambang selalu memakai Keyboard flooww. Keyboard bawaan HP diblokir, jadi tidak ada keyboard HP yang muncul dan fokus aplikasi di bawahnya tidak berpindah."),
             slider("Tinggi tombol keyboard flooww", Setting.OSK_H, "%"),
             slider("Opasitas keyboard flooww", Setting.OSK_ALPHA, "%")
         ))
         gLook.add(sec("Jendela alat",
             slider("Zoom halaman web", Setting.WEB_ZOOM, "%")
+        ))
+        gLook.add(sec("Aksesibilitas sering mati sendiri?",
+            note("Beberapa HP (Xiaomi, Vivo, OPPO/Realme, Samsung) mematikan aplikasi di latar belakang, lalu izin aksesibilitas ikut mati. Di Info aplikasi flooww: Baterai pilih \"Tanpa pembatasan\" (atau nonaktifkan penghemat), izinkan \"Mulai otomatis\" bila ada, dan kunci aplikasi di Recents."),
+            spaced(Ui.button(this, "Buka info aplikasi flooww", false) {
+                try {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                } catch (e: Exception) {
+                }
+            })
         ))
         gLook.add(sec("Laporan masalah",
             note("Catatan singkat kejadian di HP ini (tidak dikirim ke mana pun). Bila Apps atau Tanya AI bermasalah, salin lalu kirim ke pengembang."),
@@ -371,6 +387,11 @@ class MainActivity : Activity() {
                     textSize = 13f
                     setTextColor(p.muted)
                 },
+                row(
+                    Ui.colorButton(this, "Beli lisensi lewat WhatsApp", Ui.WA_GREEN, R.drawable.ic_wa) {
+                        if (!License.openAdminWa(this, License.deviceCode(this))) android.widget.Toast.makeText(this, "WhatsApp tidak bisa dibuka. Salin kode perangkat lalu kirim manual ke admin.", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                ),
                 Ui.button(this, "Masukkan lisensi", true) { showLicense("Kirim kode perangkat ke admin, lalu tempel lisensi.", true) }
             ))
         }
@@ -552,23 +573,6 @@ class MainActivity : Activity() {
                 { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), reqNotif) },
                 action = "Beri izin")
         }
-        l += Step("Akses foto (Galeri mengambang)",
-            "Untuk membuka Galeri mengambang. Foto hanya dibaca saat Anda membukanya, tidak diunggah.",
-            {
-                if (Build.VERSION.SDK_INT >= 33) {
-                    checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED ||
-                        (Build.VERSION.SDK_INT >= 34 &&
-                            checkSelfPermission("android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == PackageManager.PERMISSION_GRANTED)
-                } else {
-                    checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
-                }
-            }, {
-                requestPermissions(
-                    if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
-                    else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
-                    reqMedia
-                )
-            }, true, "Beri izin")
         l += Step("Pasang aplikasi dari sumber ini",
             "Agar pembaruan flooww bisa diunduh lalu dipasang dari dalam aplikasi. Hanya perlu bila Anda memperbarui lewat flooww.",
             { packageManager.canRequestPackageInstalls() }, {
@@ -712,7 +716,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(2), 0, dp(4))
         })
         col.addView(TextView(this).apply {
-            text = "flooww butuh beberapa izin agar bubble bisa berjalan. Tiap izin dijelaskan di bawah, dan tombolnya membuka pengaturan yang sesuai. Izin opsional boleh dilewati."
+            text = "Semua izin wajib (bertanda ✕) harus diberikan dulu sebelum pengaturan flooww bisa dibuka. Tiap izin dijelaskan di bawah, dan tombolnya membuka pengaturan yang sesuai. Izin opsional boleh dilewati."
             textSize = 14f
             setTextColor(p.muted)
             setPadding(0, 0, 0, dp(14))
@@ -725,8 +729,17 @@ class MainActivity : Activity() {
             setPadding(dp(4), 0, dp(4), dp(12))
         })
         col.addView(Ui.button(this, "Lanjut ke flooww", true) {
-            permSkipped = true
-            recreate()
+            val missing = buildSteps().filter { !it.optional && !it.ok() }
+            if (missing.isEmpty()) {
+                recreate()
+            } else {
+                refreshPerm()
+                Toast.makeText(
+                    this,
+                    "Izin wajib belum lengkap: " + missing.joinToString(", ") { it.name },
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         })
         window.decorView.setBackgroundColor(p.bg)
         setContentView(
@@ -804,7 +817,7 @@ class MainActivity : Activity() {
                 }
             ),
             row(
-                Ui.button(this, "Beli lisensi lewat WhatsApp", true) {
+                Ui.colorButton(this, "Beli lisensi lewat WhatsApp", Ui.WA_GREEN, R.drawable.ic_wa) {
                     if (!License.openAdminWa(this, code)) msg.text = "WhatsApp tidak bisa dibuka. Salin kode perangkat lalu kirim manual ke admin."
                 }
             )
@@ -840,6 +853,10 @@ class MainActivity : Activity() {
         super.onResume()
         tickH.removeCallbacks(tick)
         if (!lockedScreen) tickH.post(tick)
+        if (onPermPage && permSteps.none { !it.optional && !it.ok() }) {
+            recreate()
+            return
+        }
         if (permSteps.isNotEmpty()) {
             refreshPerm()
             if (chaining) window.decorView.postDelayed({ nextPermission() }, 350)

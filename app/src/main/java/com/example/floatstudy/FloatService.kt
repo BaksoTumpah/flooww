@@ -60,6 +60,9 @@ class FloatService : Service() {
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
 
+        /** Dipanggil MediaPermActivity setelah pengguna menjawab izin akses foto (true = diizinkan). */
+        @Volatile var onMediaPerm: ((Boolean) -> Unit)? = null
+
         private const val M_ASK = 0
         private const val M_COPY = 1
         private const val M_TR = 2
@@ -77,15 +80,17 @@ class FloatService : Service() {
         private const val M_LIVE = 10
         private const val M_READ = 11
         private const val M_OFF = 12
+        private const val M_SET = 13 // panel pengaturan (bukan tile menu)
 
         private val NAMES = listOf(
             "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
-            "Kalkulator", "Klik", "Apps", "Catatan", "Galeri", "Live", "OCR", "Matikan"
+            "Kalkulator", "Klik", "Apps", "Catatan", "Galeri", "Live", "OCR", "Matikan", "Pengaturan"
         )
         private val ICONS = intArrayOf(
             R.drawable.ic_ask, R.drawable.ic_copy, R.drawable.ic_translate, R.drawable.ic_shot,
             R.drawable.ic_browser, R.drawable.ic_calc, R.drawable.ic_touch,
-            R.drawable.ic_apps, R.drawable.ic_note, R.drawable.ic_image, R.drawable.ic_live, R.drawable.ic_read, R.drawable.ic_power
+            R.drawable.ic_apps, R.drawable.ic_note, R.drawable.ic_image, R.drawable.ic_live, R.drawable.ic_read, R.drawable.ic_power,
+            R.drawable.ic_settings
         )
 
         // alat yang mengambil soal dari layar: lingkaran pilih area muncul dulu, jendela sesudahnya
@@ -200,6 +205,8 @@ class FloatService : Service() {
         super.onCreate()
         P = Ui.pal(this)
         Models.ensureBase(this)
+        Diag.installCrashLog(this)
+        Diag.add(this, "bubble dinyalakan")
         // buka akses ke API tersembunyi (setLaunchWindowingMode) agar jendela bebas bisa dipakai
         try {
             if (Build.VERSION.SDK_INT >= 28) org.lsposed.hiddenapibypass.HiddenApiBypass.addHiddenApiExemptions("L")
@@ -529,7 +536,7 @@ class FloatService : Service() {
                 cm.setPrimaryClip(ClipData.newPlainText("ID HP", code))
                 msg.text = "ID HP disalin. Kirim ke admin."
             }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) })
-            addView(Ui.button(c, "Beli lisensi lewat WhatsApp", true) {
+            addView(Ui.colorButton(c, "Beli lisensi lewat WhatsApp", Ui.WA_GREEN, R.drawable.ic_wa) {
                 if (!License.openAdminWa(c, code)) msg.text = "WhatsApp tidak bisa dibuka. Salin ID HP lalu kirim manual ke admin."
             }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(6) })
             addView(input, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(10) })
@@ -564,6 +571,9 @@ class FloatService : Service() {
     }
 
     override fun onDestroy() {
+        onMediaPerm = null
+        Diag.add(this, "bubble dimatikan, aksesibilitas masih aktif: ${ClickService.instance != null}")
+        hideAppPicker()
         Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefListener)
         ClickService.onLost = null
         ClickService.setLive(false) { }
@@ -1088,7 +1098,7 @@ class FloatService : Service() {
         }
     }
 
-    private fun toJpegB64(src: Bitmap): String {
+    private fun toJpegBytes(src: Bitmap): ByteArray {
         val scale = minOf(1f, 1280f / maxOf(src.width, src.height))
         val bmp = if (scale < 1f) {
             Bitmap.createScaledBitmap(
@@ -1097,8 +1107,10 @@ class FloatService : Service() {
         } else src
         val bos = ByteArrayOutputStream()
         bmp.compress(Bitmap.CompressFormat.JPEG, 75, bos)
-        return Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP)
+        return bos.toByteArray()
     }
+
+    private fun toJpegB64(src: Bitmap): String = Base64.encodeToString(toJpegBytes(src), Base64.NO_WRAP)
 
     private fun copyText(t: String) {
         val cm = getSystemService(ClipboardManager::class.java)
@@ -1162,6 +1174,7 @@ class FloatService : Service() {
      * bertipe TYPE_ACCESSIBILITY_OVERLAY, dan tidak ada cadangan overlay biasa. Hentikan layanan.
      */
     private fun onA11yLost() {
+        Diag.add(c, "aksesibilitas mati saat bubble berjalan")
         ClickService.onLost = null
         if (clicking) stopClicking()
         hideMenu()
@@ -1307,29 +1320,111 @@ class FloatService : Service() {
             lp.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
+        menuEdit = false
+        menuPos = null
+        menuScrollY = 0
         wm.addView(root, lp)
         menu = root
+        ui.post { prewarmWeb() }
         // posisi bubble di layar baru bisa dibaca setelah jendela menu terukur
         root.post { if (menu === root) layoutMenu(root, b) }
     }
 
-    private fun layoutMenu(root: FrameLayout, b: View) {
+    private var menuEdit = false
+    private var menuPos: IntArray? = null
+    private var menuScrollY = 0
+    private var menuScroll: ScrollView? = null
+
+    /** Susun ulang kartu menu (setelah urutan berubah atau mode atur diganti), posisi gulir tetap. */
+    private fun relayoutMenu(root: FrameLayout, b: View) {
+        menuScroll?.let { menuScrollY = it.scrollY }
+        root.removeAllViews()
+        layoutMenu(root, b, false)
+    }
+
+    /**
+     * Menu bubble berbentuk panel memanjang, dua kolom, bisa digulir. Atas: tombol tutup dan pegangan geser panel.
+     * Bawah: tombol atur (pindahkan tile) dan pegangan ubah tinggi. Tinggi disimpan di pengaturan.
+     */
+    private fun layoutMenu(root: FrameLayout, b: View, animate: Boolean = true) {
         val sc = pref(Setting.MENU_SIZE) / 100f
-        val tile = dpf(48f * sc)
-        val gap = dpf(8f * sc)
-        val pad = dpf(12f * sc)
-        val cell = tile + gap
-        val cols = if (5 * cell + 2 * pad + b.width + dp(24) <= root.width) 5 else 4
+        val tile = dpf(52f * sc)
+        val cell = dpf(74f * sc)
+        val pad = dpf(10f * sc)
+        val barH = dpf(34f * sc)
+        val cols = 2
+        val cw = cols * cell + 2 * pad
 
         val card = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL
             background = Ui.clay(c, P.surface, dpf(24f * sc), 5f)
-            setPadding(pad, pad, pad, pad - gap / 2 + dp(5))
             elevation = dp(12).toFloat()
+            clipChildren = false
+            isClickable = true
+        }
+        val lp = FrameLayout.LayoutParams(cw, WRAP)
+
+        // ---- atas: tutup + pegangan geser ----
+        val header = FrameLayout(c)
+        header.addView(TextView(c).apply {
+            text = "‹"
+            textSize = 24f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(P.on)
+            setOnClickListener { hideMenu() }
+        }, FrameLayout.LayoutParams(dp(44), MATCH, Gravity.START))
+        header.addView(View(c).apply {
+            background = Ui.round(Ui.withAlpha(P.muted, 0.7f), dp(2))
+        }, FrameLayout.LayoutParams(dp(64), dp(4), Gravity.CENTER))
+        // titik tiga: pengaturan flooww dalam jendela mengambang
+        header.addView(TextView(c).apply {
+            text = "⋮"
+            textSize = 22f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(P.on)
+            setOnClickListener {
+                hideMenu()
+                openSettingsOverlay()
+            }
+        }, FrameLayout.LayoutParams(dp(44), MATCH, Gravity.END))
+        var hx = 0f
+        var hy = 0f
+        var sl = 0
+        var st = 0
+        header.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    hx = e.rawX
+                    hy = e.rawY
+                    sl = lp.leftMargin
+                    st = lp.topMargin
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    lp.leftMargin = (sl + (e.rawX - hx).toInt()).coerceIn(0, maxOf(0, root.width - card.width))
+                    lp.topMargin = (st + (e.rawY - hy).toInt()).coerceIn(0, maxOf(0, root.height - card.height))
+                    card.layoutParams = lp
+                    menuPos = intArrayOf(lp.leftMargin, lp.topMargin)
+                }
+            }
+            true
+        }
+
+        // ---- isi: tile dua kolom ----
+        val content = vbox().apply {
+            setPadding(pad, 0, pad, pad / 2)
+            clipChildren = false
         }
         val hidden = Prefs.menuHidden(c)
-        Prefs.menuOrder(c).filter { it == M_OFF || it !in hidden }.chunked(cols).forEach { chunk ->
-            val line = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
+        val shown = Prefs.menuOrder(c).filter { it == M_OFF || it !in hidden }
+        val views = LinkedHashMap<Int, View>()
+        val lineOf = HashMap<Int, LinearLayout>()
+        shown.chunked(cols).forEach { chunk ->
+            val line = LinearLayout(c).apply {
+                orientation = LinearLayout.HORIZONTAL
+                clipChildren = false
+            }
             chunk.forEach { i ->
                 // tombol Live disorot (warna aksen penuh) selama terjemahan langsung menyala, normal bila mati
                 val liveOn = i == M_LIVE && ClickService.liveActive()
@@ -1348,28 +1443,93 @@ class FloatService : Service() {
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
                     setTextColor(if (liveOn) Ui.accentText(P, accent) else P.on)
-                    if (liveOn) typeface = Typeface.DEFAULT_BOLD
-                    setTextSize(TypedValue.COMPLEX_UNIT_DIP, 10f * sc)
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextSize(TypedValue.COMPLEX_UNIT_DIP, 11f * sc)
                 }
                 val item = LinearLayout(c).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER_HORIZONTAL
                     isClickable = true
-                    setOnClickListener { onMenuPick(i) }
                     addView(icon, LinearLayout.LayoutParams(tile, tile))
                     addView(name, LinearLayout.LayoutParams(cell, WRAP).apply { topMargin = dp(3) })
                 }
-                line.addView(item, LinearLayout.LayoutParams(cell, WRAP).apply { bottomMargin = gap / 2 })
+                views[i] = item
+                lineOf[i] = line
+                line.addView(item, LinearLayout.LayoutParams(cell, WRAP).apply { bottomMargin = dpf(8f * sc) })
             }
-            card.addView(line)
+            content.addView(line)
         }
+        val scroll = ScrollView(c).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            clipChildren = false
+            addView(content, MATCH, WRAP)
+        }
+        menuScroll = scroll
+        // ketuk = pilih alat; tekan lama lalu geser = pindahkan tile (mode atur: langsung geser)
+        views.forEach { (id, v) -> attachMenuDrag(v, id, shown, views, lineOf, scroll, root, b) }
 
-        card.measure(
-            View.MeasureSpec.makeMeasureSpec(root.width, View.MeasureSpec.AT_MOST),
-            View.MeasureSpec.makeMeasureSpec(root.height, View.MeasureSpec.AT_MOST)
+        // ---- bawah: atur + pegangan ubah tinggi ----
+        val footer = FrameLayout(c)
+        footer.addView(TextView(c).apply {
+            text = "✎"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setTextColor(if (menuEdit) Ui.accentText(P, accent) else P.muted)
+            if (menuEdit) typeface = Typeface.DEFAULT_BOLD
+            setOnClickListener {
+                menuEdit = !menuEdit
+                toast(if (menuEdit) "Mode atur: geser tile untuk memindahkan" else "Mode atur selesai")
+                relayoutMenu(root, b)
+            }
+        }, FrameLayout.LayoutParams(dp(56), MATCH, Gravity.CENTER))
+        val grip = object : View(c) {
+            override fun onDraw(cv: android.graphics.Canvas) {
+                val pt = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = P.muted
+                    strokeWidth = dp(2).toFloat()
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                }
+                val w = width.toFloat()
+                val h = height.toFloat()
+                val m = dp(12).toFloat()
+                cv.drawLine(w - m, h * 0.4f, w * 0.45f, h - m * 0.7f, pt)
+                cv.drawLine(w - m, h * 0.65f, w * 0.7f, h - m * 0.7f, pt)
+            }
+        }
+        var gy = 0f
+        var gh = 0
+        grip.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    gy = e.rawY
+                    gh = card.height
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    lp.height = (gh + (e.rawY - gy).toInt()).coerceIn(dp(180), maxOf(dp(180), root.height - lp.topMargin - dp(8)))
+                    card.layoutParams = lp
+                }
+                MotionEvent.ACTION_UP -> Prefs.setMenuHeight(c, (card.height / resources.displayMetrics.density).toInt())
+            }
+            true
+        }
+        footer.addView(grip, FrameLayout.LayoutParams(dp(48), MATCH, Gravity.END))
+
+        card.addView(header, LinearLayout.LayoutParams(MATCH, barH))
+        card.addView(scroll, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        card.addView(footer, LinearLayout.LayoutParams(MATCH, barH))
+
+        // tinggi: dari pengaturan bila pernah diubah, bila tidak sesuai isi (paling tinggi 62% layar)
+        content.measure(
+            View.MeasureSpec.makeMeasureSpec(cw, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         )
-        val cw = card.measuredWidth
-        val ch = card.measuredHeight
+        val maxH = maxOf(dp(180), root.height - dp(48))
+        val saved = Prefs.menuHeight(c)
+        val ch = (if (saved > 0) dp(saved) else minOf(2 * barH + content.measuredHeight, (root.height * 0.62f).toInt()))
+            .coerceIn(dp(180), maxH)
+        lp.height = ch
+
         val bl = IntArray(2)
         val rl = IntArray(2)
         b.getLocationOnScreen(bl)
@@ -1377,20 +1537,134 @@ class FloatService : Service() {
         val bx = bl[0] - rl[0]
         val by = bl[1] - rl[1]
         val edge = dp(8)
-        var left = bx + b.width + edge
-        if (left + cw > root.width - edge) left = bx - edge - cw
-        if (left < edge) left = ((root.width - cw) / 2).coerceAtLeast(edge)
-        val top = (by + b.height / 2 - ch / 2)
-            .coerceIn(dp(24), maxOf(dp(24), root.height - ch - dp(24)))
+        val pos = menuPos
+        if (pos != null) {
+            lp.leftMargin = pos[0]
+            lp.topMargin = pos[1]
+        } else {
+            var left = bx + b.width + edge
+            if (left + cw > root.width - edge) left = bx - edge - cw
+            if (left < edge) left = ((root.width - cw) / 2).coerceAtLeast(edge)
+            lp.leftMargin = left
+            lp.topMargin = (by + b.height / 2 - ch / 2)
+                .coerceIn(dp(24), maxOf(dp(24), root.height - ch - dp(24)))
+        }
 
         val finalAlpha = pref(Setting.MENU_ALPHA) / 100f
-        card.alpha = 0f
-        card.translationY = dp(8).toFloat()
-        root.addView(card, FrameLayout.LayoutParams(cw, ch).apply {
-            leftMargin = left
-            topMargin = top
-        })
-        card.animate().alpha(finalAlpha).translationY(0f).setDuration(140).start()
+        root.addView(card, lp)
+        if (menuScrollY > 0) scroll.post { scroll.scrollTo(0, menuScrollY) }
+        if (animate) {
+            card.alpha = 0f
+            card.translationY = dp(8).toFloat()
+            card.animate().alpha(finalAlpha).translationY(0f).setDuration(140).start()
+        } else {
+            card.alpha = finalAlpha
+        }
+    }
+
+    /**
+     * Ketuk tile = pilih alat. Tekan lama lalu geser = pindahkan tile seperti memindahkan aplikasi
+     * (di mode atur langsung geser). Tile yang paling dekat dengan jari saat dilepas menjadi tempat barunya.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun attachMenuDrag(
+        v: View, id: Int, shown: List<Int>, views: Map<Int, View>,
+        lineOf: Map<Int, LinearLayout>, scroll: ScrollView, root: FrameLayout, b: View
+    ) {
+        val slop = android.view.ViewConfiguration.get(c).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var dragging = false
+        var moved = false
+        var target = id
+        var startScroll = 0
+        val centers = HashMap<Int, FloatArray>()
+        val longPress = Runnable {
+            dragging = true
+            v.parent?.requestDisallowInterceptTouchEvent(true)
+            v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            centers.clear()
+            startScroll = scroll.scrollY
+            val loc = IntArray(2)
+            views.forEach { (k, w) ->
+                w.getLocationOnScreen(loc)
+                centers[k] = floatArrayOf(loc[0] + w.width / 2f, loc[1] + w.height / 2f)
+            }
+            lineOf[id]?.translationZ = dp(8).toFloat()
+            v.translationZ = dp(8).toFloat()
+            v.animate().scaleX(1.18f).scaleY(1.18f).alpha(0.9f).setDuration(100).start()
+        }
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = e.rawX
+                    downY = e.rawY
+                    dragging = false
+                    moved = false
+                    target = id
+                    if (menuEdit) longPress.run() else v.postDelayed(longPress, 350)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = e.rawX - downX
+                    val dy = e.rawY - downY
+                    if (!dragging) {
+                        if (kotlin.math.abs(dx) > slop || kotlin.math.abs(dy) > slop) {
+                            moved = true
+                            v.removeCallbacks(longPress)
+                        }
+                    } else {
+                        // gulir otomatis bila jari mendekati tepi atas atau bawah daftar
+                        val sl = IntArray(2)
+                        scroll.getLocationOnScreen(sl)
+                        if (e.rawY < sl[1] + dp(36)) scroll.scrollBy(0, -dp(10))
+                        else if (e.rawY > sl[1] + scroll.height - dp(36)) scroll.scrollBy(0, dp(10))
+                        val ds = scroll.scrollY - startScroll
+                        v.translationX = dx
+                        v.translationY = dy + ds
+                        var best = id
+                        var bd = Float.MAX_VALUE
+                        centers.forEach { (k, ct) ->
+                            val cy = ct[1] - ds
+                            val d = (ct[0] - e.rawX) * (ct[0] - e.rawX) + (cy - e.rawY) * (cy - e.rawY)
+                            if (d < bd) {
+                                bd = d
+                                best = k
+                            }
+                        }
+                        if (best != target) {
+                            if (target != id) views[target]?.alpha = 1f
+                            target = best
+                            if (best != id) views[best]?.alpha = 0.4f
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    v.removeCallbacks(longPress)
+                    if (dragging) {
+                        dragging = false
+                        if (target != id) {
+                            val ns = shown.toMutableList()
+                            ns.remove(id)
+                            ns.add(shown.indexOf(target), id)
+                            val set = shown.toSet()
+                            var k = 0
+                            Prefs.setMenuOrder(c, Prefs.menuOrder(c).map { if (it in set) ns[k++] else it })
+                        }
+                        relayoutMenu(root, b)
+                    } else if (!moved && !menuEdit) {
+                        onMenuPick(id)
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    v.removeCallbacks(longPress)
+                    if (dragging) {
+                        dragging = false
+                        relayoutMenu(root, b)
+                    }
+                }
+            }
+            true
+        }
     }
 
     private fun hideMenu() {
@@ -1734,14 +2008,15 @@ class FloatService : Service() {
 
     // ---------- Tanya AI lewat browser mengambang ----------
 
-    private val AI_WEB = listOf("https://chatgpt.com/", "https://www.google.com/search?udm=50")
-    private val AI_WEB_Q = listOf("https://chatgpt.com/?q=", "https://www.google.com/search?udm=50&q=")
+    // Duck.ai: tanpa login (anonim). Alamat pertanyaan belum terbukti, jadi pertanyaan diisi lewat halaman (null = tanpa ?q=).
+    private val AI_WEB = listOf("https://duck.ai/", "https://www.google.com/search?udm=50")
+    private val AI_WEB_Q = listOf<String?>(null, "https://www.google.com/search?udm=50&q=")
 
     /** Halaman web saat ini masih situs AI yang dipilih: sesi chat dilanjutkan, tidak dimuat ulang. */
     private fun onAiSite(target: Int): Boolean {
         val w = web ?: return false
         val u = w.url ?: return false
-        return if (target == 0) u.startsWith("https://chatgpt.com/")
+        return if (target == 0) u.startsWith("https://duck.ai/") || (u.contains("duckduckgo.com") && u.contains("ia=chat"))
         else u.startsWith("https://www.google.com/search") && u.contains("udm=50")
     }
 
@@ -1755,7 +2030,7 @@ class FloatService : Service() {
     /**
      * Buka situs AI pilihan di browser mengambang (bukan aplikasi AI yang terpasang).
      * Gambar disiapkan: saat Anda menekan tombol lampirkan di situs, gambar langsung terpilih.
-     * Perintah: ChatGPT dan Google AI Mode menerimanya lewat alamat. Bila situs AI sudah terbuka, sesi chat dilanjutkan.
+     * Perintah: Google AI Mode menerimanya lewat alamat; Duck.ai diisi lewat halaman. Bila situs AI sudah terbuka, sesi chat dilanjutkan.
      */
     /** URL awal browser bila dibuat khusus untuk situs AI (mencegah memuat Google lalu situs AI = dua kali muat). */
     private var browserStart: String? = null
@@ -1778,9 +2053,11 @@ class FloatService : Service() {
             try {
                 val dir = File(cacheDir, "shared").apply { mkdirs() }
                 val f = File(dir, "ask.jpg")
-                f.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+                // satu kali kompres (sudah diperkecil), dipakai untuk berkas clipboard dan untuk dikirim ke halaman
+                val jpg = toJpegBytes(bmp)
+                f.writeBytes(jpg)
                 up = Uri.fromFile(f)
-                b64 = toJpegB64(bmp)
+                b64 = Base64.encodeToString(jpg, Base64.NO_WRAP)
                 try {
                     cu = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", f)
                 } catch (e: Exception) {
@@ -1805,38 +2082,162 @@ class FloatService : Service() {
         }.start()
     }
 
-    private fun askWebGo(hasImg: Boolean, prompt: String) {
-        val target = Prefs.aiTarget(c)
+    /** Tombol "Setuju dan lanjutkan" pada dialog syarat pertama Duck.ai (hanya menekan tombol di dalam dialog). */
+    private val AI_TERMS_JS = "(function(){try{var ds=document.querySelectorAll('[role=dialog],[aria-modal=true],dialog');" +
+        "for(var i=0;i<ds.length;i++){var bs=ds[i].querySelectorAll('button');" +
+        "for(var j=0;j<bs.length;j++){var t=(bs[j].innerText||'').toLowerCase();" +
+        "if(/agree and continue|setuju dan lanjut|i agree|accept|terima/.test(t)){bs[j].click();return 1;}}}return 0;}catch(e){return 0;}})()"
+
+    /** Pertanyaan tanpa gambar untuk situs yang tidak menerima ?q=: tunggu kolom pesan siap, lalu isi dan kirim. */
+    private var pendingFillLoad = false
+
+    private fun autoFill(tries: Int = 200, first: Long = 200L) {
+        if (!pendingFillLoad || tries <= 0) return
+        ui.postDelayed({
+            if (!pendingFillLoad) return@postDelayed
+            val w = web ?: return@postDelayed
+            w.evaluateJavascript(AI_TERMS_JS, null)
+            w.evaluateJavascript(
+                "(function(){var e=document.querySelector('textarea,[contenteditable=true],[role=textbox]');" +
+                    "return e&&document.readyState!='loading'?1:0;})()"
+            ) { v ->
+                if (v?.trim() == "1") {
+                    pendingFillLoad = false
+                    ui.postDelayed({ fillAndSend() }, 120)
+                } else {
+                    autoFill(tries - 1)
+                }
+            }
+        }, first)
+    }
+
+    // ---- batas pemakaian: bila sesi AI menolak (batas harian habis, diminta verifikasi), pindah ke AI satunya ----
+    private var aiWatchGen = 0
+
+    /** Mendeteksi pesan batas pemakaian atau halaman verifikasi. Hanya membaca teks pendek (bukan jawaban panjang) agar jawaban soal tidak salah terbaca. */
+    private val AI_LIMIT_JS = "(function(){try{" +
+        "if(/google\\.[a-z.]+\\/sorry\\//.test(location.href))return 1;" +
+        "var re=/(reached|exceeded|hit)[^.]{0,40}limit|daily (usage )?limit|usage limit|rate.?limit|too many (requests|messages)|try again (later|tomorrow)|unusual traffic|batas (harian|penggunaan|pesan)|terlalu banyak permintaan|coba lagi (nanti|besok)|lalu lintas tidak biasa/i;" +
+        "var els=document.querySelectorAll('[role=dialog],[role=alert],[aria-live],dialog,p,span,div,li');" +
+        "for(var i=0;i<els.length;i++){var e=els[i];if(e.children.length>2)continue;" +
+        "var t=(e.innerText||'').trim();if(t.length<8||t.length>200)continue;if(re.test(t))return 1;}" +
+        "return 0;}catch(x){return 0;}})()"
+
+    private fun watchAiLimit(target: Int, hasImg: Boolean, prompt: String, gen: Int, n: Int = 0) {
+        if (n > 75) return
+        ui.postDelayed({
+            if (gen != aiWatchGen) return@postDelayed
+            val w = web ?: return@postDelayed
+            w.evaluateJavascript(AI_LIMIT_JS) { r ->
+                if (gen != aiWatchGen) return@evaluateJavascript
+                if (r?.trim() == "1") {
+                    val other = 1 - target
+                    // Duck.ai: batas harian direset tengah malam UTC. Google: biasanya verifikasi sementara, dicoba lagi sejam kemudian.
+                    Prefs.setAiBlocked(c, target, if (target == 0) Prefs.untilUtcMidnight() else System.currentTimeMillis() + 3_600_000L)
+                    Diag.add(c, "${Prefs.AI_NAMES[target]} menolak (batas/verifikasi), diblokir sementara")
+                    if (!Prefs.aiBlocked(c, other)) {
+                        toast("${Prefs.AI_NAMES[target]} tidak bisa dipakai (batas habis), pindah ke ${Prefs.AI_NAMES[other]}…")
+                        askWebGo(hasImg, prompt, other, false)
+                    } else {
+                        toast("Kedua AI sedang terkena batas. Coba lagi nanti.")
+                    }
+                } else {
+                    watchAiLimit(target, hasImg, prompt, gen, n + 1)
+                }
+            }
+        }, if (n == 0) 2500L else 1000L)
+    }
+
+    /** AI yang dipakai: pilihan pengguna, kecuali batasnya habis hari ini dan AI satunya masih bisa. */
+    private fun effectiveAi(chosen: Int): Int {
+        val other = 1 - chosen
+        return if (Prefs.aiBlocked(c, chosen) && !Prefs.aiBlocked(c, other)) other else chosen
+    }
+
+    private var prewarmed = false
+    private var aiUsed = false
+
+    /**
+     * Pemanasan: saat menu bubble dibuka, WebView dan halaman AI pilihan dibuat lebih dulu (belum ditampilkan),
+     * jadi "Tanya AI" tidak menunggu pembuatan WebView dan pemuatan awal. Hanya sekali per layanan, dan hanya di HP
+     * dengan RAM cukup (bukan HP RAM rendah, minimal 3 GB). Jendela Browser yang dibuka pertama akan menampilkan halaman AI itu.
+     */
+    private fun prewarmWeb() {
+        if (web != null || prewarmed) return
+        try {
+            val am = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+            if (am.isLowRamDevice) return
+            val mi = android.app.ActivityManager.MemoryInfo()
+            am.getMemoryInfo(mi)
+            if (mi.totalMem < 3L * 1024 * 1024 * 1024) return
+            prewarmed = true
+            browserStart = AI_WEB[effectiveAi(Prefs.aiTarget(c))]
+            ensurePanel()
+            val content = panelContent ?: return
+            if (toolViews[M_BROWSER] == null) {
+                val v = buildTool(M_BROWSER)
+                v.visibility = View.GONE
+                toolViews[M_BROWSER] = v
+                content.addView(v, FrameLayout.LayoutParams(MATCH, MATCH))
+            }
+            Diag.add(c, "WebView dipanaskan: ${browserStart?.take(40)}")
+        } catch (e: Exception) {
+            Diag.add(c, "pemanasan WebView gagal: ${e.javaClass.simpleName} ${e.message ?: ""}")
+        } finally {
+            browserStart = null
+        }
+    }
+
+    private fun askWebGo(hasImg: Boolean, prompt: String, forceTarget: Int? = null, canFallback: Boolean = true) {
+        val chosen = Prefs.aiTarget(c)
+        val target = forceTarget ?: effectiveAi(chosen)
+        val gen = ++aiWatchGen
         val name = Prefs.AI_NAMES[target]
+        if (forceTarget == null && target != chosen) toast("Batas ${Prefs.AI_NAMES[chosen]} habis hari ini, memakai $name")
         lastCopied = prompt
         val base = AI_WEB_Q[target]
-        // ada gambar: buka halaman polos, lampirkan gambar dulu, baru isi perintah lalu kirim
-        pendingPrompt = if (hasImg) prompt else null
-        val resume = onAiSite(target)
-        Diag.add(c, "Tanya AI ke $name, gambar=$hasImg, lanjut chat=$resume, existed=${web != null}")
-        pendingPrompt = prompt
-        if (!hasImg) pendingPrompt = null
+        attachDone = false
+        // situs yang tidak menerima ?q= (Duck.ai): perintah tanpa gambar diisi lewat halaman
+        val needFill = !hasImg && base == null
+        val onSite = onAiSite(target)
+        // lanjut chat hanya bila AI sudah pernah dipakai; halaman hasil pemanasan yang belum dipakai langsung dipakai (tanpa dimuat ulang)
+        val resume = onSite && aiUsed
+        val reuse = onSite && !aiUsed && (hasImg || base == null)
+        aiUsed = true
+        Diag.add(c, "Tanya AI ke $name, gambar=$hasImg, lanjut chat=$resume, pakai halaman hangat=$reuse, existed=${web != null}")
+        pendingPrompt = if (hasImg || needFill) prompt else null
+        pendingFillLoad = needFill && !resume
         val url = if (base != null && !hasImg) base + URLEncoder.encode(prompt.take(1500), "UTF-8") else AI_WEB[target]
         val existed = web != null
-        browserStart = if (resume) null else url
+        browserStart = if (resume || reuse) null else url
         openTool(M_BROWSER)
         refreshAttach()
-        if (resume) {
-            // sesi sebelumnya masih terbuka: lanjutkan di chat yang sama, tanpa memuat ulang
-            toast("Melanjutkan chat $name…")
-            if (hasImg) {
-                web?.evaluateJavascript(WEB_SEL_JS, null)
-                autoAttach(ATTACH_TRIES, true)
-            } else {
-                pendingPrompt = prompt
-                fillAndSend()
+        when {
+            resume -> {
+                // sesi sebelumnya masih terbuka: lanjutkan di chat yang sama, tanpa memuat ulang
+                toast("Melanjutkan chat $name…")
+                if (hasImg) {
+                    web?.evaluateJavascript(WEB_SEL_JS, null)
+                    autoAttach(ATTACH_TRIES, true)
+                } else {
+                    pendingPrompt = prompt
+                    fillAndSend()
+                }
             }
-            return
+            reuse -> {
+                // halaman AI sudah dimuat oleh pemanasan: langsung lampirkan atau isi
+                toast(if (hasImg) "Membuka $name…" else "Membuka $name.")
+                web?.evaluateJavascript(WEB_SEL_JS, null)
+                if (hasImg) autoAttach(ATTACH_TRIES, false) else autoFill(200, 30L)
+            }
+            else -> {
+                // browser baru sudah memuat situs AI sejak dibuat; browser lama baru dimuat sekarang
+                if (existed) web?.loadUrl(url)
+                browserStart = null
+                toast(if (hasImg) "Membuka $name…" else "Membuka $name.")
+            }
         }
-        // browser baru sudah memuat situs AI sejak dibuat; browser lama baru dimuat sekarang
-        if (existed) web?.loadUrl(url)
-        browserStart = null
-        toast(if (hasImg) "Membuka $name…" else "Membuka $name.")
+        if (canFallback) watchAiLimit(target, hasImg, prompt, gen)
     }
 
     private fun refreshAttach() {
@@ -1858,7 +2259,7 @@ class FloatService : Service() {
         val js = "(function(){try{var b=window.floowwImg.get();if(!b)return 0;" +
             "var s=atob(b),a=new Uint8Array(s.length);for(var i=0;i<s.length;i++)a[i]=s.charCodeAt(i);" +
             "var f=new File([a],'soal.jpg',{type:'image/jpeg'});var dt=new DataTransfer();dt.items.add(f);" +
-            // 1) input berkas yang menerima gambar (ChatGPT, Google AI Mode)
+            // 1) input berkas yang menerima gambar (Duck.ai, Google AI Mode)
             "var ins=document.querySelectorAll('input[type=file]');var t=null;" +
             "for(var k=0;k<ins.length;k++){var ac=(ins[k].accept||'');if(!ac||ac.indexOf('image')>=0||ac.indexOf('*')>=0){t=ins[k];break;}}" +
             "if(t){t.files=dt.files;t.dispatchEvent(new Event('input',{bubbles:true}));t.dispatchEvent(new Event('change',{bubbles:true}));return 2;}" +
@@ -1888,12 +2289,14 @@ class FloatService : Service() {
     private val ATTACH_NOTICE_MS = 20_000L
     private var attachT0 = 0L
     private var attachNoticed = false
+    private var attachReadyT0 = 0L
 
     private fun autoAttach(tries: Int = ATTACH_TRIES, resume: Boolean = false) {
         attachRun?.let { ui.removeCallbacks(it) }
         val w = web ?: return
         if (tries == ATTACH_TRIES) {
             attachT0 = android.os.SystemClock.elapsedRealtime()
+            attachReadyT0 = 0L
             attachNoticed = false
         }
         val waited = android.os.SystemClock.elapsedRealtime() - attachT0
@@ -1916,12 +2319,17 @@ class FloatService : Service() {
         }
         val r = Runnable {
             if (pendingB64 == null || attachDone) return@Runnable
+            w.evaluateJavascript(AI_TERMS_JS, null)
             w.evaluateJavascript(
                 "(function(){var e=document.querySelector('textarea,[contenteditable],[role=textbox],input[type=file]');" +
                     "if(!e||document.readyState=='loading')return -1;return window.__fq?(Date.now()-window.__fq):9999;})()"
             ) { v ->
                 val quiet = v?.trim()?.toIntOrNull() ?: -1
-                if (resume && quiet >= 0 || quiet >= 350 || (waited >= ATTACH_MAX_MS - 2000 && quiet >= 0)) {
+                val nowT = android.os.SystemClock.elapsedRealtime()
+                if (quiet >= 0 && attachReadyT0 == 0L) attachReadyT0 = nowT
+                // tenang 0,15 detik; halaman yang terus bergerak (animasi) ditunggu paling lama 0,9 detik sejak kolom pesan ada
+                val settled = quiet >= 150 || (attachReadyT0 > 0 && nowT - attachReadyT0 >= 900)
+                if (resume && quiet >= 0 || settled || (waited >= ATTACH_MAX_MS - 2000 && quiet >= 0)) {
                     attachDone = true
                     w.evaluateJavascript(COUNT_JS) { base ->
                         val b0 = base?.trim()?.toIntOrNull() ?: 0
@@ -1933,7 +2341,7 @@ class FloatService : Service() {
             }
         }
         attachRun = r
-        ui.postDelayed(r, if (resume) 60L else 150L)
+        ui.postDelayed(r, if (resume) 40L else 80L)
     }
 
     /** Tempel gambar, lalu cek tiap 0,3 detik sampai muncul. Bila tidak muncul dalam 3 detik, ulangi sekali. */
@@ -1941,7 +2349,7 @@ class FloatService : Service() {
         val w = web ?: return
         injectImage { code ->
             if (code == 0 && round < 3) {
-                ui.postDelayed({ attachAndVerify(base, round + 1) }, 250)
+                ui.postDelayed({ attachAndVerify(base, round + 1) }, 150)
                 return@injectImage
             }
             toast("Melampirkan gambar…")
@@ -1953,17 +2361,17 @@ class FloatService : Service() {
                             "return n>b?1:0;})($base)"
                     ) { v ->
                         val ok = v?.trim() == "1"
-                        waited += 150
+                        waited += 80
                         when {
                             ok -> fillAndSend()
                             waited >= 3000 && round < 1 -> attachAndVerify(base, round + 1)
                             waited >= 6000 -> fillAndSend()
-                            else -> ui.postDelayed(this, 150)
+                            else -> ui.postDelayed(this, 80)
                         }
                     }
                 }
             }
-            ui.postDelayed(check, 150)
+            ui.postDelayed(check, 80)
         }
     }
 
@@ -1978,7 +2386,11 @@ class FloatService : Service() {
                 "if(e.tagName=='TEXTAREA'){var d=Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value');d.set.call(e,t);e.dispatchEvent(new Event('input',{bubbles:true}));}" +
                 "else{document.execCommand('selectAll',false,null);if(!document.execCommand('insertText',false,t)){e.textContent=t;e.dispatchEvent(new Event('input',{bubbles:true}));}}" +
                 "var n=0;var iv=setInterval(function(){n++;var b=document.querySelector('button[data-testid=send-button],button[aria-label*=Send],button[aria-label*=Kirim],button[aria-label*=send],button[aria-label*=Submit],button[aria-label*=submit],button.send-button');" +
-                "if(b&&!b.disabled&&b.getAttribute('aria-disabled')!='true'){clearInterval(iv);b.click();}else if(n>600)clearInterval(iv);},120);return 1;})()",
+                "if(!b){var f=e.closest&&e.closest('form');if(f)b=f.querySelector('button[type=submit]');}" +
+                "if(b&&!b.disabled&&b.getAttribute('aria-disabled')!='true'){clearInterval(iv);b.click();}" +
+                // tidak ada tombol kirim sama sekali: tekan Enter di kolom pesan sekali
+                "else if(!b&&n==25){['keydown','keypress','keyup'].forEach(function(k){e.dispatchEvent(new KeyboardEvent(k,{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true}));});}" +
+                "else if(n>1200)clearInterval(iv);},60);return 1;})()",
             null
         )
     }
@@ -2123,11 +2535,13 @@ class FloatService : Service() {
         M_APPS -> appsView()
         M_NOTE -> noteView()
         M_GAL -> galleryView()
+        M_SET -> settingsView()
         else -> vbox()
     }
 
     /** Tombol ✕: sembunyikan saja. Isi jendela tidak dihapus. */
     private fun hidePanel() {
+        hideAppPicker()
         if (osk.isShown) osk.hide()
         val p = panel ?: return
         if (!panelAttached) return
@@ -2608,7 +3022,7 @@ class FloatService : Service() {
                     Diag.add(c, "Selesai: ${u?.take(80)}")
                     if (!url.hasFocus() && u != null) url.setText(u)
                     view?.evaluateJavascript(WEB_SEL_JS, null)
-                    if (pendingB64 != null) autoAttach()
+                    if (pendingB64 != null) autoAttach() else if (pendingFillLoad) autoFill()
                 }
             }
             loadUrl(browserStart ?: "https://www.google.com")
@@ -2900,9 +3314,14 @@ class FloatService : Service() {
             }
         }
 
+        var askedOnce = false
         fun loadPage() {
             if (!galGranted()) {
-                msg.text = "Izin akses foto belum diberikan. Tekan Beri izin, setujui, lalu Muat ulang."
+                msg.text = "Izin akses foto belum diberikan. Setujui permintaan izin yang muncul, atau tekan Beri izin."
+                if (!askedOnce) {
+                    askedOnce = true
+                    askMediaPerm()
+                }
                 return
             }
             val from = ids.size
@@ -2917,7 +3336,7 @@ class FloatService : Service() {
 
         listPane.addView(
             row(
-                btn("Beri izin") { startFloating(Intent(c, MainActivity::class.java)) },
+                btn("Beri izin") { askMediaPerm() },
                 btn("Muat ulang") {
                     ids.clear()
                     grid.removeAllViews()
@@ -2932,8 +3351,194 @@ class FloatService : Service() {
                 addView(more)
             })
         }, lay(MATCH, 0, 1f, 2))
+        // setelah pengguna menjawab izin, daftar foto dimuat otomatis
+        FloatService.onMediaPerm = { ok ->
+            ui.post {
+                if (ok) {
+                    ids.clear()
+                    grid.removeAllViews()
+                    loadPage()
+                } else {
+                    msg.text = "Izin akses foto ditolak. Tekan Beri izin untuk mencoba lagi."
+                }
+            }
+        }
         loadPage()
         return root
+    }
+
+    /** Minta izin akses foto lewat layar transparan kecil. Hanya dipanggil saat Galeri mengambang dibuka. */
+    private fun askMediaPerm() {
+        try {
+            startActivity(
+                Intent(c, MediaPermActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            Diag.add(c, "minta izin foto gagal: ${e.javaClass.simpleName}")
+            toast("Tidak bisa meminta izin foto")
+        }
+    }
+
+    // ---------- alat: Pengaturan (overlay sendiri) ----------
+
+    private fun setSlider(name: String, st: Setting, suffix: String): View {
+        val box = vbox()
+        val tv = TextView(c).apply {
+            textSize = 12f
+            setTextColor(P.on)
+            setPadding(dp(2), dp(6), 0, 0)
+        }
+        val bar = android.widget.SeekBar(c).apply { max = st.max - st.min }
+        val v0 = Prefs.get(c, st)
+        bar.progress = v0 - st.min
+        tv.text = "$name: $v0$suffix"
+        bar.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(b: android.widget.SeekBar, pr: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                Prefs.set(c, st, pr + st.min)
+                tv.text = "$name: ${pr + st.min}$suffix"
+            }
+
+            override fun onStartTrackingTouch(b: android.widget.SeekBar) {}
+            override fun onStopTrackingTouch(b: android.widget.SeekBar) {}
+        })
+        box.addView(tv)
+        box.addView(bar)
+        return box
+    }
+
+    /**
+     * Pengaturan inti dalam jendela overlay flooww: warna, bentuk, ukuran dan opasitas, tujuan AI,
+     * bahasa Live Translate, dan tile menu. Semua kontrol berupa ketukan dan geser, jadi tanpa keyboard.
+     */
+    private fun settingsView(): View {
+        val col = vbox().apply { setPadding(dp(2), dp(2), dp(2), dp(10)) }
+        val repaints = mutableListOf<() -> Unit>()
+
+        fun head(t: String) = TextView(c).apply {
+            text = t
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Ui.accentText(P, accent))
+            setPadding(dp(2), dp(12), 0, dp(3))
+        }
+
+        /** Barisan pilihan (3 kolom). selected() = indeks terpilih; toggle(i) dipanggil saat diketuk. */
+        fun chips(names: List<String>, perRow: Int, selected: () -> Set<Int>, toggle: (Int) -> Unit): View {
+            val box = vbox()
+            val cells = ArrayList<TextView>()
+            names.chunked(perRow).forEachIndexed { r, chunk ->
+                val line = LinearLayout(c).apply { orientation = LinearLayout.HORIZONTAL }
+                chunk.forEachIndexed { k, n ->
+                    val idx = r * perRow + k
+                    val t = TextView(c).apply {
+                        text = n
+                        textSize = 12f
+                        gravity = Gravity.CENTER
+                        maxLines = 1
+                        ellipsize = TextUtils.TruncateAt.END
+                        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                        setPadding(dp(4), dp(8), dp(4), dp(8))
+                        setOnClickListener {
+                            toggle(idx)
+                            repaints.forEach { it() }
+                        }
+                    }
+                    cells.add(t)
+                    line.addView(t, LinearLayout.LayoutParams(0, WRAP, 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+                }
+                repeat(perRow - chunk.size) { line.addView(View(c), LinearLayout.LayoutParams(0, 1, 1f)) }
+                box.addView(line)
+            }
+            repaints.add {
+                val on = selected()
+                cells.forEachIndexed { i, t ->
+                    val sel = i in on
+                    t.setTextColor(if (sel) Ui.onAccent(accent) else P.on)
+                    t.background = if (sel) Ui.clay(c, accent, dp(12), 2f) else Ui.dent(c, P.field, dp(12))
+                }
+            }
+            repaints.last()()
+            return box
+        }
+
+        // ---- warna dan bentuk ----
+        col.addView(head("Warna bubble dan menu"))
+        col.addView(LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(4), 0, dp(2))
+            Prefs.COLORS.forEach { color ->
+                addView(View(c).apply {
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        setColor(color)
+                        setStroke(dp(1), P.outline)
+                    }
+                    setOnClickListener {
+                        Prefs.setBubbleColor(c, color)
+                        toast("Warna diganti")
+                    }
+                }, LinearLayout.LayoutParams(0, dp(26), 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
+            }
+        })
+        col.addView(head("Bentuk bubble"))
+        col.addView(chips(Prefs.SHAPE_NAMES, 3, { setOf(Prefs.shape(c)) }) { Prefs.setShape(c, it) })
+
+        // ---- ukuran dan opasitas ----
+        col.addView(head("Bubble"))
+        col.addView(setSlider("Ukuran", Setting.BUBBLE_SIZE, " dp"))
+        col.addView(setSlider("Opasitas", Setting.BUBBLE_ALPHA, "%"))
+        col.addView(head("Menu"))
+        col.addView(setSlider("Ukuran", Setting.MENU_SIZE, "%"))
+        col.addView(setSlider("Opasitas", Setting.MENU_ALPHA, "%"))
+        col.addView(head("Jendela alat"))
+        col.addView(setSlider("Opasitas", Setting.WIN_ALPHA, "%"))
+        col.addView(setSlider("Zoom halaman web", Setting.WEB_ZOOM, "%"))
+
+        // ---- AI ----
+        col.addView(head("Tujuan Tanya AI"))
+        col.addView(chips(Prefs.AI_NAMES, 2, { setOf(Prefs.aiTarget(c)) }) { Prefs.setAiTarget(c, it) })
+        col.addView(note("Bawaan: Google AI Mode. Duck.ai tanpa login tapi belum teruji dan punya batas harian. Bila salah satu menolak (batas habis), soal otomatis dikirim ke yang satunya."))
+
+        // ---- terjemah ----
+        col.addView(head("Live Translate: dari bahasa"))
+        col.addView(chips(Prefs.LANGS, 3, { setOf(Prefs.liveSrc(c)) }) { i ->
+            // bila sama dengan tujuan, tujuan ditukar ke bahasa sumber lama
+            val old = Prefs.liveSrc(c)
+            if (i == Prefs.liveDst(c)) Prefs.setLiveDst(c, old)
+            Prefs.setLiveSrc(c, i)
+            toast("Berlaku saat Live dinyalakan lagi")
+        })
+        col.addView(head("Live Translate: ke bahasa"))
+        col.addView(chips(Prefs.LANGS, 3, { setOf(Prefs.liveDst(c)) }) { i ->
+            val old = Prefs.liveDst(c)
+            if (i == Prefs.liveSrc(c)) Prefs.setLiveSrc(c, old)
+            Prefs.setLiveDst(c, i)
+            toast("Berlaku saat Live dinyalakan lagi")
+        })
+
+        // ---- tile menu ----
+        col.addView(head("Tile di menu bubble"))
+        col.addView(chips(Prefs.MENU_NAMES.dropLast(1), 3, {
+            val h = Prefs.menuHidden(c)
+            (0 until Prefs.MENU_NAMES.size - 1).filter { it !in h }.toSet()
+        }) { i ->
+            val h = Prefs.menuHidden(c).toMutableSet()
+            if (i in h) h.remove(i) else h.add(i)
+            Prefs.setMenuHidden(c, h)
+        })
+        col.addView(note("Warna terang = tampil. Matikan selalu tampil. Geser tile langsung di menu bubble (tombol ✎) untuk mengubah urutan."))
+        col.addView(btn("Kembalikan urutan tile") {
+            Prefs.setMenuOrder(c, Prefs.MENU_DEF_ORDER)
+            toast("Urutan dikembalikan")
+        }, lay(MATCH, WRAP, 0f, 2))
+
+        // ---- lengkap ----
+        col.addView(head("Lainnya"))
+        col.addView(note("Gestur bubble, API key, aplikasi, izin, dan lisensi ada di pengaturan lengkap. Tombol ini membukanya sebagai jendela mengambang dan hanya jalan bila jendela bebas aktif."))
+        col.addView(btn("Buka pengaturan lengkap") { openSettingsFloating() }, lay(MATCH, WRAP, 0f, 2))
+
+        return scrolled(col)
     }
 
     // ---------- alat: Hitung ----------
@@ -3184,11 +3789,37 @@ class FloatService : Service() {
             toast("Aplikasi tidak bisa dibuka")
             return
         }
-        startFloating(i)
+        openFloatingOnly(i, pkg)
+    }
+
+    /** Buka layar hanya sebagai jendela mengambang. Bila jendela bebas belum aktif, tidak dibuka (tidak pernah layar penuh). */
+    private fun openFloatingOnly(i: Intent, what: String) {
+        if (!freeformOn()) {
+            Diag.add(c, "Buka diblokir: jendela bebas belum aktif ($what)")
+            if (tryEnableFreeform()) {
+                toast("Jendela bebas baru diaktifkan. Restart HP sekali, lalu coba lagi. Tidak dibuka layar penuh.")
+            } else {
+                toast("Jendela bebas belum aktif di HP ini, jadi tidak dibuka (agar tidak layar penuh). Aktifkan jendela bebas dulu, lihat status di menu Apps.")
+            }
+            return
+        }
+        startFloating(i, allowFull = false)
+    }
+
+    /** Pengaturan ringkas sebagai jendela overlay flooww sendiri: tidak butuh jendela bebas dan tidak mengambil fokus. */
+    private fun openSettingsOverlay() {
+        // dibangun ulang setiap dibuka supaya nilainya selalu terbaru
+        toolViews.remove(M_SET)?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        openTool(M_SET)
+    }
+
+    /** Pengaturan lengkap (aplikasi flooww) sebagai jendela mengambang. Hanya bila jendela bebas aktif. */
+    private fun openSettingsFloating() {
+        openFloatingOnly(Intent(c, MainActivity::class.java), "pengaturan flooww")
     }
 
     /** Semua layar lain yang dibuka dari flooww (aplikasi, pengaturan, dll.) lewat sini agar tidak layar penuh. */
-    private fun startFloating(i: Intent) {
+    private fun startFloating(i: Intent, allowFull: Boolean = true) {
         // MULTIPLE_TASK: tanpa ini, aplikasi yang sudah berjalan hanya dibawa ke depan
         // di jendela lamanya dan ukuran jendela diabaikan.
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
@@ -3245,7 +3876,8 @@ class FloatService : Service() {
         // percobaan 0: jendela bebas penuh. 1: hanya ukuran jendela (bila ROM menolak mode bebas). 2: dibuka biasa.
         var done = -1
         var err: Exception? = null
-        for (attempt in 0..2) {
+        // allowFull=false: hanya percobaan jendela bebas penuh, tanpa cadangan yang bisa membuka layar penuh.
+        for (attempt in 0..(if (allowFull) 2 else 0)) {
             try {
                 when (attempt) {
                     0 -> startActivity(i, options(true))
@@ -3278,6 +3910,90 @@ class FloatService : Service() {
         true
     } catch (e: Exception) {
         false
+    }
+
+    private var appPicker: View? = null
+
+    private fun hideAppPicker() {
+        appPicker?.let {
+            try {
+                wm.removeView(it)
+            } catch (e: Exception) {
+            }
+        }
+        appPicker = null
+    }
+
+    /** Popup kecil (bukan layar penuh, tidak mengambil fokus) berisi aplikasi terinstal yang belum ada di menu Apps. */
+    private fun showAppPicker(onChange: () -> Unit) {
+        if (appPicker != null) return
+        loadApps {
+            val all = allApps ?: return@loadApps
+            if (appPicker != null) return@loadApps
+            val dm = resources.displayMetrics
+            val w = minOf(dm.widthPixels - dp(32), dp(320))
+            val h = minOf((dm.heightPixels * 0.6f).toInt(), dp(460))
+            val box = vbox().apply {
+                setPadding(dp(12), dp(10), dp(12), dp(12))
+                background = Ui.clay(c, P.surface, dp(24), 6f)
+            }
+            val list = vbox()
+            val empty = note("")
+            fun fill() {
+                list.removeAllViews()
+                val have = Prefs.pinned(c).toSet()
+                val rest = all.filter { it.pkg !in have }
+                empty.text = if (rest.isEmpty()) "Semua aplikasi sudah ditambahkan." else ""
+                rest.forEach { app ->
+                    list.addView(LinearLayout(c).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(6), dp(6), dp(6), dp(6))
+                        addView(ImageView(c).apply { setImageDrawable(app.icon) }, LinearLayout.LayoutParams(dp(34), dp(34)))
+                        addView(TextView(c).apply {
+                            text = app.label
+                            textSize = 14f
+                            maxLines = 1
+                            ellipsize = TextUtils.TruncateAt.END
+                            setTextColor(P.on)
+                            setPadding(dp(10), 0, 0, 0)
+                        }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                        setOnClickListener {
+                            Prefs.setPinned(c, Prefs.pinned(c) + app.pkg)
+                            toast("${app.label} ditambahkan")
+                            onChange()
+                            fill()
+                        }
+                    }, LinearLayout.LayoutParams(MATCH, WRAP))
+                }
+            }
+            val bar = LinearLayout(c).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(c).apply {
+                    text = "Tambah aplikasi"
+                    textSize = 15f
+                    typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(P.on)
+                }, LinearLayout.LayoutParams(0, WRAP, 1f))
+                addView(btn("Tutup") { hideAppPicker() })
+            }
+            box.addView(bar)
+            box.addView(empty)
+            box.addView(ScrollView(c).apply { addView(list, MATCH, WRAP) }, LinearLayout.LayoutParams(MATCH, 0, 1f))
+            fill()
+            val lp = WindowManager.LayoutParams(
+                w, h, ovType,
+                OVERLAY_FLAGS or WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                PixelFormat.TRANSLUCENT
+            ).apply { gravity = Gravity.CENTER }
+            try {
+                wm.addView(box, lp)
+                appPicker = box
+            } catch (e: Exception) {
+                Diag.add(c, "popup tambah app gagal: ${e.javaClass.simpleName}")
+            }
+        }
     }
 
     private fun appsView(): View {
@@ -3341,7 +4057,22 @@ class FloatService : Service() {
             }
         }
 
-        col.addView(status)
+        val head = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        head.addView(status, LinearLayout.LayoutParams(0, WRAP, 1f))
+        head.addView(btn("+", true) { showAppPicker { render() } }.apply { textSize = 18f })
+        col.addView(TextView(c).apply {
+            text = "TIDAK DIREKOMENDASIKAN, RESIKO TERDETEKSI!"
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = Ui.round(Ui.WA_RED, dp(12))
+        }, LinearLayout.LayoutParams(MATCH, WRAP).apply { bottomMargin = dp(6) })
+        col.addView(head)
         col.addView(title)
         col.addView(grid)
         render()

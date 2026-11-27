@@ -24,7 +24,9 @@ object Prefs {
     const val DEFAULT_COLOR = 0xFF7C6CF0.toInt()
     /** Warna bawaan bubble baru: abu-abu seperti sidebar bawaan HP. */
     const val GRAY_COLOR = 0xFFB8BCC4.toInt()
-    const val DEFAULT_PROMPT = "Jawab soal pada gambar ini. Jelaskan langkah singkat, lalu tulis jawaban akhir."
+    const val DEFAULT_PROMPT = "Jawab soal pada gambar ini. Langsung tulis jawaban akhirnya saja, tanpa penjelasan."
+    /** Instruksi bawaan lama: bila masih tersimpan persis begitu, otomatis diganti ke yang baru. */
+    private const val OLD_DEFAULT_PROMPT = "Jawab soal pada gambar ini. Jelaskan langkah singkat, lalu tulis jawaban akhir."
 
     val COLORS = intArrayOf(
         0xFF7C6CF0.toInt(), 0xFF2EC4B6.toInt(), 0xFFFF6B81.toInt(), 0xFFFFA94D.toInt(),
@@ -34,7 +36,7 @@ object Prefs {
     )
     /** Kode bahasa ML Kit untuk LANGS, urutannya sama. */
     val LANG_CODES = listOf("id", "en", "ar", "ja", "zh", "ko", "de", "fr", "es")
-    val AI_NAMES = listOf("ChatGPT", "Google AI Mode")
+    val AI_NAMES = listOf("Duck.ai", "Google AI Mode")
     val LANGS = listOf(
         "Indonesia", "Inggris", "Arab", "Jepang", "Mandarin",
         "Korea", "Jerman", "Prancis", "Spanyol"
@@ -72,7 +74,8 @@ object Prefs {
 
     fun aiTarget(c: Context): Int {
         migrateAi(c)
-        return sp(c).getInt("aiTarget", 0).coerceIn(0, AI_NAMES.size - 1)
+        // bawaan: Google AI Mode (tidak mewajibkan login); pilihan yang sudah disimpan pengguna tidak diubah
+        return sp(c).getInt("aiTarget", 1).coerceIn(0, AI_NAMES.size - 1)
     }
 
     fun setAiTarget(c: Context, i: Int) {
@@ -103,6 +106,19 @@ object Prefs {
         sp(c).edit().putInt("liveSrc", i).apply()
     }
 
+    /** Sesi AI yang kena batas (Duck.ai: batas harian) dilewati sampai waktu ini (milidetik). */
+    fun aiBlocked(c: Context, t: Int): Boolean = System.currentTimeMillis() < sp(c).getLong("aiBlock$t", 0L)
+
+    fun setAiBlocked(c: Context, t: Int, until: Long) {
+        sp(c).edit().putLong("aiBlock$t", until).apply()
+    }
+
+    /** Tengah malam UTC berikutnya: saat batas harian Duck.ai direset. */
+    fun untilUtcMidnight(): Long {
+        val day = 86_400_000L
+        return (System.currentTimeMillis() / day + 1) * day
+    }
+
     fun lang(c: Context): Int = sp(c).getInt("lang", 1).coerceIn(0, LANGS.size - 1)
 
     fun setLang(c: Context, i: Int) {
@@ -111,6 +127,7 @@ object Prefs {
 
     fun prompt(c: Context): String =
         (sp(c).getString("prompt", DEFAULT_PROMPT) ?: DEFAULT_PROMPT).ifBlank { DEFAULT_PROMPT }
+            .let { if (it == OLD_DEFAULT_PROMPT) DEFAULT_PROMPT else it }
 
     fun setPrompt(c: Context, p: String) {
         sp(c).edit().putString("prompt", p.trim()).apply()
@@ -189,12 +206,12 @@ object Prefs {
         sp(c).edit().putInt(gestureKeys[g], v).apply()
     }
 
-    /** Blokir keyboard virtual selama jendela mengambang tampil. Layar pengaturan aplikasi tidak terpengaruh. */
-    fun kbBlock(c: Context): Boolean = sp(c).getBoolean("kbBlock", true)
-
-    fun setKbBlock(c: Context, v: Boolean) {
-        sp(c).edit().putBoolean("kbBlock", v).apply()
-    }
+    /**
+     * Keyboard bawaan HP selalu diblokir selama jendela mengambang tampil; hanya keyboard flooww yang dipakai
+     * (tidak mengambil fokus). Layar pengaturan aplikasi tidak terpengaruh. Tidak ada lagi pilihan untuk mematikannya.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun kbBlock(c: Context): Boolean = true
 
     /** Nama semua tile menu bubble, urutannya sama dengan indeks di FloatService. */
     val MENU_NAMES = listOf(
@@ -233,6 +250,13 @@ object Prefs {
 
     fun setMenuHidden(c: Context, s: Set<Int>) {
         sp(c).edit().putString("menuHidden", s.sorted().joinToString(",")).apply()
+    }
+
+    /** Tinggi panel menu bubble (dp) yang diatur pengguna lewat pegangan di bawah panel. 0 = otomatis sesuai isi. */
+    fun menuHeight(c: Context): Int = sp(c).getInt("menuHeight", 0)
+
+    fun setMenuHeight(c: Context, dp: Int) {
+        sp(c).edit().putInt("menuHeight", dp).apply()
     }
 
     fun pinned(c: Context): List<String> =

@@ -122,6 +122,31 @@ object Ui {
         RippleDrawable(ColorStateList.valueOf(if (night) 0x33FFFFFF else 0x22000000), bg, null)
 
     /** Tombol bulat sudut: utama (warna aksen) atau tonal (abu lembut). */
+    /** Tombol berwarna tetap dengan ikon di kiri (mis. hijau untuk beli lisensi, merah untuk lapor admin). */
+    fun colorButton(c: Context, label: String, color: Int, iconRes: Int, onClick: () -> Unit): TextView {
+        val p = pal(c)
+        return TextView(c).apply {
+            text = label
+            gravity = Gravity.CENTER
+            textSize = 14f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(0xFFFFFFFF.toInt())
+            minHeight = dp(c, 46f)
+            setPadding(dp(c, 16f), dp(c, 8f), dp(c, 16f), dp(c, 12f))
+            background = ripple(clay(c, color, dp(c, 16f)), p.night)
+            val ic = c.getDrawable(iconRes)?.mutate()
+            ic?.setBounds(0, 0, dp(c, 22f), dp(c, 22f))
+            setCompoundDrawables(ic, null, null, null)
+            compoundDrawablePadding = dp(c, 8f)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+    }
+
+    const val WA_GREEN = 0xFF1FA855.toInt()
+    const val WA_RED = 0xFFD93025.toInt()
+
     fun button(c: Context, label: String, primary: Boolean, onClick: () -> Unit): TextView {
         val p = pal(c)
         val accent = Prefs.bubbleColor(c)

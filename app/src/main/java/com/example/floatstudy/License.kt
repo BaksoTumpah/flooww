@@ -44,8 +44,11 @@ object License {
     }
 
     /** Buka WhatsApp ke admin dengan pesan terisi (kode perangkat sudah ada di pesan). false bila tidak ada yang bisa membuka. */
-    fun openAdminWa(c: Context, code: String): Boolean {
-        val text = "Halo admin, $code saya mau membeli lisensi resmi aplikasi flooww."
+    fun openAdminWa(c: Context, code: String): Boolean =
+        openAdminWaText(c, "Halo admin, $code saya mau membeli lisensi resmi aplikasi flooww.")
+
+    /** Buka WhatsApp ke admin dengan teks pesan bebas yang sudah terisi. */
+    fun openAdminWaText(c: Context, text: String): Boolean {
         val uri = android.net.Uri.parse("https://wa.me/${adminWa(c)}?text=" + android.net.Uri.encode(text))
         // utamakan aplikasi WhatsApp (biasa lalu Business), terakhir apa pun yang bisa membuka tautan
         for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b", null)) {

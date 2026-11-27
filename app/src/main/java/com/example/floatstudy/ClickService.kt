@@ -28,8 +28,13 @@ class ClickService : AccessibilityService() {
         /** Nyalakan atau matikan terjemahan langsung. Mengembalikan false bila layanan aksesibilitas belum aktif. */
         fun setLive(on: Boolean, say: (String) -> Unit): Boolean {
             val s = instance ?: return false
-            val t = s.live ?: LiveTranslator(s).also { s.live = it }
-            if (on) t.start(say) else t.stop()
+            try {
+                val t = s.live ?: LiveTranslator(s).also { s.live = it }
+                if (on) t.start(say) else t.stop()
+            } catch (e: Exception) {
+                Diag.add(s, "error setLive($on): ${e.javaClass.simpleName} ${e.message ?: ""}")
+                return false
+            }
             return true
         }
 
@@ -152,24 +157,41 @@ class ClickService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
+        Diag.installCrashLog(this)
+        Diag.add(this, "aksesibilitas tersambung")
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        live?.stop()
+        Diag.add(this, "aksesibilitas terputus (onUnbind)")
+        try {
+            live?.stop()
+        } catch (e: Exception) {
+        }
         instance = null
         onLost?.invoke()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
-        live?.stop()
+        Diag.add(this, "aksesibilitas dihancurkan (onDestroy)")
+        try {
+            live?.stop()
+        } catch (e: Exception) {
+        }
         instance = null
         onLost?.invoke()
         super.onDestroy()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (event != null) live?.onEvent(event)
+        // error di Terjemah Langsung tidak boleh menjatuhkan proses: crash membuat Android memutus layanan aksesibilitas
+        if (event != null) {
+            try {
+                live?.onEvent(event)
+            } catch (e: Exception) {
+                Diag.add(this, "error Terjemah Langsung: ${e.javaClass.simpleName} ${e.message ?: ""}")
+            }
+        }
         if (autoInstallUntil == 0L) return
         if (android.os.SystemClock.uptimeMillis() > autoInstallUntil) {
             autoInstallUntil = 0L

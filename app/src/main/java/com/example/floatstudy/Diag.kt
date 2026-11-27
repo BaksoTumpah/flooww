@@ -27,6 +27,32 @@ object Diag {
         }
     }
 
+    private var crashHooked = false
+
+    /**
+     * Catat crash yang tidak tertangani (ditulis langsung, karena proses segera mati) lalu teruskan ke penanganan bawaan.
+     * Crash di proses ini membuat Android memutus layanan aksesibilitas; catatannya membantu mencari penyebabnya.
+     */
+    @Synchronized
+    fun installCrashLog(c: Context) {
+        if (crashHooked) return
+        crashHooked = true
+        val app = c.applicationContext
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            try {
+                val top = e.stackTrace.take(4).joinToString(" < ") { "${it.fileName}:${it.lineNumber}" }
+                val sp = Prefs.sp(app)
+                val lines = (sp.getString(KEY, "") ?: "").split('\n').filter { it.isNotBlank() }.toMutableList()
+                lines.add(fmt.format(Date()) + " CRASH ${t.name}: ${e.javaClass.simpleName} ${e.message ?: ""} @ $top".replace('\n', ' ').take(320))
+                while (lines.size > MAX) lines.removeAt(0)
+                sp.edit().putString(KEY, lines.joinToString("\n")).commit()
+            } catch (x: Throwable) {
+            }
+            prev?.uncaughtException(t, e)
+        }
+    }
+
     @Synchronized
     fun clear(c: Context) {
         Prefs.sp(c).edit().remove(KEY).apply()
