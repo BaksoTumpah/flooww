@@ -8,7 +8,8 @@
     "siteTitle": "flooww asisten belajar",
     "description": "flooww asisten belajar: bubble mengambang di Android. Lingkari soal untuk tanya AI, salin teks, terjemahkan Inggris dan Jepang. Trial gratis 10 menit.",
     "apkUrl32": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-32bit.apk",
-    "apkUrlU": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk"
+    "apkUrlU": "https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk",
+    "dbUrl": "https://flooww-2644e-default-rtdb.asia-southeast1.firebasedatabase.app"
   },
   "brand": {
     "name": "flooww",
@@ -278,6 +279,7 @@
   },
   "foot": {
     "text": "flooww {versi}. Aplikasi untuk belajar.",
+    "counter": "Dikunjungi {kunjungan} kali oleh {unik} pengunjung",
     "fab": "WhatsApp",
     "fabAria": "Chat WhatsApp"
   }

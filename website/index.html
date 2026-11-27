@@ -210,6 +210,8 @@ button { font: inherit; color: inherit; }
 .foot { padding-block: 1.75rem 6rem; color: var(--muted); font-size: 0.9rem; }
 .foot nav { display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; margin-bottom: 0.6rem; }
 .foot nav a { color: var(--muted); }
+.foot-count { margin-top: 0.4rem; font-size: 0.85rem; }
+.foot-count:empty { display: none; }
 .fab { position: fixed; z-index: 20; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
 .draftbar { background: color-mix(in srgb, var(--amber) 22%, var(--surface)); border-bottom: 1px solid color-mix(in srgb, var(--amber) 50%, var(--line)); font-size: 0.9rem; }
 .draftbar .in { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; padding-block: 0.4rem; }
@@ -370,7 +372,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       waText: 'Halo, saya mau beli lisensi flooww. Mohon info paket dan harganya.',
       apkUrl: 'https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-64bit.apk',
       apkUrl32: 'https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww-32bit.apk',
-      apkUrlU: 'https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk'
+      apkUrlU: 'https://github.com/BaksoTumpah/flooww-rilis/releases/latest/download/flooww.apk',
+      dbUrl: 'https://flooww-2644e-default-rtdb.asia-southeast1.firebasedatabase.app'
     },
     brand: { name: 'flooww', aria: 'flooww, ke atas' },
     nav: { aria: 'Menu halaman', items: [{ label: 'Aman' }, { label: 'Unduh' }, { label: 'Lisensi' }, { label: 'Kontak' }] },
@@ -475,7 +478,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       btnOpen: 'Buka WhatsApp',
       copy: { idle: 'Salin nomor', done: 'Tersalin', manual: 'Nomor terpilih, salin manual' }
     },
-    foot: { text: 'flooww {versi}. Aplikasi untuk belajar.', fab: 'WhatsApp', fabAria: 'Chat WhatsApp' }
+    foot: { text: 'flooww {versi}. Aplikasi untuk belajar.', counter: 'Dikunjungi {kunjungan} kali oleh {unik} pengunjung', fab: 'WhatsApp', fabAria: 'Chat WhatsApp' }
   };
 
   /* ---------- alat bantu ---------- */
@@ -647,7 +650,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
     h.push('<section class="sec" id="kontak" style="--c: var(--mint)"><div class="in">' + shHTML('chat', c.kontak.title, F) + '<p class="lead-in">' + F(c.kontak.lead) + '</p>');
     h.push('<div class="wa-panel"><span class="wa-num" id="wanum">+' + esc(waDigits(c)) + '</span>' + waBtn(c.kontak.btnOpen) + '<button class="btn btn-ghost" id="copy" type="button" data-act="copy-num">' + F(c.kontak.copy.idle) + '</button></div></div></section>');
-    h.push('<footer class="in foot"><nav aria-label="Halaman lain"><a href="/panduan/">Panduan</a><a href="/faq/">FAQ</a><a href="/privasi/">Privasi</a><a href="/syarat/">Syarat</a></nav>' + F(c.foot.text) + '</footer>');
+    h.push('<footer class="in foot"><nav aria-label="Halaman lain"><a href="/panduan/">Panduan</a><a href="/faq/">FAQ</a><a href="/privasi/">Privasi</a><a href="/syarat/">Syarat</a></nav>' + F(c.foot.text) + '<div class="foot-count" id="visitCount" aria-live="polite">' + counterText() + '</div></footer>');
     h.push('<a class="btn btn-wa fab" href="' + wa + '" target="_blank" rel="noopener" aria-label="' + F(c.foot.fabAria) + '">' + icon('chat') + F(c.foot.fab) + '</a>');
     return h.join('');
   }
@@ -670,6 +673,42 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       if (el && x[1]) el.setAttribute('content', x[1]);
     });
   }
+  /* ---------- penghitung pengunjung (Firebase Realtime Database, hanya angka, tanpa data pribadi) ---------- */
+  var counter = { visits: null, uniq: null }, counterStarted = false;
+  function fmtN(n) { try { return Number(n).toLocaleString('id-ID'); } catch (e) { return String(n); } }
+  function counterText() {
+    if (counter.visits == null || counter.uniq == null) return '';
+    var t = (content.foot && content.foot.counter) || 'Dikunjungi {kunjungan} kali oleh {unik} pengunjung';
+    return esc(t).replace('{kunjungan}', fmtN(counter.visits)).replace('{unik}', fmtN(counter.uniq));
+  }
+  function counterBase() {
+    var u = String((content.meta && content.meta.dbUrl) || '').trim().replace(/\/+$/, '');
+    return /^https:\/\/[a-z0-9.-]+$/i.test(u) ? u : '';
+  }
+  function statCall(base, key, bump) {
+    var o = bump ? { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ '.sv': { increment: 1 } }) } : {};
+    return fetch(base + '/stats/' + key + '.json', o).then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('stat')); })
+      .then(function (v) { return typeof v === 'number' ? v : Promise.reject(new Error('stat')); });
+  }
+  function flag(store, key) { try { return !!window[store].getItem(key); } catch (e) { return false; } }
+  function setFlag(store, key) { try { window[store].setItem(key, '1'); } catch (e) { } }
+  /* kunjungan: sekali per sesi tab; pengunjung unik: sekali per perangkat/browser. Tidak dihitung di panel developer. */
+  function loadCounter() {
+    if (counterStarted || isDevRoute() || pathDev() || !window.fetch) return;
+    var base = counterBase();
+    if (!base) return;
+    counterStarted = true;
+    var newVisit = !flag('sessionStorage', 'flooww.v'), newUniq = !flag('localStorage', 'flooww.u');
+    Promise.all([statCall(base, 'visits', newVisit), statCall(base, 'uniq', newUniq)]).then(function (v) {
+      if (newVisit) setFlag('sessionStorage', 'flooww.v');
+      if (newUniq) setFlag('localStorage', 'flooww.u');
+      counter.visits = v[0];
+      counter.uniq = v[1];
+      var el = $('visitCount');
+      if (el) el.innerHTML = counterText();
+    }).catch(function () { counterStarted = false; });
+  }
+
   function renderSite() {
     syncSeo(content);
     app.innerHTML = siteHTML(content);
@@ -679,6 +718,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     selectTool(Math.min(st.tool, content.tools.length - 1));
     var hash = location.hash;
     if (hash && hash !== '#developer' && hash.length > 1) { var el = $(hash.slice(1)); if (el && el.scrollIntoView) el.scrollIntoView(); }
+    loadCounter();
   }
 
   /* ---------- login developer ---------- */
@@ -717,7 +757,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
     { id: 'umum', label: 'Umum', desc: 'Judul tab, merek, versi, nomor WhatsApp, dan tautan.', blocks: [
       G('Situs', [F('meta.title', 'Judul tab browser'), F('brand.name', 'Nama merek di pojok kiri atas'), F('brand.aria', 'Label pembaca layar untuk merek')]),
       G('Mesin pencari (Google)', [F('meta.siteTitle', 'Judul yang tampil di Google dan tab', 'text', 'Mis. "flooww asisten belajar". Google membaca judul setelah situs dirender; judul di HTML statis tidak ikut berubah.'), F('meta.description', 'Deskripsi di Google', 'area', 'Sekitar 120 sampai 160 karakter.')]),
-      G('Aplikasi', [F('meta.version', 'Nomor versi cadangan', 'text', 'Terisi otomatis dari rilis terbaru di GitHub. Angka ini hanya dipakai bila GitHub tidak terjangkau.'), F('meta.apkUrl', 'Tautan unduh APK 64-bit', 'url', 'Dipakai oleh tombol Unduh 64-bit dan tombol di bagian atas.'), F('meta.apkUrl32', 'Tautan unduh APK 32-bit', 'url', 'Dipakai oleh tombol Unduh 32-bit.'), F('meta.apkUrlU', 'Tautan unduh APK universal', 'url', 'Dipakai oleh tombol Unduh universal (flooww.apk, memuat 64 dan 32-bit).')]),
+      G('Aplikasi', [F('meta.version', 'Nomor versi cadangan', 'text', 'Terisi otomatis dari rilis terbaru di GitHub. Angka ini hanya dipakai bila GitHub tidak terjangkau.'), F('meta.apkUrl', 'Tautan unduh APK 64-bit', 'url', 'Dipakai oleh tombol Unduh 64-bit dan tombol di bagian atas.'), F('meta.apkUrl32', 'Tautan unduh APK 32-bit', 'url', 'Dipakai oleh tombol Unduh 32-bit.'), F('meta.apkUrlU', 'Tautan unduh APK universal', 'url', 'Dipakai oleh tombol Unduh universal (flooww.apk, memuat 64 dan 32-bit).'), F('meta.dbUrl', 'Alamat database penghitung pengunjung', 'url', 'Alamat Realtime Database Firebase. Kosongkan untuk mematikan penghitung di footer.')]),
       G('WhatsApp', [F('meta.waNumber', 'Nomor WhatsApp', 'tel', 'Format internasional tanpa tanda plus. Contoh: 6281234567890.'), F('meta.waText', 'Pesan awal saat chat dibuka', 'area')])
     ] },
     { id: 'menu', label: 'Menu atas', desc: 'Teks tautan di bagian atas halaman. Tujuan tautan tetap.', blocks: [
@@ -758,7 +798,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       G('Tombol salin nomor', [F('kontak.copy.idle', 'Teks awal'), F('kontak.copy.done', 'Teks setelah tersalin'), F('kontak.copy.manual', 'Teks bila salin otomatis gagal')])
     ] },
     { id: 'footer', label: 'Footer', desc: 'Teks paling bawah dan tombol WhatsApp melayang.', blocks: [
-      G('Footer', [F('foot.text', 'Teks footer', 'text', VERSI_HINT)]),
+      G('Footer', [F('foot.text', 'Teks footer', 'text', VERSI_HINT), F('foot.counter', 'Teks jumlah pengunjung', 'text', 'Tulis {kunjungan} untuk total kunjungan dan {unik} untuk pengunjung unik.')]),
       G('Tombol WhatsApp melayang', [F('foot.fab', 'Teks tombol'), F('foot.fabAria', 'Label pembaca layar')])
     ] }
   ];
