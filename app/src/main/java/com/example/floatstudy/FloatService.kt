@@ -2106,6 +2106,7 @@ class FloatService : Service() {
             toast("Gagal menampilkan tombol Answer: ${e.message}")
             return
         }
+        ClickService.onScroll = { dy, known -> ui.post { ansOnScroll(dy, known) } }
         ansPill = pill
         ansPillLp = lp
         ansStartChip = start
@@ -2168,6 +2169,8 @@ class FloatService : Service() {
         ansBusy = true
         val g = ++ansGen
         hideAnsBox()
+        ansReply = null
+        ui.removeCallbacks(ansRescanRun)
         ansLastRect = null
         ansLastLabel = null
         ansStartChip?.let {
@@ -2218,6 +2221,8 @@ class FloatService : Service() {
     }
 
     private fun ansStop() {
+        ansReply = null
+        ui.removeCallbacks(ansRescanRun)
         ansGen++
         ansEngine?.stop()
         ansEngine = null
@@ -2228,6 +2233,7 @@ class FloatService : Service() {
     }
 
     private fun closeAnswer() {
+        ClickService.onScroll = null
         ansStop()
         ansPill?.let {
             try {
@@ -2266,6 +2272,85 @@ class FloatService : Service() {
         return letters to (if (hasDot) t.substring(dot + 1).trim() else "")
     }
 
+    /** Susun kotak dan label dari balasan AI dan hasil OCR layar saat ini (dipanggil juga setelah layar digulir). */
+    private fun ansRender(rep: AnswerEngine.Reply, lines: List<Pair<Rect, String>>, bw: Int, bh: Int) {
+        val opts = ansFindOptions(lines)
+        val items = ArrayList<Pair<Rect?, String>>()
+        when (rep.kind) {
+            'P' -> {
+                val pairs = Regex("([0-9A-Za-z]{1,2})\\s*[-–:=>]+\\s*([A-Za-z0-9]{1,2})").findAll(rep.text)
+                    .joinToString(", ") { it.groupValues[1] + "-" + it.groupValues[2].uppercase() }
+                items.add(null to "Pasangan: " + pairs.ifBlank { rep.text.take(120) })
+            }
+            'I' -> items.add(null to "Jawaban: " + rep.text.take(160))
+            else -> {
+                val (letters, rest) = ansLetters(rep.text)
+                if (letters.isEmpty()) {
+                    items.add(null to "Jawaban: " + rep.text.take(160))
+                } else {
+                    val single = letters.size == 1
+                    val missing = ArrayList<Char>()
+                    for (ch in letters) {
+                        val k = opts.indexOfFirst { it.letter == ch }
+                        if (k < 0) {
+                            missing.add(ch)
+                            continue
+                        }
+                        val body = (if (single) rest.ifBlank { opts[k].text } else "").take(60)
+                        val label = if (single) "Jawaban: $ch" + (if (body.isNotBlank()) ". $body" else "") else "✓ $ch"
+                        items.add(ansOptBox(lines, opts, k, bw, bh) to label)
+                    }
+                    if (missing.isNotEmpty() || !single) {
+                        items.add(null to "Jawaban: " + letters.joinToString(", "))
+                    }
+                }
+            }
+        }
+        showAnsBoxes(items)
+    }
+
+    private var ansReply: AnswerEngine.Reply? = null
+    private val ansMovers = ArrayList<View>()
+
+    /** Layar digulir: kotak ikut bergeser bila selisih diketahui; setelah diam, OCR ulang untuk mengunci ke posisi jawaban yang baru. */
+    private fun ansOnScroll(dy: Int, known: Boolean) {
+        if (ansReply == null || ansRunning || ansBox == null) return
+        if (known) {
+            for (v in ansMovers) v.translationY += -dy.toFloat()
+        } else {
+            for (v in ansMovers) v.visibility = View.INVISIBLE
+        }
+        ui.removeCallbacks(ansRescanRun)
+        ui.postDelayed(ansRescanRun, 450)
+    }
+
+    private val ansRescanRun = Runnable {
+        val rep = ansReply ?: return@Runnable
+        val root = ansBox ?: return@Runnable
+        if (ansRunning) return@Runnable
+        root.visibility = View.INVISIBLE
+        ui.postDelayed({
+            ansShot { bmp ->
+                if (ansRunning || ansReply == null || ansBox !== root) {
+                    root.visibility = View.VISIBLE
+                    return@ansShot
+                }
+                if (bmp == null) {
+                    root.visibility = View.VISIBLE
+                    return@ansShot
+                }
+                Ocr.lines(bmp) { res ->
+                    val lines = res.getOrNull()
+                    if (lines == null || ansRunning || ansReply == null) {
+                        root.visibility = View.VISIBLE
+                        return@lines
+                    }
+                    ansRender(rep, lines, bmp.width, bmp.height)
+                }
+            }
+        }, 80)
+    }
+
     private fun ansProcess(bmp: Bitmap, gen: Int) {
         ansSetStatus("Membaca soal…")
         Ocr.lines(bmp) { res ->
@@ -2286,38 +2371,8 @@ class FloatService : Service() {
                             toast("Answer: AI tidak menjawab. Coba ganti AI di pengaturan, lalu tekan Start lagi.")
                             return@ask
                         }
-                        val items = ArrayList<Pair<Rect?, String>>()
-                        when (rep.kind) {
-                            'P' -> {
-                                val pairs = Regex("([0-9A-Za-z]{1,2})\\s*[-–:=>]+\\s*([A-Za-z0-9]{1,2})").findAll(rep.text)
-                                    .joinToString(", ") { it.groupValues[1] + "-" + it.groupValues[2].uppercase() }
-                                items.add(null to "Pasangan: " + pairs.ifBlank { rep.text.take(120) })
-                            }
-                            'I' -> items.add(null to "Jawaban: " + rep.text.take(160))
-                            else -> {
-                                val (letters, rest) = ansLetters(rep.text)
-                                if (letters.isEmpty()) {
-                                    items.add(null to "Jawaban: " + rep.text.take(160))
-                                } else {
-                                    val single = letters.size == 1
-                                    val missing = ArrayList<Char>()
-                                    for (ch in letters) {
-                                        val k = opts.indexOfFirst { it.letter == ch }
-                                        if (k < 0) {
-                                            missing.add(ch)
-                                            continue
-                                        }
-                                        val body = (if (single) rest.ifBlank { opts[k].text } else "").take(60)
-                                        val label = if (single) "Jawaban: $ch" + (if (body.isNotBlank()) ". $body" else "") else "✓ $ch"
-                                        items.add(ansOptBox(lines, opts, k, bmp.width, bmp.height) to label)
-                                    }
-                                    if (missing.isNotEmpty() || !single) {
-                                        items.add(null to "Jawaban: " + letters.joinToString(", "))
-                                    }
-                                }
-                            }
-                        }
-                        showAnsBoxes(items)
+                        ansReply = rep
+                        ansRender(rep, lines, bmp.width, bmp.height)
                         ansFinish(null)
                     }
                 }
@@ -2364,6 +2419,7 @@ class FloatService : Service() {
      */
     private fun showAnsBoxes(items: List<Pair<Rect?, String>>) {
         hideAnsBox()
+        ansMovers.clear()
         val dm = resources.displayMetrics
         val (rw, rh) = realSize()
         val green = 0xFF22C55E.toInt()
@@ -2397,10 +2453,13 @@ class FloatService : Service() {
                     leftMargin = rect.left
                     topMargin = rect.top
                 })
-                root.addView(labelView(text, 1), FrameLayout.LayoutParams(WRAP, labelH).apply {
+                val lv = labelView(text, 1)
+                root.addView(lv, FrameLayout.LayoutParams(WRAP, labelH).apply {
                     leftMargin = rect.left
                     topMargin = (rect.top - labelH).coerceAtLeast(0)
                 })
+                ansMovers.add(frame)
+                ansMovers.add(lv)
             } else {
                 root.addView(labelView(text, 4), FrameLayout.LayoutParams(dm.widthPixels - dp(24), WRAP).apply {
                     leftMargin = dp(12)

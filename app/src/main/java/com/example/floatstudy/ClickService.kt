@@ -22,6 +22,10 @@ class ClickService : AccessibilityService() {
         @Volatile
         var onLost: (() -> Unit)? = null
 
+        /** Layar bergulir (dy piksel, ada = selisih diketahui). Dipakai kotak jawaban Answer agar ikut bergeser. */
+        @Volatile
+        var onScroll: ((Int, Boolean) -> Unit)? = null
+
         /** Terjemahan langsung layar (Inggris ke Indonesia). Lihat LiveTranslator. */
         fun liveActive(): Boolean = instance?.live?.active == true
 
@@ -185,6 +189,14 @@ class ClickService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         // error di Terjemah Langsung tidak boleh menjatuhkan proses: crash membuat Android memutus layanan aksesibilitas
+        if (event != null && event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED && event.packageName?.toString() != packageName) {
+            try {
+                val dy = if (android.os.Build.VERSION.SDK_INT >= 28) event.scrollDeltaY else 0
+                val dx = if (android.os.Build.VERSION.SDK_INT >= 28) event.scrollDeltaX else 0
+                onScroll?.invoke(dy, dx == 0 && dy != 0)
+            } catch (e: Exception) {
+            }
+        }
         if (event != null) {
             try {
                 live?.onEvent(event)

@@ -105,7 +105,7 @@ class AnswerEngine(
     // jumlah dan isi balasan terakhir berformat "JAWABAN: ...", "PASANGAN: ..." atau "ISIAN: ..." di teks halaman.
     // Isi yang diawali "[" dilewati: itu contoh format dari perintah kita sendiri yang ikut tampil di halaman.
     private val REPLY_JS = "(function(){var t=document.body?document.body.innerText:'';" +
-        "var re=/(JAWABAN|PASANGAN|ISIAN)\\s*[:：]\\s*([^\\n\\[][^\\n]{0,200})/gi;var n=0,m,k='',x='';" +
+        "var re=/(JAWABAN|PASANGAN|ISIAN)\\s*[:：]\\s*([^\\s\\[][^\\n]{0,200})/gi;var n=0,m,k='',x='';" +
         "while((m=re.exec(t))){n++;k=m[1].charAt(0).toUpperCase();x=m[2];}return {n:n,k:k,t:x};})()"
 
     private val INJECT_JS = "(function(){try{var b=window.floowwImg.get();if(!b)return 0;" +
