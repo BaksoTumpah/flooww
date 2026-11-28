@@ -63,6 +63,9 @@ class FloatService : Service() {
         /** Dipanggil MediaPermActivity setelah pengguna menjawab izin akses foto (true = diizinkan). */
         @Volatile var onMediaPerm: ((Boolean) -> Unit)? = null
 
+        /** Dipanggil MediaPermActivity setelah izin kamera dijawab (true = kamera diizinkan). */
+        @Volatile var onCamPerm: ((Boolean) -> Unit)? = null
+
         private const val M_ASK = 0
         private const val M_COPY = 1
         private const val M_TR = 2
@@ -80,17 +83,19 @@ class FloatService : Service() {
         private const val M_LIVE = 10
         private const val M_READ = 11
         private const val M_OFF = 12
-        private const val M_SET = 13 // panel pengaturan (bukan tile menu)
+        private const val M_CAM = 13
+        private const val M_ANS = 14
+        private const val M_SET = 15 // panel pengaturan (bukan tile menu)
 
         private val NAMES = listOf(
             "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
-            "Kalkulator", "Klik", "Apps", "Catatan", "Galeri", "Live", "OCR", "Matikan", "Pengaturan"
+            "Kalkulator", "Klik", "Apps", "Catatan", "Galeri", "Live", "OCR", "Matikan", "Kamera", "Answer", "Pengaturan"
         )
         private val ICONS = intArrayOf(
             R.drawable.ic_ask, R.drawable.ic_copy, R.drawable.ic_translate, R.drawable.ic_shot,
             R.drawable.ic_browser, R.drawable.ic_calc, R.drawable.ic_touch,
             R.drawable.ic_apps, R.drawable.ic_note, R.drawable.ic_image, R.drawable.ic_live, R.drawable.ic_read, R.drawable.ic_power,
-            R.drawable.ic_settings
+            R.drawable.ic_camera, R.drawable.ic_answer, R.drawable.ic_settings
         )
 
         // alat yang mengambil soal dari layar: lingkaran pilih area muncul dulu, jendela sesudahnya
@@ -199,10 +204,34 @@ class FloatService : Service() {
     private fun pref(s: Setting) = Prefs.get(c, s)
     private val accent: Int get() = Prefs.bubbleColor(c)
 
+    // ---------- kamera ----------
+
+    private var fgProj = false
+    private var camInit = false
+    private val cam: Cam by lazy {
+        camInit = true
+        Cam(this, ui, { m -> ui.post { toast(m) } }) {
+            try {
+                startActivity(Intent(this, MediaPermActivity::class.java).putExtra("kind", "cam").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e: Exception) {
+                toast("Gagal meminta izin kamera")
+            }
+        }
+    }
+
     // ---------- siklus hidup ----------
 
     override fun onCreate() {
         super.onCreate()
+        onCamPerm = { ok ->
+            ui.post {
+                if (ok) {
+                    // izin baru ada: perbarui tipe layanan agar kamera boleh dipakai dari latar belakang
+                    startAsForeground(fgProj)
+                    cam.retry()
+                } else toast("Izin kamera ditolak")
+            }
+        }
         P = Ui.pal(this)
         Models.ensureBase(this)
         Diag.installCrashLog(this)
@@ -275,6 +304,7 @@ class FloatService : Service() {
 
     @Suppress("DEPRECATION")
     private fun startAsForeground(projection: Boolean) {
+        fgProj = projection
         val nm = getSystemService(NotificationManager::class.java)
         try {
             nm.deleteNotificationChannel("float")
@@ -307,19 +337,31 @@ class FloatService : Service() {
             val withProj = projection || grab?.active == true
             // Android 14+: bisa specialUse saja sebelum izin tangkap layar ada.
             // Android 10-13: tipe specialUse belum dikenal, pakai mediaProjection seperti biasa.
-            val type = if (Build.VERSION.SDK_INT >= 34) {
+            // tipe kamera/mikrofon hanya ditambah bila izinnya sudah diberikan (kalau tidak, Android 14 melempar SecurityException)
+            val camOk = checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val micOk = checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            var extra = 0
+            if (Build.VERSION.SDK_INT >= 30) {
+                if (camOk) extra = extra or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                if (micOk) extra = extra or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            val base = if (Build.VERSION.SDK_INT >= 34) {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
                     (if (withProj) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION else 0)
             } else {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
             }
             try {
-                startForeground(1, n, type)
+                startForeground(1, n, base or extra)
             } catch (e: Exception) {
                 try {
-                    startForeground(1, n)
-                } catch (e2: Exception) {
-                    toast("Gagal memulai layanan: ${e2.javaClass.simpleName}")
+                    startForeground(1, n, base)
+                } catch (e1: Exception) {
+                    try {
+                        startForeground(1, n)
+                    } catch (e2: Exception) {
+                        toast("Gagal memulai layanan: ${e2.javaClass.simpleName}")
+                    }
                 }
             }
         } else {
@@ -572,6 +614,9 @@ class FloatService : Service() {
 
     override fun onDestroy() {
         onMediaPerm = null
+        onCamPerm = null
+        if (camInit) cam.stop()
+        closeAnswer()
         Diag.add(this, "bubble dimatikan, aksesibilitas masih aktif: ${ClickService.instance != null}")
         hideAppPicker()
         Prefs.sp(this).unregisterOnSharedPreferenceChangeListener(prefListener)
@@ -942,6 +987,22 @@ class FloatService : Service() {
                 }
             }
 
+            fun fireTap() {
+                val waiting = pendingTap
+                if (waiting != null && dblOn()) {
+                    // ketukan kedua dalam jeda: dihitung ketuk dua kali
+                    ui.removeCallbacks(waiting)
+                    pendingTap = null
+                    onDouble?.invoke()
+                } else if (dblOn()) {
+                    val r = Runnable { pendingTap = null; onTap?.invoke() }
+                    pendingTap = r
+                    ui.postDelayed(r, 220)
+                } else {
+                    onTap?.invoke()
+                }
+            }
+
             override fun onTouch(v: View, e: MotionEvent): Boolean {
                 when (e.action) {
                     MotionEvent.ACTION_DOWN -> {
@@ -954,7 +1015,7 @@ class FloatService : Service() {
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (e.rawX - tx).toInt()
                         val dy = (e.rawY - ty).toInt()
-                        val far = abs(dx) > dp(6) || abs(dy) > dp(6)
+                        val far = abs(dx) > dp(10) || abs(dy) > dp(10)
                         if (far && !armed) {
                             // bergerak sebelum ditahan: bukan geser bubble, mungkin sapuan
                             swiping = true
@@ -998,20 +1059,10 @@ class FloatService : Service() {
                                 else -> -1
                             }
                             if (dir > 0) onSwipe?.invoke(dir)
+                            // jari bergeser sedikit (bubble tipis di tepi): tetap ketukan, bukan sapuan yang hilang
+                            else if (abs(dx) < dp(18) && abs(dy) < dp(18)) fireTap()
                         } else if (!longDone) {
-                            val waiting = pendingTap
-                            if (waiting != null && dblOn()) {
-                                // ketukan kedua dalam jeda: dihitung ketuk dua kali
-                                ui.removeCallbacks(waiting)
-                                pendingTap = null
-                                onDouble?.invoke()
-                            } else if (dblOn()) {
-                                val r = Runnable { pendingTap = null; onTap?.invoke() }
-                                pendingTap = r
-                                ui.postDelayed(r, 280)
-                            } else {
-                                onTap?.invoke()
-                            }
+                            fireTap()
                         }
                     }
                 }
@@ -1093,7 +1144,9 @@ class FloatService : Service() {
             2 -> {
                 val d = dm.density
                 Prefs.set(c, Setting.WIN_W, (lp.width / d).toInt())
-                Prefs.set(c, Setting.WIN_H, (lp.height / d).toInt())
+                // tinggi Browser disimpan terpisah supaya tidak mengubah tinggi alat lain
+                if (curTool == M_BROWSER) Prefs.sp(c).edit().putInt("browserH", (lp.height / d).toInt()).apply()
+                else Prefs.set(c, Setting.WIN_H, (lp.height / d).toInt())
             }
         }
     }
@@ -1250,18 +1303,33 @@ class FloatService : Service() {
         val (sw, _) = realSize()
         val onLeft = lp.x + lp.width / 2 < sw / 2
         val col = if (clicking) 0xFFDC2626.toInt() else accent
-        // 0 bulat, 1 panah kecil di tepi, 2 garis tepi
+        // 0 bulat, 1 panah ramping di tepi, 2 garis tepi. vw/vh = bagian yang terlihat, ww/wh = jendela (area sentuh lebih lebar).
+        val vw: Int
+        val vh: Int
+        val ww: Int
+        val wh: Int
         when (shape) {
-            1 -> { lp.width = dpf(sizeDp * 0.55f); lp.height = dp(sizeDp) }
-            2 -> { lp.width = dp(18); lp.height = dpf(sizeDp * 1.3f) }
-            else -> { lp.width = dp(sizeDp); lp.height = dp(sizeDp) }
+            1 -> {
+                vw = dpf(sizeDp * 0.36f).coerceAtLeast(dp(9)); vh = dp(sizeDp)
+                ww = maxOf(vw, dp(24)); wh = vh + dp(12)
+            }
+            2 -> {
+                vw = dp(6); vh = dpf(sizeDp * 1.3f)
+                // jendela lebih lebar ke arah tengah layar dan lebih tinggi, supaya mudah diketuk walau tepi layar tertutup case
+                ww = dp(34); wh = vh + dp(24)
+            }
+            else -> { vw = dp(sizeDp); vh = vw; ww = vw; wh = vh }
         }
+        lp.width = ww
+        lp.height = wh
+        val padV = (wh - vh) / 2
+        val gapX = ww - vw
         val d = GradientDrawable().apply {
             setColor(col)
             when (shape) {
                 0 -> { this.shape = GradientDrawable.OVAL; setStroke(dp(2), 0x99FFFFFF.toInt()) }
                 1 -> {
-                    val r = dpf(sizeDp * 0.3f).toFloat()
+                    val r = vw.toFloat()
                     // sisi yang menghadap tengah layar membulat penuh, sisi tepi rata
                     cornerRadii = if (onLeft) floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
                     else floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
@@ -1269,13 +1337,13 @@ class FloatService : Service() {
                 else -> cornerRadius = dp(3).toFloat()
             }
         }
-        b.background = if (shape == 2) {
-            // batang tipis di tepi, area sentuh tetap lebih lebar
-            val gap = dp(12)
+        b.background = if (shape == 0) d else {
             android.graphics.drawable.InsetDrawable(
-                d, if (onLeft) 0 else gap, 0, if (onLeft) gap else 0, 0
+                d, if (onLeft) 0 else gapX, padV, if (onLeft) gapX else 0, padV
             )
-        } else d
+        }
+        // tanda panah dipusatkan pada bagian yang terlihat
+        if (shape == 1) b.setPadding(if (onLeft) 0 else gapX, padV, if (onLeft) gapX else 0, padV) else b.setPadding(0, 0, 0, 0)
         b.alpha = pref(Setting.BUBBLE_ALPHA) / 100f
         b.text = when {
             clicking -> "■"
@@ -1284,7 +1352,7 @@ class FloatService : Service() {
         }
         // warna terang (putih/abu): tanda di bubble dibuat gelap supaya tetap terbaca
         b.setTextColor(Ui.onAccent(col))
-        b.setTextSize(TypedValue.COMPLEX_UNIT_DIP, if (shape == 1) sizeDp * 0.5f else sizeDp * 0.4f)
+        b.setTextSize(TypedValue.COMPLEX_UNIT_DIP, if (shape == 1) sizeDp * 0.4f else sizeDp * 0.4f)
         if (snap) lp.x = if (onLeft) 0 else sw - lp.width
         try {
             wm.updateViewLayout(b, lp)
@@ -1506,7 +1574,7 @@ class FloatService : Service() {
                     gh = card.height
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    lp.height = (gh + (e.rawY - gy).toInt()).coerceIn(dp(180), maxOf(dp(180), root.height - lp.topMargin - dp(8)))
+                    lp.height = (gh + (e.rawY - gy).toInt()).coerceIn(dp(110), maxOf(dp(110), root.height - lp.topMargin - dp(8)))
                     card.layoutParams = lp
                 }
                 MotionEvent.ACTION_UP -> Prefs.setMenuHeight(c, (card.height / resources.displayMetrics.density).toInt())
@@ -1519,15 +1587,15 @@ class FloatService : Service() {
         card.addView(scroll, LinearLayout.LayoutParams(MATCH, 0, 1f))
         card.addView(footer, LinearLayout.LayoutParams(MATCH, barH))
 
-        // tinggi: dari pengaturan bila pernah diubah, bila tidak sesuai isi (paling tinggi 62% layar)
+        // tinggi: dari pengaturan bila pernah diubah, bila tidak sesuai isi (paling tinggi 31% layar); sisanya digulir
         content.measure(
             View.MeasureSpec.makeMeasureSpec(cw, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         )
-        val maxH = maxOf(dp(180), root.height - dp(48))
+        val maxH = maxOf(dp(110), root.height - dp(48))
         val saved = Prefs.menuHeight(c)
-        val ch = (if (saved > 0) dp(saved) else minOf(2 * barH + content.measuredHeight, (root.height * 0.62f).toInt()))
-            .coerceIn(dp(180), maxH)
+        val ch = (if (saved > 0) dp(saved) else minOf(2 * barH + content.measuredHeight, (root.height * 0.31f).toInt()))
+            .coerceIn(dp(110), maxH)
         lp.height = ch
 
         val bl = IntArray(2)
@@ -1564,7 +1632,8 @@ class FloatService : Service() {
 
     /**
      * Ketuk tile = pilih alat. Tekan lama lalu geser = pindahkan tile seperti memindahkan aplikasi
-     * (di mode atur langsung geser). Tile yang paling dekat dengan jari saat dilepas menjadi tempat barunya.
+     * (di mode atur langsung geser). Saat tile melewati slot lain, tile di bawahnya bergeser mengisi tempat kosong.
+     * Slot yang paling dekat dengan jari saat dilepas menjadi tempat barunya.
      */
     @android.annotation.SuppressLint("ClickableViewAccessibility")
     private fun attachMenuDrag(
@@ -1576,7 +1645,8 @@ class FloatService : Service() {
         var downY = 0f
         var dragging = false
         var moved = false
-        var target = id
+        val fromIdx = shown.indexOf(id)
+        var targetIdx = fromIdx
         var startScroll = 0
         val centers = HashMap<Int, FloatArray>()
         val longPress = Runnable {
@@ -1601,7 +1671,7 @@ class FloatService : Service() {
                     downY = e.rawY
                     dragging = false
                     moved = false
-                    target = id
+                    targetIdx = fromIdx
                     if (menuEdit) longPress.run() else v.postDelayed(longPress, 350)
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -1621,20 +1691,32 @@ class FloatService : Service() {
                         val ds = scroll.scrollY - startScroll
                         v.translationX = dx
                         v.translationY = dy + ds
-                        var best = id
+                        var best = fromIdx
                         var bd = Float.MAX_VALUE
-                        centers.forEach { (k, ct) ->
+                        shown.forEachIndexed { idx, k ->
+                            val ct = centers[k] ?: return@forEachIndexed
                             val cy = ct[1] - ds
                             val d = (ct[0] - e.rawX) * (ct[0] - e.rawX) + (cy - e.rawY) * (cy - e.rawY)
                             if (d < bd) {
                                 bd = d
-                                best = k
+                                best = idx
                             }
                         }
-                        if (best != target) {
-                            if (target != id) views[target]?.alpha = 1f
-                            target = best
-                            if (best != id) views[best]?.alpha = 0.4f
+                        if (best != targetIdx) {
+                            targetIdx = best
+                            // tile lain bergeser mengisi tempat kosong: tile yang diseret dipindah ke slot target di urutan baru
+                            val ns = shown.toMutableList()
+                            ns.remove(id)
+                            ns.add(targetIdx, id)
+                            shown.forEachIndexed { oldIdx, m ->
+                                if (m == id) return@forEachIndexed
+                                val a = centers[shown[oldIdx]]
+                                val z = centers[shown[ns.indexOf(m)]]
+                                if (a != null && z != null) {
+                                    views[m]?.animate()?.translationX(z[0] - a[0])?.translationY(z[1] - a[1])
+                                        ?.setDuration(160)?.start()
+                                }
+                            }
                         }
                     }
                 }
@@ -1642,10 +1724,10 @@ class FloatService : Service() {
                     v.removeCallbacks(longPress)
                     if (dragging) {
                         dragging = false
-                        if (target != id) {
+                        if (targetIdx != fromIdx) {
                             val ns = shown.toMutableList()
                             ns.remove(id)
-                            ns.add(shown.indexOf(target), id)
+                            ns.add(targetIdx, id)
                             val set = shown.toSet()
                             var k = 0
                             Prefs.setMenuOrder(c, Prefs.menuOrder(c).map { if (it in set) ns[k++] else it })
@@ -1739,20 +1821,13 @@ class FloatService : Service() {
         val minW = dp(140)
         val minH = dp(72)
         val lp = WindowManager.LayoutParams(
-            minOf(dm.widthPixels - dp(32), dp(300)), dp(170), ovType,
+            (dm.widthPixels * 0.86f).toInt(), (dm.heightPixels * 0.44f).toInt(), ovType,
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or OVERLAY_FLAGS,
             PixelFormat.TRANSLUCENT
         )
         lp.gravity = Gravity.TOP or Gravity.START
         lp.x = (dm.widthPixels - lp.width) / 2
-        lp.y = dm.heightPixels / 3
-        // ingat bentuk dan letak kotak terakhir dipakai (dijepit agar tetap muat di layar)
-        Prefs.readBoxRect(c)?.let { r ->
-            lp.width = r[2].coerceIn(minW, dm.widthPixels)
-            lp.height = r[3].coerceIn(minH, dm.heightPixels)
-            lp.x = r[0].coerceIn(0, dm.widthPixels - lp.width)
-            lp.y = r[1].coerceIn(0, dm.heightPixels - lp.height)
-        }
+        lp.y = (dm.heightPixels - lp.height) / 2 // default: hampir setengah layar, tepat di tengah
 
         val acc = accent
         val box = object : FrameLayout(c) {
@@ -1765,7 +1840,9 @@ class FloatService : Service() {
             private var sh = 0
 
             override fun onTouchEvent(e: MotionEvent): Boolean {
-                val band = dp(22)
+                // pita tepi lebar (mudah ditarik); di tengah kotak baru memindah
+                val bandX = minOf(dp(34), width / 3)
+                val bandY = minOf(dp(34), height / 3)
                 when (e.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         dx = e.rawX
@@ -1774,8 +1851,9 @@ class FloatService : Service() {
                         sy = lp.y
                         sw = lp.width
                         sh = lp.height
-                        mode = (if (e.x < band) EDGE_L else 0) or (if (e.x > width - band) EDGE_R else 0) or
-                            (if (e.y < band / 2) EDGE_T else 0) or (if (e.y > height - band) EDGE_B else 0)
+                        mode = (if (e.x < bandX) EDGE_L else 0) or (if (e.x > width - bandX) EDGE_R else 0) or
+                            (if (e.y < bandY) EDGE_T else 0) or (if (e.y > height - bandY) EDGE_B else 0)
+                        parent?.requestDisallowInterceptTouchEvent(true)
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val mx = (e.rawX - dx).toInt()
@@ -1878,24 +1956,22 @@ class FloatService : Service() {
                 hideReadBox()
                 toast("Layanan aksesibilitas flooww belum aktif")
             }
-            text.isNotBlank() -> {
-                hideReadBox()
-                sendReadText(text)
-            }
             Build.VERSION.SDK_INT < 30 -> {
                 hideReadBox()
-                toast("Tidak ada teks terbaca di kotak (mungkin berupa gambar)")
+                if (text.isNotBlank()) sendReadText(text, null)
+                else toast("Tidak ada teks terbaca di kotak (mungkin berupa gambar)")
             }
             else -> {
-                // tidak ada teks node: kotak sudah tampil lebih dulu, baru sekarang area kotak ditangkap lalu dibaca OCR
-                toast("Tidak ada teks node, membaca gambar di kotak…")
+                // rumus, lambda, dan angka sering tidak ada di teks node. Selalu tangkap gambar kotak dan kirim bersama teks:
+                // AI membaca rumus dari gambar, teks node membantu bagian yang jelas.
+                toast("Membaca teks dan gambar di kotak…")
                 hideReadBox()
                 setOverlayVisible(false)
                 ui.postDelayed({
                     ClickService.screenshot { bmp ->
                         setOverlayVisible(true)
                         if (bmp == null) {
-                            toast("Gagal menangkap layar untuk OCR")
+                            if (text.isNotBlank()) sendReadText(text, null) else toast("Gagal menangkap layar untuk OCR")
                             return@screenshot
                         }
                         val x = r.left.coerceIn(0, bmp.width - 1)
@@ -1904,10 +1980,14 @@ class FloatService : Service() {
                             bmp, x, y,
                             r.width().coerceIn(1, bmp.width - x), r.height().coerceIn(1, bmp.height - y)
                         )
-                        Ocr.read(crop) { res ->
-                            val t = res.getOrNull()
-                            if (t.isNullOrBlank()) toast("Tidak ada teks terbaca di kotak")
-                            else sendReadText(t)
+                        if (text.isNotBlank()) {
+                            sendReadText(text, crop)
+                        } else {
+                            // tidak ada teks node sama sekali: OCR gambar (diperbesar agar angka kecil terbaca), gambar tetap dikirim
+                            val big = if (crop.width < 1600) Bitmap.createScaledBitmap(crop, crop.width * 2, crop.height * 2, true) else crop
+                            Ocr.read(big) { res ->
+                                sendReadText(res.getOrNull().orEmpty(), crop)
+                            }
                         }
                     }
                 }, 150)
@@ -1915,11 +1995,453 @@ class FloatService : Service() {
         }
     }
 
-    private fun sendReadText(text: String) {
+    // ---------- Answer: baca soal di layar, tanya AI di latar belakang, tandai jawaban dengan kotak hijau ----------
+
+    private class AnsOpt(val letter: Char, val idx: Int, val text: String)
+
+    private var ansPill: LinearLayout? = null
+    private var ansPillLp: WindowManager.LayoutParams? = null
+    private var ansStartChip: TextView? = null
+    private var ansStatus: TextView? = null
+    private var ansRunning = false
+    private var ansBusy = false
+    private var ansGen = 0
+    private var ansEngine: AnswerEngine? = null
+    private var ansBox: FrameLayout? = null
+    private var ansPrev: IntArray? = null
+    private var ansDoneSig: IntArray? = null
+    private var ansPending = false
+    private var ansIgnore = 0
+    private var ansShotFails = 0
+    private var ansLastRect: Rect? = null
+    private var ansLastLabel: String? = null
+
+    private val ANS_OPT_RE = Regex("^\\s*[\\(\\[]?([A-Ea-e])\\s*[\\.\\)\\]:]\\s*(.*)$")
+    private val ANS_PROMPT = "Ini foto soal. Tentukan jenisnya lalu balas SATU baris saja, tanpa penjelasan, sesuai jenis:\n" +
+        "- pilihan ganda: JAWABAN: [huruf]. [isi pilihan singkat]. Bila soal meminta memilih lebih dari satu jawaban benar: JAWABAN: [huruf], [huruf]\n" +
+        "- menjodohkan: PASANGAN: [nomor]-[huruf]; [nomor]-[huruf]; dan seterusnya sesuai gambar\n" +
+        "- isian atau jawaban singkat: ISIAN: [jawaban singkat saja]"
+
+    private fun ansSigOf(b: Bitmap): IntArray {
+        val s = Bitmap.createScaledBitmap(b, 24, 48, true)
+        val px = IntArray(24 * 48)
+        s.getPixels(px, 0, 24, 0, 0, 24, 48)
+        if (s !== b) s.recycle()
+        return IntArray(px.size) {
+            val p = px[it]
+            (((p shr 16) and 0xFF) * 3 + ((p shr 8) and 0xFF) * 6 + (p and 0xFF)) / 10
+        }
+    }
+
+    private fun ansDiff(a: IntArray, b: IntArray): Int {
+        if (a.size != b.size) return 255
+        var t = 0L
+        for (i in a.indices) t += kotlin.math.abs(a[i] - b[i])
+        return (t / a.size).toInt()
+    }
+
+    private fun ansSetStatus(t: String?) {
+        val s = ansStatus ?: return
+        if (t == null) s.visibility = View.GONE else {
+            s.text = t
+            s.visibility = View.VISIBLE
+        }
+    }
+
+    /** Tile Answer: munculkan tombol kecil Start/Stop (jendela overlay, tidak mengambil fokus). */
+    private fun showAnswerPill() {
+        if (ClickService.instance == null) {
+            toast("Aktifkan layanan aksesibilitas flooww dulu di Pengaturan")
+            return
+        }
+        if (Build.VERSION.SDK_INT < 30 && grab?.active != true) {
+            needProjection()
+            return
+        }
+        if (ansPill != null) return
+        val dm = resources.displayMetrics
+        fun chip(label: String, color: Int) = TextView(c).apply {
+            text = label
+            textSize = 13f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = dp(14).toFloat()
+            }
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+        }
+        val start = chip("▶ Start", 0xFF2E9E5B.toInt())
+        val close = chip("✕", 0xFFC0392B.toInt())
+        val status = TextView(c).apply {
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setPadding(dp(8), 0, dp(8), 0)
+            visibility = View.GONE
+        }
+        val pill = LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                setColor(0xCC1E1B2E.toInt())
+                cornerRadius = dp(20).toFloat()
+            }
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            addView(start)
+            addView(status)
+            addView(close, LinearLayout.LayoutParams(WRAP, WRAP).apply { leftMargin = dp(4) })
+        }
+        val lp = WindowManager.LayoutParams(
+            WRAP, WRAP, ovType,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or OVERLAY_FLAGS,
+            PixelFormat.TRANSLUCENT
+        )
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.x = dp(12)
+        lp.y = dm.heightPixels / 6
+        try {
+            wm.addView(pill, lp)
+        } catch (e: Exception) {
+            toast("Gagal menampilkan tombol Answer: ${e.message}")
+            return
+        }
+        ansPill = pill
+        ansPillLp = lp
+        ansStartChip = start
+        ansStatus = status
+        ansDrag(start) { ansToggle() }
+        ansDrag(close) { closeAnswer() }
+        ansDrag(status) { }
+        // AI tersembunyi mulai dimuat sekarang, selagi tombol diatur, supaya Start pertama tidak menunggu lama
+        if (ansEngine == null) ansEngine = AnswerEngine(c, ui, wm, ovType).also { it.start(effectiveAi(Prefs.aiTarget(c))) }
+        toast("Answer siap. Tekan Start.")
+    }
+
+    /** Seret tombol Answer ke mana saja; ketukan singkat menjalankan aksi. */
+    private fun ansDrag(v: View, onTap: () -> Unit) {
+        val dm = resources.displayMetrics
+        var dx = 0f
+        var dy = 0f
+        var sx = 0
+        var sy = 0
+        var moved = false
+        v.setOnTouchListener { _, e ->
+            val lp = ansPillLp
+            val pill = ansPill
+            if (lp != null && pill != null) {
+                when (e.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        dx = e.rawX
+                        dy = e.rawY
+                        sx = lp.x
+                        sy = lp.y
+                        moved = false
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val mx = (e.rawX - dx).toInt()
+                        val my = (e.rawY - dy).toInt()
+                        if (!moved && (kotlin.math.abs(mx) > dp(10) || kotlin.math.abs(my) > dp(10))) moved = true
+                        if (moved) {
+                            lp.x = (sx + mx).coerceIn(0, maxOf(0, dm.widthPixels - pill.width))
+                            lp.y = (sy + my).coerceIn(0, maxOf(0, dm.heightPixels - pill.height))
+                            try {
+                                wm.updateViewLayout(pill, lp)
+                            } catch (ex: Exception) {
+                            }
+                        }
+                    }
+                    MotionEvent.ACTION_UP -> if (!moved) onTap()
+                }
+            }
+            true
+        }
+    }
+
+    /** Satu ketukan = satu soal. Tidak berjalan sendiri: soal baru berarti tekan Start lagi. Saat bekerja, tombol jadi Batal. */
+    private fun ansToggle() {
+        if (ansRunning) {
+            ansCancel()
+            return
+        }
+        ansRunning = true
+        ansBusy = true
+        val g = ++ansGen
+        hideAnsBox()
+        ansLastRect = null
+        ansLastLabel = null
+        ansStartChip?.let {
+            it.text = "■ Batal"
+            (it.background as? GradientDrawable)?.setColor(0xFFC0392B.toInt())
+        }
+        var eng = ansEngine
+        if (eng == null) {
+            // AI tersembunyi dimuat sekali dan dipakai terus (chat dilanjutkan) sampai tombol ✕ ditekan
+            eng = AnswerEngine(c, ui, wm, ovType)
+            ansEngine = eng
+            eng.start(effectiveAi(Prefs.aiTarget(c)))
+        }
+        ansSetStatus("Menangkap layar…")
+        // kotak jawaban lama sudah dilepas: beri jeda singkat supaya tidak ikut tertangkap
+        ui.postDelayed({
+            if (!ansRunning || g != ansGen) return@postDelayed
+            ansShot { bmp ->
+                if (!ansRunning || g != ansGen) return@ansShot
+                if (bmp == null) {
+                    toast("Answer: gagal menangkap layar")
+                    ansFinish("Gagal menangkap layar")
+                    return@ansShot
+                }
+                ansProcess(bmp, g)
+            }
+        }, 120)
+    }
+
+    /** Selesai atau dibatalkan: tombol kembali ke Start, kotak hijau tetap tampil sampai Start ditekan lagi. */
+    private fun ansFinish(status: String?) {
+        ansRunning = false
+        ansBusy = false
+        ansStartChip?.let {
+            it.text = "▶ Start"
+            (it.background as? GradientDrawable)?.setColor(0xFF2E9E5B.toInt())
+        }
+        ansSetStatus(status)
+    }
+
+    private fun ansCancel() {
+        ansGen++
+        // permintaan AI yang sedang jalan dihentikan dengan membuang WebView; dibuat lagi saat Start berikutnya
+        ansEngine?.stop()
+        // langsung siapkan AI baru di latar belakang untuk Start berikutnya
+        ansEngine = AnswerEngine(c, ui, wm, ovType).also { it.start(effectiveAi(Prefs.aiTarget(c))) }
+        ansFinish("Dibatalkan")
+    }
+
+    private fun ansStop() {
+        ansGen++
+        ansEngine?.stop()
+        ansEngine = null
+        hideAnsBox()
+        ansLastRect = null
+        ansLastLabel = null
+        ansFinish(null)
+    }
+
+    private fun closeAnswer() {
+        ansStop()
+        ansPill?.let {
+            try {
+                wm.removeView(it)
+            } catch (e: Exception) {
+            }
+        }
+        ansPill = null
+        ansPillLp = null
+        ansStartChip = null
+        ansStatus = null
+    }
+
+    private fun ansShot(cb: (Bitmap?) -> Unit) {
+        if (Build.VERSION.SDK_INT >= 30) ClickService.screenshot(cb)
+        else cb(grab?.takeIf { it.active }?.latest())
+    }
+
+    private fun ansFindOptions(lines: List<Pair<Rect, String>>): List<AnsOpt> {
+        val seen = HashSet<Char>()
+        val out = ArrayList<AnsOpt>()
+        for ((i, l) in lines.withIndex()) {
+            val m = ANS_OPT_RE.find(l.second) ?: continue
+            val ch = m.groupValues[1].uppercase()[0]
+            if (!seen.add(ch)) continue
+            out.add(AnsOpt(ch, i, m.groupValues[2].trim()))
+        }
+        return out
+    }
+
+    private fun ansLetters(t: String): Pair<List<Char>, String> {
+        val dot = t.indexOf('.')
+        val hasDot = dot in 0..12
+        val head = if (hasDot) t.substring(0, dot) else t.take(12)
+        val letters = Regex("(?<![A-Za-z])([A-E])(?![A-Za-z])").findAll(head).map { it.groupValues[1][0] }.distinct().toList()
+        return letters to (if (hasDot) t.substring(dot + 1).trim() else "")
+    }
+
+    private fun ansProcess(bmp: Bitmap, gen: Int) {
+        ansSetStatus("Membaca soal…")
+        Ocr.lines(bmp) { res ->
+            if (!ansRunning || gen != ansGen) return@lines
+            // OCR dipakai hanya untuk menemukan posisi pilihan; bila gagal, AI tetap ditanya dan jawaban tampil sebagai tulisan
+            val lines = res.getOrNull() ?: emptyList()
+            val opts = ansFindOptions(lines)
+            ansSetStatus("Bertanya ke AI…")
+            Thread {
+                val b64 = Base64.encodeToString(toJpegBytes(bmp), Base64.NO_WRAP)
+                ui.post {
+                    val eng = ansEngine
+                    if (!ansRunning || gen != ansGen || eng == null) return@post
+                    eng.ask(b64, ANS_PROMPT) { rep ->
+                        if (!ansRunning || gen != ansGen) return@ask
+                        if (rep == null) {
+                            ansFinish("AI tidak menjawab")
+                            toast("Answer: AI tidak menjawab. Coba ganti AI di pengaturan, lalu tekan Start lagi.")
+                            return@ask
+                        }
+                        val items = ArrayList<Pair<Rect?, String>>()
+                        when (rep.kind) {
+                            'P' -> {
+                                val pairs = Regex("([0-9A-Za-z]{1,2})\\s*[-–:=>]+\\s*([A-Za-z0-9]{1,2})").findAll(rep.text)
+                                    .joinToString(", ") { it.groupValues[1] + "-" + it.groupValues[2].uppercase() }
+                                items.add(null to "Pasangan: " + pairs.ifBlank { rep.text.take(120) })
+                            }
+                            'I' -> items.add(null to "Jawaban: " + rep.text.take(160))
+                            else -> {
+                                val (letters, rest) = ansLetters(rep.text)
+                                if (letters.isEmpty()) {
+                                    items.add(null to "Jawaban: " + rep.text.take(160))
+                                } else {
+                                    val single = letters.size == 1
+                                    val missing = ArrayList<Char>()
+                                    for (ch in letters) {
+                                        val k = opts.indexOfFirst { it.letter == ch }
+                                        if (k < 0) {
+                                            missing.add(ch)
+                                            continue
+                                        }
+                                        val body = (if (single) rest.ifBlank { opts[k].text } else "").take(60)
+                                        val label = if (single) "Jawaban: $ch" + (if (body.isNotBlank()) ". $body" else "") else "✓ $ch"
+                                        items.add(ansOptBox(lines, opts, k, bmp.width, bmp.height) to label)
+                                    }
+                                    if (missing.isNotEmpty() || !single) {
+                                        items.add(null to "Jawaban: " + letters.joinToString(", "))
+                                    }
+                                }
+                            }
+                        }
+                        showAnsBoxes(items)
+                        ansFinish(null)
+                    }
+                }
+            }.start()
+        }
+    }
+
+    /** Kotak satu pilihan: baris huruf pilihan ditambah baris di bawahnya yang menyambung (teks panjang, pecahan) sampai pilihan berikutnya. */
+    private fun ansOptBox(lines: List<Pair<Rect, String>>, opts: List<AnsOpt>, k: Int, sw: Int, sh: Int): Rect {
+        val o = lines[opts[k].idx].first
+        val lh = maxOf(o.height(), dp(14))
+        val lo = o.top - lh * 0.6f
+        val hi = if (k + 1 < opts.size) lines[opts[k + 1].idx].first.top - lh * 0.6f else Float.MAX_VALUE
+        val optIdx = opts.map { it.idx }.toSet()
+        val u = Rect(o)
+        for ((i, l) in lines.withIndex()) {
+            if (i in optIdx) continue
+            val r = l.first
+            val cy = r.centerY().toFloat()
+            if (cy < lo || cy >= hi) continue
+            if (r.top > u.bottom + lh) continue // sudah terputus dari pilihan ini
+            u.union(r)
+        }
+        val pad = dp(6)
+        return Rect(
+            (u.left - pad).coerceAtLeast(0), (u.top - pad).coerceAtLeast(0),
+            (u.right + pad).coerceAtMost(sw), (u.bottom + pad).coerceAtMost(sh)
+        )
+    }
+
+    private fun hideAnsBox() {
+        ansBox?.let {
+            try {
+                wm.removeView(it)
+            } catch (e: Exception) {
+            }
+        }
+        ansBox = null
+    }
+
+    /**
+     * Kotak hijau di pilihan yang benar (satu jendela layar penuh, tembus sentuhan, tidak fokus). Item dengan kotak null
+     * ditulis sebagai label di dekat bagian atas layar (jawaban isian, pasangan, atau huruf yang tidak ketemu di layar).
+     */
+    private fun showAnsBoxes(items: List<Pair<Rect?, String>>) {
+        hideAnsBox()
+        val dm = resources.displayMetrics
+        val (rw, rh) = realSize()
+        val green = 0xFF22C55E.toInt()
+        val labelH = dp(30)
+        val root = FrameLayout(c)
+        fun labelView(t: String, lines: Int) = TextView(c).apply {
+            text = t
+            textSize = 13f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            maxLines = lines
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(5), dp(10), dp(5))
+            background = GradientDrawable().apply {
+                setColor(green)
+                cornerRadius = dp(8).toFloat()
+            }
+        }
+        var topY = dp(70)
+        for ((rect, text) in items) {
+            if (rect != null) {
+                val frame = View(c).apply {
+                    background = GradientDrawable().apply {
+                        setColor(0x2222C55E)
+                        setStroke(dp(3), green)
+                        cornerRadius = dp(8).toFloat()
+                    }
+                }
+                root.addView(frame, FrameLayout.LayoutParams(rect.width(), rect.height()).apply {
+                    leftMargin = rect.left
+                    topMargin = rect.top
+                })
+                root.addView(labelView(text, 1), FrameLayout.LayoutParams(WRAP, labelH).apply {
+                    leftMargin = rect.left
+                    topMargin = (rect.top - labelH).coerceAtLeast(0)
+                })
+            } else {
+                root.addView(labelView(text, 4), FrameLayout.LayoutParams(dm.widthPixels - dp(24), WRAP).apply {
+                    leftMargin = dp(12)
+                    topMargin = topY
+                })
+                topY += dp(44)
+            }
+        }
+        val lp = WindowManager.LayoutParams(
+            rw, rh, ovType,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                OVERLAY_FLAGS or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        )
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.x = 0
+        lp.y = 0
+        try {
+            wm.addView(root, lp)
+            ansBox = root
+        } catch (e: Exception) {
+            toast("Gagal menampilkan kotak jawaban: ${e.message}")
+        }
+    }
+
+    private fun sendReadText(text: String, img: Bitmap?) {
         val p = Prefs.prompt(c)
-        val head = if (p == Prefs.DEFAULT_PROMPT) "Jawab soal berikut. Jelaskan langkah singkat, lalu tulis jawaban akhir." else p
-        toast("Mengirim ${text.length} huruf ke AI…")
-        askWeb(null, head + "\n\n" + text.take(3000))
+        if (img == null) {
+            if (text.isBlank()) {
+                toast("Tidak ada teks terbaca di kotak")
+                return
+            }
+            val head = if (p == Prefs.DEFAULT_PROMPT) "Jawab soal berikut. Jelaskan langkah singkat, lalu tulis jawaban akhir." else p
+            toast("Mengirim ${text.length} huruf ke AI…")
+            askWeb(null, head + "\n\n" + text.take(3000))
+            return
+        }
+        // gambar ikut dikirim: rumus, lambda, pecahan, dan angka kecil dibaca AI dari gambar
+        val extra = if (text.isBlank()) "" else "\n\nTeks hasil baca layar (bisa kurang lengkap atau salah pada rumus dan angka, utamakan gambar):\n" + text.take(3000)
+        toast("Mengirim gambar dan teks ke AI…")
+        askWeb(img, p + extra)
     }
 
     private fun onMenuPick(i: Int) {
@@ -1929,6 +2451,7 @@ class FloatService : Service() {
             i == M_IMG -> screenshotNow()
             i == M_LIVE -> toggleLive()
             i == M_READ -> showReadBox()
+            i == M_ANS -> showAnswerPill()
             i == M_OFF -> {
                 toast("Bubble dimatikan")
                 stopSelf()
@@ -2114,26 +2637,28 @@ class FloatService : Service() {
     // ---- batas pemakaian: bila sesi AI menolak (batas harian habis, diminta verifikasi), pindah ke AI satunya ----
     private var aiWatchGen = 0
 
-    /** Mendeteksi pesan batas pemakaian atau halaman verifikasi. Hanya membaca teks pendek (bukan jawaban panjang) agar jawaban soal tidak salah terbaca. */
+    /** Duck.ai: pesan batas pemakaian. Hanya teks pendek yang dibaca (bukan jawaban panjang) agar soal tentang "limit" tidak salah terbaca. */
     private val AI_LIMIT_JS = "(function(){try{" +
-        "if(/google\\.[a-z.]+\\/sorry\\//.test(location.href))return 1;" +
-        "var re=/(reached|exceeded|hit)[^.]{0,40}limit|daily (usage )?limit|usage limit|rate.?limit|too many (requests|messages)|try again (later|tomorrow)|unusual traffic|batas (harian|penggunaan|pesan)|terlalu banyak permintaan|coba lagi (nanti|besok)|lalu lintas tidak biasa/i;" +
+        "var re=/(reached|exceeded|hit)[^.]{0,40}limit|daily (usage )?limit|usage limit|rate.?limit|too many (requests|messages)|batas (harian|penggunaan|pesan)|terlalu banyak permintaan/i;" +
         "var els=document.querySelectorAll('[role=dialog],[role=alert],[aria-live],dialog,p,span,div,li');" +
         "for(var i=0;i<els.length;i++){var e=els[i];if(e.children.length>2)continue;" +
         "var t=(e.innerText||'').trim();if(t.length<8||t.length>200)continue;if(re.test(t))return 1;}" +
         "return 0;}catch(x){return 0;}})()"
+
+    /** Google: hanya halaman verifikasi resmi (alamat /sorry/). Teks halaman Google tidak diperiksa. */
+    private val AI_SORRY_JS = "(function(){return /google\\.[a-z.]+\\/sorry\\//.test(location.href)?1:0;})()"
 
     private fun watchAiLimit(target: Int, hasImg: Boolean, prompt: String, gen: Int, n: Int = 0) {
         if (n > 75) return
         ui.postDelayed({
             if (gen != aiWatchGen) return@postDelayed
             val w = web ?: return@postDelayed
-            w.evaluateJavascript(AI_LIMIT_JS) { r ->
+            w.evaluateJavascript(if (target == 0) AI_LIMIT_JS else AI_SORRY_JS) { r ->
                 if (gen != aiWatchGen) return@evaluateJavascript
                 if (r?.trim() == "1") {
                     val other = 1 - target
-                    // Duck.ai: batas harian direset tengah malam UTC. Google: biasanya verifikasi sementara, dicoba lagi sejam kemudian.
-                    Prefs.setAiBlocked(c, target, if (target == 0) Prefs.untilUtcMidnight() else System.currentTimeMillis() + 3_600_000L)
+                    // Duck.ai: batas harian direset tengah malam UTC. Google: verifikasi sementara, dicoba lagi setengah jam kemudian.
+                    Prefs.setAiBlocked(c, target, if (target == 0) Prefs.untilUtcMidnight() else System.currentTimeMillis() + 1_800_000L)
                     Diag.add(c, "${Prefs.AI_NAMES[target]} menolak (batas/verifikasi), diblokir sementara")
                     if (!Prefs.aiBlocked(c, other)) {
                         toast("${Prefs.AI_NAMES[target]} tidak bisa dipakai (batas habis), pindah ke ${Prefs.AI_NAMES[other]}…")
@@ -2494,7 +3019,16 @@ class FloatService : Service() {
     // ---------- jendela alat ----------
 
     private fun panelW() = minOf(dp(pref(Setting.WIN_W)), resources.displayMetrics.widthPixels - dp(8))
-    private fun panelH() = minOf(dp(pref(Setting.WIN_H)), resources.displayMetrics.heightPixels - dp(48))
+    /** Jendela Browser memanjang seperti HP lama (16:9) dan bukan kotak; tinggi yang diubah pengguna disimpan sendiri. */
+    private fun browserH(): Int {
+        val saved = Prefs.sp(c).getInt("browserH", 0)
+        val h = if (saved > 0) dp(saved) else (panelW() * 16f / 9f).toInt()
+        return h.coerceIn(dp(240), maxOf(dp(240), resources.displayMetrics.heightPixels - dp(64)))
+    }
+
+    private fun panelH() =
+        if (curTool == M_BROWSER) browserH()
+        else minOf(dp(pref(Setting.WIN_H)), resources.displayMetrics.heightPixels - dp(48))
 
     /** Tampilkan jendela (dibuat sekali, sisanya hanya ditampilkan lagi) dan pilih alat. */
     private fun openTool(id: Int) {
@@ -2507,6 +3041,20 @@ class FloatService : Service() {
         }
         toolViews.forEach { (k, v) -> v.visibility = if (k == id) View.VISIBLE else View.GONE }
         curTool = id
+        if (id == M_CAM) cam.start() else if (camInit) cam.stop()
+        // ukuran jendela mengikuti alat: Browser memanjang (16:9), alat lain ukuran biasa
+        panelLp?.let { l ->
+            val h = panelH()
+            if (l.height != h) {
+                l.height = h
+                if (panelAttached) {
+                    try {
+                        wm.updateViewLayout(root, l)
+                    } catch (e: Exception) {
+                    }
+                }
+            }
+        }
         pasteBtn?.visibility = if (pasteFns.containsKey(id)) View.VISIBLE else View.GONE
         refreshAttach()
         panelIcon?.setImageResource(ICONS[id])
@@ -2535,6 +3083,7 @@ class FloatService : Service() {
         M_APPS -> appsView()
         M_NOTE -> noteView()
         M_GAL -> galleryView()
+        M_CAM -> cam.view()
         M_SET -> settingsView()
         else -> vbox()
     }
@@ -2543,6 +3092,7 @@ class FloatService : Service() {
     private fun hidePanel() {
         hideAppPicker()
         if (osk.isShown) osk.hide()
+        if (camInit) cam.stop()
         val p = panel ?: return
         if (!panelAttached) return
         try {
@@ -3482,7 +4032,15 @@ class FloatService : Service() {
             }
         })
         col.addView(head("Bentuk bubble"))
-        col.addView(chips(Prefs.SHAPE_NAMES, 3, { setOf(Prefs.shape(c)) }) { Prefs.setShape(c, it) })
+        col.addView(chips(Prefs.SHAPE_NAMES, 3, { setOf(Prefs.shape(c)) }) { i ->
+            Prefs.setShape(c, i)
+            // ukuran bubble disimpan per bentuk: bangun ulang panel agar slider menampilkan nilai bentuk baru, gulir tetap
+            val y = (col.parent as? ScrollView)?.scrollY ?: 0
+            ui.post {
+                openSettingsOverlay()
+                (toolViews[M_SET] as? ScrollView)?.let { sv -> sv.post { sv.scrollTo(0, y) } }
+            }
+        })
 
         // ---- ukuran dan opasitas ----
         col.addView(head("Bubble"))
@@ -3519,10 +4077,11 @@ class FloatService : Service() {
 
         // ---- tile menu ----
         col.addView(head("Tile di menu bubble"))
-        col.addView(chips(Prefs.MENU_NAMES.dropLast(1), 3, {
+        col.addView(chips(Prefs.TILE_IDS.map { Prefs.MENU_NAMES[it] }, 3, {
             val h = Prefs.menuHidden(c)
-            (0 until Prefs.MENU_NAMES.size - 1).filter { it !in h }.toSet()
-        }) { i ->
+            Prefs.TILE_IDS.indices.filter { Prefs.TILE_IDS[it] !in h }.toSet()
+        }) { k ->
+            val i = Prefs.TILE_IDS[k]
             val h = Prefs.menuHidden(c).toMutableSet()
             if (i in h) h.remove(i) else h.add(i)
             Prefs.setMenuHidden(c, h)

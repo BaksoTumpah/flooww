@@ -200,13 +200,13 @@ class LiveTranslator(private val svc: AccessibilityService) {
                 } else {
                     clearAll()
                 }
-                schedule(160)
+                schedule(80)
             }
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 clearAll()
-                schedule(200)
+                schedule(100)
             }
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> schedule(220)
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> schedule(110)
         }
     }
 
@@ -250,7 +250,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
         val now = android.os.SystemClock.uptimeMillis()
         if (firstPending == 0L) firstPending = now
         main.removeCallbacks(refreshRun)
-        main.postDelayed(refreshRun, if (now - firstPending >= 600L) 0L else ms)
+        main.postDelayed(refreshRun, if (now - firstPending >= 350L) 0L else ms)
     }
 
     private fun refresh() {
@@ -293,7 +293,7 @@ class LiveTranslator(private val svc: AccessibilityService) {
         for (b in pending.sortedBy { it.r.top }) byText.getOrPut(b.text) { ArrayList() }.add(b)
         // HP lambat: paling banyak 30 teks baru per putaran (dari atas layar), sisanya menyusul di putaran berikutnya
         val batch = byText.entries.take(30)
-        if (byText.size > 30) schedule(250)
+        if (byText.size > 30) schedule(80)
         var left = batch.size
         for ((text, boxes) in batch) {
             tr.translate(text).addOnSuccessListener { out ->
@@ -317,9 +317,9 @@ class LiveTranslator(private val svc: AccessibilityService) {
             ocrAgain = true
             return
         }
-        if (now - lastShot < 1000L) {
+        if (now - lastShot < 450L) {
             main.removeCallbacks(refreshRun)
-            main.postDelayed(refreshRun, 1000L - (now - lastShot) + 30L)
+            main.postDelayed(refreshRun, 450L - (now - lastShot) + 20L)
             return
         }
         ocrBusy = true
@@ -369,14 +369,14 @@ class LiveTranslator(private val svc: AccessibilityService) {
                 view?.visibility = View.VISIBLE
                 ocrDone()
             }
-        }, if (hadBoxes) 90L else 0L)
+        }, if (hadBoxes) 50L else 0L)
     }
 
     private fun ocrDone() {
         ocrBusy = false
         if (ocrAgain) {
             ocrAgain = false
-            schedule(300)
+            schedule(120)
         }
     }
 

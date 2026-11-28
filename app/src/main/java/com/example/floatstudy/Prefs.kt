@@ -7,8 +7,8 @@ import android.content.SharedPreferences
 enum class Setting(val key: String, val def: Int, val min: Int, val max: Int) {
     BUBBLE_SIZE("bubbleSize", 55, 32, 96),     // dp
     BUBBLE_ALPHA("bubbleAlpha", 29, 20, 100),  // persen
-    MENU_SIZE("menuSize", 85, 70, 140),       // persen
-    MENU_ALPHA("menuAlpha", 63, 40, 100),     // persen
+    MENU_SIZE("menuSize", 60, 40, 140),       // persen
+    MENU_ALPHA("menuAlpha", 80, 40, 100),     // persen
     WIN_W("winW", 300, 220, 480),              // dp, jendela alat
     WIN_H("winH", 360, 240, 640),              // dp
     WIN_ALPHA("winAlpha", 100, 40, 100),       // persen
@@ -78,8 +78,9 @@ object Prefs {
         return sp(c).getInt("aiTarget", 1).coerceIn(0, AI_NAMES.size - 1)
     }
 
+    /** Memilih AI di pengaturan juga membersihkan tanda "kena batas", supaya pilihan pengguna langsung dipakai. */
     fun setAiTarget(c: Context, i: Int) {
-        sp(c).edit().putInt("aiTarget", i).apply()
+        sp(c).edit().putInt("aiTarget", i).remove("aiBlock0").remove("aiBlock1").apply()
     }
 
     /** Nama pengguna untuk sapaan. Nanti diisi dari data pembeli (aplikasi admin). */
@@ -135,10 +136,24 @@ object Prefs {
 
     // ---------- tampilan ----------
 
-    fun get(c: Context, s: Setting): Int = sp(c).getInt(s.key, s.def).coerceIn(s.min, s.max)
+    /** Ukuran bubble disimpan per bentuk (bulat, panah, garis tepi); pengaturan lain memakai satu kunci. */
+    private fun keyOf(c: Context, s: Setting) = if (s == Setting.BUBBLE_SIZE) "bubbleSize${shape(c)}" else s.key
+
+    /** Bawaan ukuran bubble: bulat dan panah paling kecil, garis tepi 40. */
+    private fun defOf(c: Context, s: Setting): Int =
+        if (s == Setting.BUBBLE_SIZE) (if (shape(c) == 2) 40 else s.min) else s.def
+
+    fun get(c: Context, s: Setting): Int {
+        val k = keyOf(c, s)
+        val p = sp(c)
+        // pengguna lama yang pernah mengatur ukuran bubble (satu kunci untuk semua bentuk) tetap memakai nilainya
+        val v = if (s == Setting.BUBBLE_SIZE && !p.contains(k) && p.contains(s.key)) p.getInt(s.key, defOf(c, s))
+        else p.getInt(k, defOf(c, s))
+        return v.coerceIn(s.min, s.max)
+    }
 
     fun set(c: Context, s: Setting, v: Int) {
-        sp(c).edit().putInt(s.key, v.coerceIn(s.min, s.max)).apply()
+        sp(c).edit().putInt(keyOf(c, s), v.coerceIn(s.min, s.max)).apply()
     }
 
     fun bubbleColor(c: Context): Int =
@@ -160,6 +175,7 @@ object Prefs {
     fun resetLook(c: Context) {
         val e = sp(c).edit().remove("bubbleColor").remove("bubbleShape")
         Setting.values().forEach { e.remove(it.key) }
+        for (i in 0..2) e.remove("bubbleSize$i")
         e.apply()
     }
 
@@ -216,17 +232,27 @@ object Prefs {
     /** Nama semua tile menu bubble, urutannya sama dengan indeks di FloatService. */
     val MENU_NAMES = listOf(
         "Tanya AI", "Salin", "Terjemah", "Screenshot", "Browser",
-        "Kalkulator", "Klik", "Apps", "Catatan", "Galeri", "Live", "OCR", "Matikan"
+        "Kalkulator", "Klik", "Apps", "Catatan", "Galeri", "Live", "OCR", "Matikan", "Kamera", "Answer"
     )
 
+    /** Id tile Matikan (selalu tampil). Tile baru ditambah di belakang dan disisipkan sebelum Matikan di urutan. */
+    const val OFF_ID = 12
+
+    /** Id semua tile yang bisa disembunyikan (semua kecuali Matikan), sesuai urutan MENU_NAMES. */
+    val TILE_IDS: List<Int> get() = MENU_NAMES.indices.filter { it != OFF_ID }
+
     /** Urutan bawaan tile di menu bubble (id tile = indeks MENU_NAMES), dari kiri atas: Tanya AI, OCR, Live, Terjemah, Salin, Browser, Kalkulator, Catatan, Galeri, Screenshot, Apps, Klik, Matikan. */
-    val MENU_DEF_ORDER = listOf(0, 11, 10, 2, 1, 4, 5, 8, 9, 3, 7, 6, 12)
+    val MENU_DEF_ORDER = listOf(0, 11, 10, 2, 1, 4, 5, 8, 9, 3, 7, 6, 13, 14, 12)
 
     /** Urutan tile yang dipilih pengguna. Id tidak dikenal dibuang, tile yang belum tercatat ditambahkan di akhir sesuai urutan bawaan. */
     fun menuOrder(c: Context): List<Int> {
         val saved = (sp(c).getString("menuOrder", "") ?: "").split(',').mapNotNull { it.toIntOrNull() }
             .filter { it in MENU_NAMES.indices }.distinct()
-        return saved + MENU_DEF_ORDER.filter { it !in saved }
+        val missing = MENU_DEF_ORDER.filter { it !in saved }
+        // tile baru (mis. Kamera) disisipkan sebelum Matikan agar Matikan tetap di ujung
+        val off = saved.indexOf(OFF_ID)
+        return if (off >= 0 && missing.isNotEmpty()) saved.take(off) + missing.filter { it != OFF_ID } + saved.drop(off)
+        else saved + missing
     }
 
     /** Posisi dan ukuran terakhir kotak OCR: x, y, lebar, tinggi dalam piksel. Null bila belum pernah diatur. */
@@ -246,7 +272,7 @@ object Prefs {
     /** Tile yang disembunyikan pengguna dari menu bubble. Tile Matikan (terakhir) selalu tampil. */
     fun menuHidden(c: Context): Set<Int> =
         (sp(c).getString("menuHidden", "") ?: "").split(',').mapNotNull { it.toIntOrNull() }
-            .filter { it in 0 until MENU_NAMES.size - 1 }.toSet()
+            .filter { it in MENU_NAMES.indices && it != OFF_ID }.toSet()
 
     fun setMenuHidden(c: Context, s: Set<Int>) {
         sp(c).edit().putString("menuHidden", s.sorted().joinToString(",")).apply()

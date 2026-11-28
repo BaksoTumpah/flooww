@@ -232,7 +232,7 @@ class MainActivity : Activity() {
         // ---- tampilan ----
         gLook.add(sec("Bubble",
             label("Bentuk"),
-            segmented(Prefs.SHAPE_NAMES, { Prefs.shape(this) }) { Prefs.setShape(this, it) },
+            segmented(Prefs.SHAPE_NAMES, { Prefs.shape(this) }) { Prefs.setShape(this, it); refreshers.forEach { r -> r() } },
             slider("Ukuran", Setting.BUBBLE_SIZE, " dp"),
             slider("Opasitas", Setting.BUBBLE_ALPHA, "%"),
             label("Warna (juga dipakai menu)"),
@@ -251,13 +251,14 @@ class MainActivity : Activity() {
         gLook.add(sec("Isi menu bubble",
             menuInfo,
             spaced(Ui.button(this, "Pilih tile menu", true) {
-                val names = Prefs.MENU_NAMES.dropLast(1).toTypedArray()
+                val ids = Prefs.TILE_IDS
+                val names = ids.map { Prefs.MENU_NAMES[it] }.toTypedArray()
                 val hidden = Prefs.menuHidden(this).toMutableSet()
-                val checked = BooleanArray(names.size) { it !in hidden }
+                val checked = BooleanArray(names.size) { ids[it] !in hidden }
                 android.app.AlertDialog.Builder(this)
                     .setTitle("Tile di menu bubble")
                     .setMultiChoiceItems(names, checked) { _, i, on ->
-                        if (on) hidden.remove(i) else hidden.add(i)
+                        if (on) hidden.remove(ids[i]) else hidden.add(ids[i])
                     }
                     .setPositiveButton("Simpan") { _, _ ->
                         Prefs.setMenuHidden(this, hidden)

@@ -117,11 +117,11 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
         keyDefs.clear()
         active = null
         val scale = Prefs.get(c, Setting.OSK_H) / 100f
-        val keyH = (dp(46) * scale).toInt()
+        val keyH = (dp(56) * scale).toInt() // lebih tinggi agar setara keyboard sistem (yang punya tombol navigasi di bawahnya)
         val root = LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL
             background = Ui.clay(c, pal.surface, dp(18), 4f)
-            setPadding(dp(6), dp(4), dp(6), dp(6))
+            setPadding(dp(6), dp(6), dp(6), dp(10))
             alpha = Prefs.get(c, Setting.OSK_ALPHA) / 100f
             setOnTouchListener { _, ev ->
                 if (ev.action == MotionEvent.ACTION_OUTSIDE) hideSoon()
@@ -246,7 +246,7 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
         if (down) {
             if (scale) {
                 v.animate().cancel()
-                v.animate().scaleX(0.93f).scaleY(0.93f).setDuration(40).start()
+                v.animate().scaleX(0.86f).scaleY(0.86f).alpha(0.7f).setDuration(40).start()
             }
             try {
                 v.performHapticFeedback(
@@ -257,7 +257,7 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
             }
         } else if (scale) {
             v.animate().cancel()
-            v.animate().scaleX(1f).scaleY(1f).setDuration(90).start()
+            v.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(90).start()
         }
     }
 
@@ -314,15 +314,15 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
             val v = pv ?: TextView(c).also { pv = it }
             val kw = d.view.width
             val kh = d.view.height
-            val pw = (kw * 1.35f).toInt().coerceAtLeast(dp(44))
-            val ph = (kh * 1.55f).toInt().coerceAtLeast(dp(60))
+            val pw = (kw * 1.8f).toInt().coerceAtLeast(dp(60))
+            val ph = (kh * 2.1f).toInt().coerceAtLeast(dp(84))
             v.text = d.label
             v.gravity = Gravity.CENTER
-            v.textSize = 30f
+            v.textSize = 40f
             v.typeface = Typeface.DEFAULT_BOLD
             v.setTextColor(pal.on)
             v.isSoundEffectsEnabled = false
-            v.background = Ui.round(if (pal.night) 0xFF4A4568.toInt() else 0xFFFFFFFF.toInt(), dp(14), pal.outline, dp(1))
+            v.background = Ui.round(if (pal.night) 0xFF4A4568.toInt() else 0xFFFFFFFF.toInt(), dp(18), Prefs.bubbleColor(c), dp(2))
             val kl = IntArray(2)
             d.view.getLocationOnScreen(kl)
             val rl = IntArray(2)
@@ -373,7 +373,7 @@ class Osk(private val c: Context, var wm: WindowManager, var type: Int = WindowM
         text = label
         isSoundEffectsEnabled = false
         gravity = Gravity.CENTER
-        textSize = if (label.length > 1 && label != "▼") 13f else 18f
+        textSize = if (label.length > 1 && label != "▼") 14f else 21f
         typeface = Typeface.DEFAULT_BOLD
         setTextColor(if (primary || on) 0xFFFFFFFF.toInt() else pal.on)
         val col = when {

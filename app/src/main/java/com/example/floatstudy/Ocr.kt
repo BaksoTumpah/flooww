@@ -33,4 +33,19 @@ object Ocr {
             }
             .addOnFailureListener { cb(Result.failure(it)) }
     }
+
+    /** OCR per baris beserta kotaknya (koordinat piksel bitmap), urut atas ke bawah. Dipakai fitur Answer untuk mencari pilihan A, B, C... di layar. */
+    fun lines(bmp: Bitmap, cb: (Result<List<Pair<Rect, String>>>) -> Unit) {
+        recognizer.process(InputImage.fromBitmap(bmp, 0))
+            .addOnSuccessListener { t ->
+                val out = ArrayList<Pair<Rect, String>>()
+                for (b in t.textBlocks) for (l in b.lines) {
+                    val r = l.boundingBox ?: continue
+                    out.add(r to l.text.trim())
+                }
+                out.sortBy { it.first.top }
+                cb(Result.success(out))
+            }
+            .addOnFailureListener { cb(Result.failure(it)) }
+    }
 }
